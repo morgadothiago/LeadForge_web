@@ -10,6 +10,8 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSepara
 import { STAGES, STAGE_LABELS, type ChannelKey } from "@/lib/domain";
 import type { BoardCard } from "@/lib/queries/pipeline";
 import { cn } from "@/lib/utils";
+import { InboundReply } from "@/components/leads/InboundReply";
+import { PossibleOptOutAlert } from "@/components/leads/PossibleOptOutAlert";
 import { formatBRL } from "./board-state";
 
 export function CardBody({ card, className, linkName = false }: { card: BoardCard; className?: string; linkName?: boolean }) {
@@ -33,6 +35,7 @@ export function CardBody({ card, className, linkName = false }: { card: BoardCar
           Score {card.lead.score}
         </span>
       </div>
+      <InboundReply at={card.lastInboundAt} text={card.lastInboundText} max={70} />
       {card.stage === "perdido" && card.lostReason && (
         <p className="truncate text-xs italic text-muted-foreground" title={card.lostReason}>
           Motivo: {card.lostReason}
@@ -66,7 +69,7 @@ export function PipelineCard({
       ref={setNodeRef}
       style={{ transform: CSS.Transform.toString(transform), transition }}
       className={cn(
-        "flex items-start gap-1 rounded-lg border border-border bg-card p-4 transition-shadow hover:shadow-md",
+        "flex flex-wrap items-start gap-1 rounded-lg border border-border bg-card p-4 transition-shadow hover:shadow-md",
         isDragging && "opacity-50 scale-105",
       )}
     >
@@ -100,6 +103,7 @@ export function PipelineCard({
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
+      {card.possibleOptOut && <PossibleOptOutAlert leadId={card.lead.id} leadName={card.lead.name} className="mt-1" />}
     </li>
   );
 }

@@ -134,6 +134,24 @@ describe("EvolutionProvider webhook", () => {
     expect(await p.parseWebhook(hook(upsert({ key: { id: "1", remoteJid: "14155550100@s.whatsapp.net" }, message: { conversation: "x" } })))).toBeNull();
     expect(await p.parseWebhook(hook({ event: "presence.update", instance: "a", data: {} }))).toBeNull();
   });
+  describe("id sintético sem key.id (M1)", () => {
+    const noId = (ts?: number) => hook({ event: "messages.upsert", instance: "a", data: { key: { remoteJid: "5511988887777@s.whatsapp.net" }, message: { conversation: "sim" }, ...(ts ? { messageTimestamp: ts } : {}) } });
+    const idOf = async (clock: number, ts?: number) => ((await new EvolutionProvider({ baseURL: "http://e", apiKey: "k", clock: () => clock }).parseWebhook(noId(ts))) as { externalId: string }).externalId;
+    it("dois 'sim' idênticos em instantes distintos -> ids distintos (2 eventos)", async () => {
+      expect(await idOf(10_000, 1781000000)).not.toBe(await idOf(20_000, 1781000005));
+      expect(await idOf(10_000, 1781000000)).not.toBe(await idOf(10_000 + 4000, 1781000000));
+    });
+    it("reentrega imediata do mesmo payload (mesmo bucket) -> mesmo id; com key.id -> o próprio id", async () => {
+      expect(await idOf(10_000, 1781000000)).toBe(await idOf(10_500, 1781000000));
+      const r = await setup([]).p.parseWebhook(hook({ event: "messages.upsert", instance: "a", data: { key: { id: "K1", remoteJid: "5511988887777@s.whatsapp.net" }, message: { conversation: "sim" }, messageTimestamp: 1 } }));
+      expect((r as { externalId: string }).externalId).toBe("K1");
+    });
+    it("sem key.id e sem timestamp -> id aleatório único (nunca deduplica)", async () => {
+      const a = await idOf(10_000), b = await idOf(10_000);
+      expect(a).toMatch(/^r_/);
+      expect(a).not.toBe(b);
+    });
+  });
   it("normaliza JID legado sem o 9", () => {
     expect(jidToE164("551188887777@s.whatsapp.net")).toBe("+5511988887777");
     expect(jidToE164("5511988887777@s.whatsapp.net")).toBe("+5511988887777");

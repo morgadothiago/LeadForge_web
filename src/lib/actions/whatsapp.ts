@@ -10,6 +10,7 @@ import { AppError, safeErrorForLog } from "@/lib/errors";
 import { buildWebhookUrl, getWhatsAppProvider, type ConnectionState } from "@/lib/whatsapp/provider";
 import { sanitizeError } from "@/lib/channels/email";
 import { applyOptOut } from "@/lib/domain/whatsapp-inbound";
+import { ensureWarmupStarted } from "@/lib/whatsapp/health";
 import { maskedWebhookUrl, tokenHint } from "@/lib/whatsapp/redact";
 import { leadIdSchema, whatsappInstanceCreateSchema, whatsappInstanceIdSchema, whatsappInstanceUpdateSchema } from "@/lib/schemas/whatsapp";
 import { failure, formError, safeAction, success, zodErrors, type ActionResult } from "./result";
@@ -27,6 +28,7 @@ async function record(id: string, status: ConnectionState, err?: unknown): Promi
       ? { lastError: sanitizeError(err instanceof AppError ? err.userMessage : "Falha ao consultar o provider.") }
       : { status: STATUS[status], lastError: null, ...(status === "connected" ? { lastConnectedAt: new Date() } : {}) },
   });
+  if (!err && status === "connected") await ensureWarmupStarted(id, new Date()); // SPEC-017: início do aquecimento (1ª conexão)
 }
 
 export async function createWhatsAppInstance(input: unknown): Promise<ActionResult<{ id: string }>> {
@@ -117,12 +119,19 @@ export async function deleteWhatsAppInstance(id: unknown): Promise<ActionResult<
     if (!inst) return formError(NOT_FOUND);
     const n = inst._count.campaigns;
     if (n > 0) return formError(`Não é possível excluir: ${n} campanha${n > 1 ? "s usam" : " usa"} esta instância. Desvincule-${n > 1 ? "as" : "a"} antes.`);
+    // Banco primeiro: nunca sobra instância órfã no banco (nem some do provider por falha de FK). Provider depois, best-effort.
+    await prisma.$transaction(async (tx) => {
+      if ((await tx.campaign.count({ where: { whatsappInstanceId: inst.id } })) > 0) throw new AppError({ code: "conflict", userMessage: "Há campanhas usando esta instância. Desvincule-as antes." });
+      await tx.whatsAppInstance.delete({ where: { id: inst.id } });
+    });
     try {
       await getWhatsAppProvider(inst.provider).deleteInstance?.(inst.instanceName);
     } catch (e) {
-      if (!(e instanceof AppError && e.code === "not_found")) throw e;
+      if (!(e instanceof AppError && e.code === "not_found")) {
+        // Sem segredo: só o código do erro. Órfã no provider (deve ser removida manualmente lá).
+        console.error(`[whatsapp] instância removida do banco, mas a remoção no provider falhou (${e instanceof AppError ? e.code : "unknown"}); remova "${inst.instanceName}" no provider.`);
+      }
     }
-    await prisma.whatsAppInstance.delete({ where: { id: inst.id } });
     revalidate();
     return success({ id: inst.id });
   });
@@ -190,7 +199,7 @@ const revalidateLead = (id: string): void => {
   revalidatePath("/leads");
   revalidatePath(`/leads/${id}`);
   revalidatePath("/pipeline");
-  revalidatePath("/");
+  revalidatePath("/dashboard");
 };
 
 /** Confirma o opt-out sugerido (possibleOptOut): mesmo efeito do opt-out automático. Idempotente. */
@@ -202,7 +211,7 @@ export async function confirmOptOut(leadId: unknown): Promise<ActionResult<{ id:
     const lead = await prisma.lead.findUnique({ where: { id: pid.data }, select: { id: true, opportunities: { select: { id: true, stage: true }, take: 1 } } });
     if (!lead) return formError("Lead não encontrado.");
     await prisma.$transaction(
-      (tx) => applyOptOut(tx, lead.id, lead.opportunities[0] ?? null, new Date()),
+      (tx) => applyOptOut(tx, lead.id, lead.opportunities[0] ?? null, new Date(), "possible_opt_out_confirmed"),
       { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
     );
     revalidateLead(lead.id);

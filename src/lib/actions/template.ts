@@ -5,6 +5,8 @@ import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth/require-user";
 import { idSchema } from "@/lib/schemas/campaign";
 import { templateCreateSchema, templateUpdateSchema } from "@/lib/schemas/template";
+import { validateFirstTouchTemplate } from "@/lib/whatsapp/first-touch";
+import { expandSpintax } from "@/lib/templates/spintax";
 import { renderTemplate } from "@/lib/templates/render";
 import { SAMPLE_LEAD } from "@/lib/queries/sequences";
 import { failure, formError, safeAction, success, zodErrors, type ActionResult } from "./result";
@@ -14,7 +16,10 @@ function revalidate(campaignId: string): void {
   revalidatePath("/sequences");
 }
 
-export async function createTemplate(input: unknown): Promise<ActionResult<{ id: string }>> {
+/** SPEC-017: avisos (não bloqueiam) do 1º toque de WhatsApp; vazio para outros canais. */
+const warningsFor = (channel: string, body: string): string[] => (channel === "whatsapp" ? validateFirstTouchTemplate(body) : []);
+
+export async function createTemplate(input: unknown): Promise<ActionResult<{ id: string; warnings: string[] }>> {
   return safeAction(async () => {
   await requireUser();
   const parsed = templateCreateSchema.safeParse(input);
@@ -24,11 +29,11 @@ export async function createTemplate(input: unknown): Promise<ActionResult<{ id:
   }
   const t = await prisma.messageTemplate.create({ data: parsed.data, select: { id: true } });
   revalidate(parsed.data.campaignId);
-  return success(t);
+  return success({ ...t, warnings: warningsFor(parsed.data.channel, parsed.data.body) });
   });
 }
 
-export async function updateTemplate(input: unknown): Promise<ActionResult<{ id: string }>> {
+export async function updateTemplate(input: unknown): Promise<ActionResult<{ id: string; warnings: string[] }>> {
   return safeAction(async () => {
   await requireUser();
   const parsed = templateUpdateSchema.safeParse(input);
@@ -51,7 +56,7 @@ export async function updateTemplate(input: unknown): Promise<ActionResult<{ id:
   }
   await prisma.messageTemplate.update({ where: { id }, data });
   revalidate(data.campaignId);
-  return success({ id });
+  return success({ id, warnings: warningsFor(data.channel, data.body) });
   });
 }
 
@@ -81,6 +86,8 @@ export interface TemplatePreview {
   body: string;
   missing: string[];
   length: number;
+  /** SPEC-017 (aditivo): avisos do validador do 1º toque de WhatsApp. */
+  warnings?: string[];
 }
 
 /** Preview server-side de um rascunho (sem persistir), com lead de exemplo. */
@@ -90,12 +97,13 @@ export async function previewTemplate(input: unknown): Promise<ActionResult<Temp
   const parsed = templateCreateSchema.safeParse(input);
   if (!parsed.success) return failure(zodErrors(parsed.error));
   const vars = SAMPLE_LEAD;
-  const body = renderTemplate(parsed.data.body, vars, { channel: parsed.data.channel, field: "body" });
+  const previewBody = parsed.data.channel === "whatsapp" ? expandSpintax(parsed.data.body, "preview") : parsed.data.body;
+  const body = renderTemplate(previewBody, vars, { channel: parsed.data.channel, field: "body" });
   const subject = parsed.data.subject
     ? renderTemplate(parsed.data.subject, vars, { channel: parsed.data.channel, field: "subject" })
     : null;
   if (!body.ok || (subject && !subject.ok)) return formError("Template contém variável desconhecida.");
   const missing = [...new Set([...body.missing, ...(subject && subject.ok ? subject.missing : [])])];
-  return success({ subject: subject && subject.ok ? subject.text : null, body: body.text, missing, length: body.text.length });
+  return success({ subject: subject && subject.ok ? subject.text : null, body: body.text, missing, length: body.text.length, warnings: warningsFor(parsed.data.channel, parsed.data.body) });
   });
 }

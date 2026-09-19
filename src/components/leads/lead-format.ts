@@ -73,3 +73,12 @@ export function pageRange(page: number, pageSize: number, total: number): { from
   if (total === 0) return { from: 0, to: 0 };
   return { from: (page - 1) * pageSize + 1, to: Math.min(page * pageSize, total) };
 }
+
+/** "Tem WhatsApp": sim / não / não verificado (com data da verificação quando houver). */
+export function whatsappStatusText(hasWhatsapp: boolean | null | undefined, checkedAt: Date | null | undefined): string {
+  if (hasWhatsapp === true || hasWhatsapp === false) {
+    const base = hasWhatsapp ? "Sim" : "Não";
+    return checkedAt ? `${base} (verificado em ${formatDate(checkedAt)})` : base;
+  }
+  return "Não verificado";
+}

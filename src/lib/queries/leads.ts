@@ -1,6 +1,7 @@
 import { Prisma, type Channel, type SequenceStatus, type Stage, type TouchDirection, type TouchStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth/require-user";
+import { suppressedIds } from "@/lib/domain/suppression";
 import { getLastInboundByLead, sanitizeInboundText } from "@/lib/whatsapp/last-inbound";
 import { leadListParamsSchema, type LeadListParams } from "@/lib/schemas/lead";
 
@@ -22,6 +23,8 @@ export interface LeadListItem {
   lastInboundAt?: Date | null;
   lastInboundText?: string | null;
   possibleOptOut?: boolean;
+  /** SPEC-017 (aditivo): e-mail/telefone na lista de supressão global; envios bloqueados. */
+  suppressed?: boolean;
 }
 
 export interface LeadListResult {
@@ -91,6 +94,7 @@ export async function listLeads(params: LeadListParams = {}): Promise<LeadListRe
     prisma.lead.count({ where }),
   ]);
   const inbound = await getLastInboundByLead(rows.map((r) => r.id));
+  const suppressed = await suppressedIds(rows);
   return {
     items: rows.map((r) => ({
       id: r.id,
@@ -108,6 +112,7 @@ export async function listLeads(params: LeadListParams = {}): Promise<LeadListRe
       lastInboundAt: inbound.get(r.id)?.lastInboundAt ?? null,
       lastInboundText: inbound.get(r.id)?.lastInboundText ?? null,
       possibleOptOut: r.possibleOptOut,
+      suppressed: suppressed.has(r.id),
     })),
     total,
     page: p.page,
@@ -153,6 +158,10 @@ export interface LeadDetail {
   possibleOptOut?: boolean;
   lastInboundAt?: Date | null;
   lastInboundText?: string | null;
+  /** SPEC-017 (aditivo/opcional). */
+  suppressed?: boolean;
+  hasWhatsapp?: boolean | null;
+  whatsappCheckedAt?: Date | null;
   opportunity: { id: string; stage: Stage; value: number | null; lostReason: string | null; notes: string | null } | null;
   /** Mais recente primeiro (createdAt desc, id desc). */
   touches: LeadTouchItem[];
@@ -192,5 +201,6 @@ export async function getLead(id: string): Promise<LeadDetail | null> {
     opportunity: opportunities[0] ?? null,
     lastInboundAt: lastIn ? (lastIn.repliedAt ?? lastIn.createdAt) : null,
     lastInboundText: sanitizeInboundText(lastIn?.content),
+    suppressed: (await suppressedIds([{ id: l.id, email: l.email, phone: l.phone }])).has(l.id),
   };
 }

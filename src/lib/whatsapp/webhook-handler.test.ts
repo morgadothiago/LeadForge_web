@@ -43,6 +43,7 @@ const state = async (leadId: string) => {
   return { lead, opp: lead.opportunities[0], inbound: lead.touches.filter((t) => t.direction === "inbound"), pending: lead.touches.filter((t) => t.direction === "outbound") };
 };
 async function clean() {
+  await prisma.suppression.deleteMany({ where: { leadId: { in: (await prisma.lead.findMany({ where: { campaignId: campId }, select: { id: true } })).map((l) => l.id) } } });
   await prisma.lead.deleteMany({ where: { campaignId: campId } });
   await prisma.webhookEvent.deleteMany({ where: { source: "whatsapp", eventId: { startsWith: `wa:${instId}:` } } });
 }
@@ -125,6 +126,17 @@ describe("rate limit", () => {
     configureWebhookRateLimit({ globalMax: 1 });
     expect((await call(TOKEN, { event: "x", instance: TAG, data: {} })).status).toBe(200);
     expect((await call(TOKEN, { event: "x", instance: TAG, data: {} })).status).toBe(429);
+  });
+  it("corpo chunked grande SEM content-length -> 413 (teto real de bytes) e o stream é cancelado", async () => {
+    let pulled = 0;
+    const stream = new ReadableStream<Uint8Array>({
+      pull(c) { if (++pulled > 50) c.close(); else c.enqueue(new Uint8Array(100_000)); },
+    });
+    const req = new Request(`http://app.test/api/webhooks/whatsapp/${TOKEN}`, { method: "POST", body: stream, duplex: "half" } as RequestInit);
+    expect(req.headers.get("content-length")).toBeNull();
+    const r = await POST(req, { params: Promise.resolve({ token: TOKEN, evento: undefined }) });
+    expect(r.status).toBe(413);
+    expect(pulled).toBeLessThan(20);
   });
   it("token forjado não cria chave por token", async () => {
     const { _webhookRateLimitSize } = await import("./webhook-rate-limit");

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { validateSpintax } from "@/lib/templates/spintax";
 import { extractVariables, TEMPLATE_VARIABLES } from "@/lib/templates/render";
 
 export const channelSchema = z.enum(["email", "whatsapp", "linkedin", "phone"], { error: "Canal inválido." });
@@ -39,6 +40,10 @@ const templateFields = z.object({
 function refine<T extends z.infer<typeof templateFields>>(v: T, ctx: z.RefinementCtx) {
   varsCheck(v.body, ctx, "body");
   if (v.subject) varsCheck(v.subject, ctx, "subject");
+  if (v.channel === "whatsapp") {
+    const spin = validateSpintax(v.body);
+    if (spin) ctx.addIssue({ code: "custom", path: ["body"], message: spin });
+  }
   if (v.channel === "email" && !v.subject) {
     ctx.addIssue({ code: "custom", path: ["subject"], message: "Assunto é obrigatório para e-mail." });
   }

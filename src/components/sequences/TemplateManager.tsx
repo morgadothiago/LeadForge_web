@@ -2,7 +2,7 @@
 import * as React from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { Pencil, Plus, Trash2 } from "lucide-react";
+import { Pencil, Plus, Trash2, TriangleAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -44,7 +44,7 @@ function TemplateForm({ campaignId, template, onDone }: { campaignId: string; te
 
   const payload = () => ({ campaignId, channel, name, subject: isEmail ? subject : null, body });
 
-  const [state, action, pending] = React.useActionState(async (): Promise<ActionResult<{ id: string }>> => {
+  const [state, action, pending] = React.useActionState(async (): Promise<ActionResult<{ id: string; warnings: string[] }>> => {
     setLocalErrors(undefined);
     return template ? updateTemplate({ ...payload(), id: template.id }) : createTemplate(payload());
   }, null);
@@ -52,6 +52,9 @@ function TemplateForm({ campaignId, template, onDone }: { campaignId: string; te
   React.useEffect(() => {
     if (state?.ok) {
       toast.success(template ? "Template atualizado." : "Template criado.");
+      if (state.data.warnings.length > 0) {
+        toast.warning(`Template salvo com ${state.data.warnings.length} aviso${state.data.warnings.length === 1 ? "" : "s"}: ${state.data.warnings.join(" ")}`, { duration: 15000 });
+      }
       router.refresh();
       onDone();
     }
@@ -158,6 +161,11 @@ function TemplateForm({ campaignId, template, onDone }: { campaignId: string; te
               />
             )}
           </Field>
+          {channel === "whatsapp" && (
+            <p className="text-xs text-muted-foreground">
+              Variações: use <code className="font-mono">{"{oi|olá|e aí}"}</code> para alternar palavras. A variante é sorteada de forma estável por lead (o mesmo lead sempre recebe a mesma), evitando mensagens idênticas em massa. Sem aninhamento.
+            </p>
+          )}
           <p className={`text-right text-xs ${over ? "text-destructive" : "text-muted-foreground"}`} aria-live="polite">
             {body.length}/{MAX_BODY} caracteres
           </p>
@@ -179,6 +187,19 @@ function TemplateForm({ campaignId, template, onDone }: { campaignId: string; te
             </div>
           </div>
         </div>
+
+        {preview && preview.warnings && preview.warnings.length > 0 && (
+          <div role="status" className="space-y-1 rounded-md border border-warning/40 bg-warning/10 p-3 text-xs">
+            <p className="flex items-center gap-1.5 font-medium">
+              <TriangleAlert className="size-4 text-warning" aria-hidden="true" /> Avisos para o primeiro toque de WhatsApp (não bloqueiam o salvamento)
+            </p>
+            <ul className="list-disc space-y-0.5 pl-5">
+              {preview.warnings.map((w) => (
+                <li key={w}>{w}</li>
+              ))}
+            </ul>
+          </div>
+        )}
 
         {preview && (
           <div className="rounded-md border border-border bg-muted/30 p-3 text-sm" aria-live="polite">

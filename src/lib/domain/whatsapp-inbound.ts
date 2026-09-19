@@ -1,4 +1,5 @@
-import { Prisma, type Stage } from "@prisma/client";
+import { Prisma, type Stage, type SuppressionReason } from "@prisma/client";
+import { addSuppression } from "./suppression";
 import { classifyInboundText, type InboundClass } from "./whatsapp-optout";
 import { moveOpportunityInTx } from "./move-opportunity";
 
@@ -53,7 +54,10 @@ interface OppRef { id: string; stage: Stage }
  * Efeito do opt-out (automático D18 ou manual `confirmOptOut`): `opted_out` + `optedOutAt`, limpa alerta, encerra touches pendentes e
  * move a Opportunity para `perdido` ("Opt-out por WhatsApp"). Estágio `fechado`/`perdido` não é movido (não sobrescreve venda nem motivo existente).
  */
-export async function applyOptOut(tx: Prisma.TransactionClient, leadId: string, opp: OppRef | null, now: Date): Promise<boolean> {
+export async function applyOptOut(tx: Prisma.TransactionClient, leadId: string, opp: OppRef | null, now: Date, reason: SuppressionReason = "opt_out_reply"): Promise<boolean> {
+  // SPEC-017: supressão GLOBAL (telefone + e-mail do lead), vale para outras campanhas.
+  const contact = await tx.lead.findUnique({ where: { id: leadId }, select: { email: true, phone: true } });
+  if (contact) await addSuppression(tx, { ...contact, reason, leadId });
   await tx.lead.updateMany({ where: { id: leadId, optedOutAt: null }, data: { optedOutAt: now } });
   await tx.lead.update({ where: { id: leadId }, data: { sequenceStatus: "opted_out", possibleOptOut: false, nextTouchAt: null } });
   await tx.touch.updateMany({ where: { leadId, status: { in: ["pending", "scheduled"] } }, data: { status: "skipped" } });

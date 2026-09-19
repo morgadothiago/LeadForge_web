@@ -6,6 +6,9 @@ import { AppError } from "@/lib/errors";
 import { renderTemplate } from "@/lib/templates/render";
 import { normalizeSmtpError } from "./smtp-errors";
 import { buildUnsubscribeUrl } from "./unsubscribe";
+import { findSuppression, SUPPRESSED_MESSAGE } from "@/lib/domain/suppression";
+import { startOfLocalDay, startOfNextLocalDay } from "@/lib/whatsapp/send-window";
+import { leadStopped, reservableWhere, repliedOrEnded, skipSuppressedBeforeReserve, REPLIED_MESSAGE } from "./reserve";
 import { resolvePublicHost, allowPrivateSmtpHosts, type HostResolver } from "./ssrf";
 
 export { normalizeSmtpError };
@@ -75,7 +78,7 @@ export interface SendEmailOptions {
 export type SendEmailResult =
   | { status: "sent"; messageId: string; accountId: string }
   | { status: "already_sent" }
-  | { status: "skipped"; reason: "opted_out" | "sequence_completed" }
+  | { status: "skipped"; reason: "opted_out" | "sequence_completed" | "replied" | "suppressed" }
   | { status: "deferred"; nextAt: Date }
   | { status: "failed"; error: AppError };
 
@@ -111,16 +114,10 @@ async function fail(touchId: string, error: AppError): Promise<SendEmailResult> 
 /** Envia o Touch de e-mail. Idempotente (Touch já sent/delivered/replied não reenvia). Nunca lança por falha SMTP: devolve `failed`. */
 export async function sendEmail(touchId: string, opts: SendEmailOptions = {}): Promise<SendEmailResult> {
   const now = opts.now ?? new Date();
-  const reserved = await prisma.touch.updateMany({
-    where: {
-      id: touchId,
-      OR: [
-        { status: { in: ["pending", "scheduled", "failed"] } },
-        { status: "sending", updatedAt: { lt: new Date(Date.now() - SENDING_STALE_MS) } },
-      ],
-    },
-    data: { status: "sending" },
-  });
+  // SPEC-017: supressão ANTES de reservar.
+  const where = reservableWhere(touchId, SENDING_STALE_MS);
+  if (await skipSuppressedBeforeReserve(touchId, where)) return { status: "skipped", reason: "suppressed" };
+  const reserved = await prisma.touch.updateMany({ where, data: { status: "sending" } });
   if (reserved.count === 0) {
     const cur = await prisma.touch.findUnique({ where: { id: touchId }, select: { status: true } });
     if (!cur) throw new AppError({ code: "not_found", userMessage: "Envio não encontrado." });
@@ -146,12 +143,15 @@ async function doSend(touchId: string, now: Date, opts: SendEmailOptions): Promi
   if (touch.channel !== "email") return fail(touchId, new AppError({ code: "validation", userMessage: "Este envio não é do canal e-mail." }));
 
   const { lead } = touch;
-  const skip = async (reason: "opted_out" | "sequence_completed"): Promise<SendEmailResult> => {
-    await prisma.touch.update({ where: { id: touchId }, data: { status: "skipped" } });
+  const skip = async (reason: "opted_out" | "sequence_completed" | "replied" | "suppressed"): Promise<SendEmailResult> => {
+    await prisma.touch.update({ where: { id: touchId }, data: { status: "skipped", ...(reason === "suppressed" ? { error: SUPPRESSED_MESSAGE } : reason === "replied" ? { error: REPLIED_MESSAGE } : {}) } });
     return { status: "skipped", reason };
   };
   if (lead.optedOutAt || lead.sequenceStatus === "opted_out") return skip("opted_out");
   if (lead.sequenceStatus === "completed") return skip("sequence_completed");
+  if (repliedOrEnded(lead, touch.createdAt)) return skip("replied");
+  // SPEC-017: supressão global (e-mail ou telefone) antes de reservar conta/transport.
+  if (await findSuppression({ email: lead.email, phone: lead.phone })) return skip("suppressed");
 
   if (!lead.email) return fail(touchId, new AppError({ code: "validation", userMessage: "O lead não possui e-mail." }));
   const template = touch.step?.template;
@@ -165,6 +165,16 @@ async function doSend(touchId: string, now: Date, opts: SendEmailOptions): Promi
     return fail(touchId, new AppError({ code: "validation", userMessage: `Template com variável desconhecida: ${unk.map((u) => `{{${u}}}`).join(", ")}.` }));
   }
 
+  // SPEC-017: nunca dois canais no mesmo dia (dia local do lead): se já houve WhatsApp hoje, adia para amanhã.
+  const otherToday = await prisma.touch.count({
+    where: { leadId: lead.id, channel: { not: "email" }, direction: "outbound", sentAt: { gte: startOfLocalDay(lead.timezone, now), lt: startOfNextLocalDay(lead.timezone, now) } },
+  });
+  if (otherToday > 0) {
+    const nextAt = nextSendWindow(now);
+    await prisma.touch.update({ where: { id: touchId }, data: { status: "scheduled", scheduledAt: nextAt } });
+    return { status: "deferred", nextAt };
+  }
+
   const pick = await pickEmailAccount(lead.campaign.userId, now);
   if (pick.status === "no_account") return fail(touchId, new AppError({ code: "config", userMessage: "Nenhuma conta de e-mail ativa configurada." }));
   if (pick.status === "deferred") {
@@ -175,6 +185,8 @@ async function doSend(touchId: string, now: Date, opts: SendEmailOptions): Promi
 
   const url = buildUnsubscribeUrl(lead.id, now);
   const text = `${body.text}\n\n--\nPara não receber mais e-mails, descadastre-se: ${url}`;
+  // Última checagem: o lead pode ter respondido entre a reserva e o envio (relê do banco; SMTP NÃO é chamado).
+  if (await leadStopped(lead.id, touch.createdAt)) return skip("replied");
   try {
     const transport = opts.transport ?? (await buildTransport(account, opts));
     const info = (await transport.sendMail({

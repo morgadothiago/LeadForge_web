@@ -64,7 +64,7 @@ function LeadForm({ mode, lead, campaigns, onDone }: { mode: "create" | "edit"; 
   const [phone, setPhone] = React.useState(formatPhone(lead?.phone ?? null));
   const [clientErrors, setClientErrors] = React.useState<FieldErrors | undefined>();
 
-  const [state, action, pending] = React.useActionState(async (_prev: ActionResult<{ id: string }> | null, fd: FormData) => {
+  const [state, action, pending] = React.useActionState(async (_prev: ActionResult<{ id: string; suppressed?: boolean }> | null, fd: FormData) => {
     const g = (k: string) => String(fd.get(k) ?? "");
     const email = g("email").trim();
     const ph = g("phone").trim();
@@ -83,6 +83,9 @@ function LeadForm({ mode, lead, campaigns, onDone }: { mode: "create" | "edit"; 
   React.useEffect(() => {
     if (state?.ok) {
       toast.success(mode === "create" ? "Lead criado." : "Lead atualizado.");
+      if (state.data.suppressed) {
+        toast.warning("Lead salvo, mas NÃO receberá envios: o e-mail ou telefone está na lista de supressão.", { duration: 12000 });
+      }
       onDone();
       if (mode === "create") router.push(`/leads/${state.data.id}`);
       else router.refresh();

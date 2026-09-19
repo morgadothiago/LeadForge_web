@@ -1,4 +1,4 @@
-import type { ConfigureWebhookInput, ConnectionState, CreateInstanceInput, CreateInstanceResult, QrResult, SendTextInput, SendTextResult, WebhookEvent, WhatsAppProvider } from "../provider";
+import type { NumberCheck, ConfigureWebhookInput, ConnectionState, CreateInstanceInput, CreateInstanceResult, QrResult, SendTextInput, SendTextResult, WebhookEvent, WhatsAppProvider } from "../provider";
 import { AppError } from "@/lib/errors";
 
 /** Provider em memória. Exportado SÓ para testes (a factory não o conhece). */
@@ -14,6 +14,11 @@ export class FakeWhatsAppProvider implements WhatsAppProvider {
   /** Se definido, configureWebhook lança este erro. */
   configureError: AppError | null = null;
   next: WebhookEvent | null = null;
+  /** Números SEM WhatsApp (todos os demais existem). */
+  noWhatsapp = new Set<string>();
+  /** Se definido, checkNumbers lança este erro. */
+  checkError: AppError | null = null;
+  checked: string[][] = [];
   private seq = 0;
 
   async createInstance(input: CreateInstanceInput): Promise<CreateInstanceResult> {
@@ -30,6 +35,11 @@ export class FakeWhatsAppProvider implements WhatsAppProvider {
     if (this.sendError) throw this.sendError;
     this.sent.push(input);
     return { externalId: `fake-msg-${++this.seq}` };
+  }
+  async checkNumbers(_instanceName: string, numbers: string[]): Promise<NumberCheck[]> {
+    if (this.checkError) throw this.checkError;
+    this.checked.push(numbers);
+    return numbers.map((number) => ({ number, exists: !this.noWhatsapp.has(number) }));
   }
   async deleteInstance(name: string): Promise<void> {
     this.deleted.push(name);

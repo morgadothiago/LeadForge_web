@@ -64,6 +64,26 @@ enum WhatsAppProviderKind {
   cloud_api
 }
 
+enum SuppressionKind {
+  phone
+  email
+}
+
+enum SuppressionReason {
+  opt_out_reply
+  opt_out_link
+  opt_out_manual
+  possible_opt_out_confirmed
+  bounce
+  manual
+}
+
+enum InstanceHealth {
+  good
+  warning
+  paused
+}
+
 model User {
   id            String         @id @default(uuid())
   name          String
@@ -115,32 +135,36 @@ model Campaign {
 }
 
 model Lead {
-  id               String         @id @default(uuid())
-  campaignId       String
-  campaign         Campaign       @relation(fields: [campaignId], references: [id], onDelete: Cascade)
-  name             String
-  company          String?
-  email            String?
-  phone            String?
-  website          String?
-  linkedin         String?
-  source           String?
-  score            Float          @default(0)
-  tags             String[]
-  rawData          Json?
-  sequenceStatus   SequenceStatus @default(not_started)
-  currentStepOrder Int            @default(0)
-  nextTouchAt      DateTime?
-  repliedAt        DateTime?
-  optedOutAt       DateTime?
-  possibleOptOut   Boolean        @default(false)
-  timezone         String         @default("America/Sao_Paulo")
-  createdAt        DateTime       @default(now())
-  updatedAt        DateTime       @updatedAt
-  touches          Touch[]
-  opportunities    Opportunity[]
-  meetings         Meeting[]
-  notes            LeadNote[]
+  id                String         @id @default(uuid())
+  campaignId        String
+  campaign          Campaign       @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  name              String
+  company           String?
+  email             String?
+  phone             String?
+  website           String?
+  linkedin          String?
+  source            String?
+  score             Float          @default(0)
+  tags              String[]
+  rawData           Json?
+  sequenceStatus    SequenceStatus @default(not_started)
+  currentStepOrder  Int            @default(0)
+  nextTouchAt       DateTime?
+  /// SPEC-013: instante do 1º toque da sequência (âncora de nextTouchAt = início + step.day). null = ainda não começou.
+  sequenceStartedAt DateTime?
+  repliedAt         DateTime?
+  optedOutAt        DateTime?
+  possibleOptOut    Boolean        @default(false)
+  timezone          String         @default("America/Sao_Paulo")
+  hasWhatsapp       Boolean?
+  whatsappCheckedAt DateTime?
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+  touches           Touch[]
+  opportunities     Opportunity[]
+  meetings          Meeting[]
+  notes             LeadNote[]
 
   @@unique([campaignId, email])
   @@unique([campaignId, phone])
@@ -194,6 +218,8 @@ model Touch {
   repliedAt          DateTime?
   externalId         String?
   error              String?
+  /// SPEC-013: falhas já sofridas (retry automático limitado a 3, backoff 30 min/2 h/6 h).
+  attempts           Int               @default(0)
   content            String?
   emailAccountId     String?
   emailAccount       EmailAccount?     @relation(fields: [emailAccountId], references: [id], onDelete: SetNull)
@@ -256,10 +282,44 @@ model WhatsAppInstance {
   dailyLimit      Int                  @default(30)
   lastError       String?
   lastConnectedAt DateTime?
+  /// Início da queda atual (desconexão sem logout confirmado); null = conectada. Pausa só após N min contínuos (SPEC-017).
+  disconnectedAt  DateTime?
+  warmupStartedAt DateTime?
+  health          InstanceHealth       @default(good)
+  pausedUntil     DateTime?
+  pausedReason    String?
+  /// Métricas de saúde ignoram envios anteriores a este instante (retomada = novo começo).
+  healthResetAt   DateTime?
   createdAt       DateTime             @default(now())
   updatedAt       DateTime             @updatedAt
   campaigns       Campaign[]
   touches         Touch[]
+  alerts          InstanceAlert[]
+}
+
+model InstanceAlert {
+  id         String           @id @default(uuid())
+  instanceId String
+  instance   WhatsAppInstance @relation(fields: [instanceId], references: [id], onDelete: Cascade)
+  kind       String
+  message    String
+  createdAt  DateTime         @default(now())
+  readAt     DateTime?
+
+  @@index([instanceId, createdAt])
+}
+
+model Suppression {
+  id        String            @id @default(uuid())
+  kind      SuppressionKind
+  value     String
+  reason    SuppressionReason
+  leadId    String?
+  note      String?
+  createdAt DateTime          @default(now())
+
+  @@unique([kind, value])
+  @@index([createdAt])
 }
 
 model EmailAccount {
@@ -318,4 +378,16 @@ model StageHistory {
 
   @@index([opportunityId, changedAt])
   @@index([toStage, changedAt])
+}
+
+/// SPEC-013: uma linha por rodada do scheduler (/api/cron/tick ou npm run tick). Sem PII/segredo.
+model SchedulerRun {
+  id         String    @id @default(uuid())
+  startedAt  DateTime
+  finishedAt DateTime?
+  status     String    @default("running")
+  counters   Json      @default("{}")
+  error      String?
+
+  @@index([startedAt])
 }

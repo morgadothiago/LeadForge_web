@@ -27,7 +27,7 @@ interface Props {
   };
   icps: { id: string; name: string; niche: string }[];
   sequences: { id: string; name: string }[];
-  whatsappInstances: { id: string; instanceName: string }[];
+  whatsappInstances: { id: string; instanceName: string; status?: "connected" | "connecting" | "disconnected" }[];
 }
 
 const STATUS_OPTIONS = (Object.keys(CAMPAIGN_STATUS_LABELS) as (keyof typeof CAMPAIGN_STATUS_LABELS)[]).map((v) => ({
@@ -182,14 +182,21 @@ export function CampaignForm({ mode, campaign, icps, sequences, whatsappInstance
             id="c-wa"
             label="Instância de WhatsApp"
             error={fieldError(errors, "whatsappInstanceId")}
-            hint={whatsappInstances.length === 0 ? "Nenhuma instância conectada — a integração com WhatsApp chega em breve." : undefined}
+            hint={
+              whatsappInstances.length === 0
+                ? "Nenhuma instância cadastrada. Crie uma em Configurações > WhatsApp."
+                : "Só instâncias conectadas enviam mensagens; se estiver desconectada, os envios ficam adiados."
+            }
           >
             {(a) => (
               <OptionSelect
                 id={a.id}
                 value={waId}
                 onChange={setWaId}
-                options={whatsappInstances.map((w) => ({ value: w.id, label: w.instanceName }))}
+                options={whatsappInstances.map((w) => ({
+                  value: w.id,
+                  label: w.status ? `${w.instanceName} (${{ connected: "conectada", connecting: "conectando", disconnected: "desconectada" }[w.status]})` : w.instanceName,
+                }))}
                 placeholder="Sem WhatsApp"
                 allowNone
                 disabled={whatsappInstances.length === 0}

@@ -5,6 +5,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth/require-user";
 import { runMoveOpportunity, type MoveResult } from "@/lib/domain/move-opportunity";
+import { isSuppressed } from "@/lib/domain/suppression";
 import { recordStageChange } from "@/lib/domain/stage-history";
 import {
   createLeadSchema,
@@ -23,7 +24,7 @@ function revalidate(leadId?: string): void {
   revalidatePath("/leads");
   if (leadId) revalidatePath(`/leads/${leadId}`);
   revalidatePath("/pipeline");
-  revalidatePath("/");
+  revalidatePath("/dashboard");
 }
 
 const DUP_EMAIL = "Já existe um lead com este e-mail nesta campanha.";
@@ -57,7 +58,7 @@ async function checkDuplicates(
 }
 
 /** Cria lead + Opportunity `novo_lead` (fim da coluna) + StageHistory, numa transação. */
-export async function createLead(input: unknown): Promise<ActionResult<{ id: string; opportunityId: string }>> {
+export async function createLead(input: unknown): Promise<ActionResult<{ id: string; opportunityId: string; suppressed?: boolean }>> {
   return safeAction(async () => {
     await requireUser();
     const parsed = createLeadSchema.safeParse(input);
@@ -94,7 +95,8 @@ export async function createLead(input: unknown): Promise<ActionResult<{ id: str
         return { id: lead.id, opportunityId: opp.id };
       });
       revalidate(out.id);
-      return success(out);
+      // SPEC-017: cria mesmo suprimido (o lead existe para histórico), mas todos os envios ficam bloqueados; aviso via `suppressed`.
+      return success({ ...out, suppressed: await isSuppressed({ email: d.email, phone: d.phone }) });
     } catch (e) {
       const dupErr = duplicateErrors(e);
       if (dupErr) return failure(dupErr);
@@ -104,7 +106,7 @@ export async function createLead(input: unknown): Promise<ActionResult<{ id: str
 }
 
 /** Atualização parcial (campo ausente = inalterado; null/"" limpa). Campanha imutável (D6). */
-export async function updateLead(input: unknown): Promise<ActionResult<{ id: string }>> {
+export async function updateLead(input: unknown): Promise<ActionResult<{ id: string; suppressed?: boolean }>> {
   return safeAction(async () => {
     await requireUser();
     const parsed = updateLeadSchema.safeParse(input);
@@ -130,7 +132,7 @@ export async function updateLead(input: unknown): Promise<ActionResult<{ id: str
       throw e;
     }
     revalidate(leadId);
-    return success({ id: leadId });
+    return success({ id: leadId, suppressed: await isSuppressed({ email: finalEmail, phone: finalPhone }) });
   });
 }
 

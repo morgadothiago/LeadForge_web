@@ -25,6 +25,8 @@
   --border: #202226;
   --input: #202226;
   --ring: #1fb390;
+  --warning: #f5b638;
+  --warning-foreground: #0a0e11;
   --radius: 0.5rem;
 
   --stage-novo-lead: #3b82f6;
@@ -60,6 +62,8 @@
   --color-accent: var(--accent);
   --color-accent-foreground: var(--accent-foreground);
   --color-destructive: var(--destructive);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);

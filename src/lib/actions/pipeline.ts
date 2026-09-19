@@ -20,7 +20,7 @@ import {
 
 function revalidate(): void {
   revalidatePath("/pipeline");
-  revalidatePath("/");
+  revalidatePath("/dashboard");
 }
 
 export type { MoveResult } from "@/lib/domain/move-opportunity";

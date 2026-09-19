@@ -1,5 +1,5 @@
 # SPEC-012 — Webhook receiver (WhatsApp)
-- status: APPROVED (usuario, 2026-09-19: "pode implementar essa abordagem") | domain: backend | sessao: 2 | ordem: 13 | depende de: SPEC-001, SPEC-011
+- status: IMPLEMENTED (QA aprovado + correcoes verificadas; Evolution real e navegador PENDENTES)| domain: backend | sessao: 2 | ordem: 13 | depende de: SPEC-001, SPEC-011
 ## Escopo
 `POST /api/webhooks/whatsapp` (Route Handler; ler docs Next 16 sobre route handlers). Valida segredo (header/apikey ou token na URL por instancia — o PROMPT so tem EVOLUTION_WEBHOOK_SECRET [D17]), Zod no payload, idempotencia via WebhookEvent. Eventos: MESSAGES_UPSERT (fromMe=false -> localiza Lead por telefone normalizado -> cria Touch inbound, `sequenceStatus=paused_replied`, repliedAt, stage conforme D4), opt-out ("parar","sair","nao quero", normalizado sem acento/caixa) -> opted_out + stage perdido; MESSAGES_UPDATE (delivered/read no Touch), CONNECTION_UPDATE, QRCODE_UPDATED (atualiza WaStatus). Ignora fromMe e grupos (@g.us). Lead nao encontrado -> 200 e log.
 ## Criterios de aceite
@@ -56,3 +56,19 @@ Token nunca em log/erro/`WebhookEvent`: `redactWebhookToken`; `WebhookEvent.payl
 - NAO verificado contra Evolution v2.1.1 real: formato de `/webhook/set/{instance}` (usamos `{webhook:{enabled,url,byEvents:false,base64:false,events}}`), `apikey` no corpo, `messages.update` e nomes de evento. Testes usam payloads fixos, sem rede.
 - Rate limit em memoria por processo (reinicia no deploy; multi-instancia nao compartilha).
 - Front pendente (tela Configuracoes > WhatsApp "Gerar novo token", card/ficha "respondeu em", alerta Possivel opt-out, botoes Confirmar/Descartar). Criterios de aceite ficam para marcar quando o front fechar; backend coberto por `webhook-handler.test.ts`, `whatsapp-optout.test.ts`, `whatsapp-webhook-actions.test.ts`.
+
+## Frontend (implementado 2026-09-19)
+### Criterios de UI
+- [x] Card do Kanban, lista e ficha de leads: "Respondeu <relativo>" (`<time>` com data completa) + ultimo texto inbound truncado, sempre como texto, `title` com o completo, so com `lastInboundAt`.
+- [x] Alerta "Possivel opt-out: revise antes de contatar" (role=status, cor de aviso, icone) no card e na ficha; "Confirmar opt-out" (ConfirmDialog) e "Descartar alerta", toasts, `router.refresh()`, erros `_form`; botoes fora da alca de arrasto. Na lista aparece so como aviso (sem botoes; a linha inteira e link).
+- [x] Tela Configuracoes > WhatsApp com "Gerar novo token" (ver SPEC-011).
+- Testes: `reply-format.test.ts`. Nao verificado no navegador.
+### Implementation Notes
+`src/components/leads/{InboundReply,PossibleOptOutAlert,reply-format}`, `PipelineCard.tsx` (li com flex-wrap, alerta em linha propria), `LeadsTable.tsx`, `leads/[id]/page.tsx`.
+
+## Implementation Notes - correcoes do QA (2026-09-19)
+- M1: ver notas da SPEC 11 (id sintetico sem key.id; testes de 2 "sim" em instantes distintos = 2 eventos; sem key.id nem timestamp processa).
+- B4 `webhook-handler.ts`: corpo lido do stream com teto REAL de 1 MB (`readBodyLimited`) antes de verify/parse; 413 mesmo sem content-length (chunked); verify/parse recebem copia ja limitada (nunca releem corpo ilimitado). Teste com corpo chunked de 5 MB.
+- M3: `connection.update` com `loggedOut` repassado a `onConnectionChange` (ver SPEC 17).
+- B5 (documentado): o 2o fator `apikey` no corpo so vale se o Evolution realmente o enviar (NAO verificado; ausente nao reprova).
+- B11 (documentado): o token no caminho da URL aparece em logs de acesso de proxies/servidor; mascarar o path `/api/webhooks/whatsapp/*` no proxy reverso. Logs da aplicacao ja redigem o token.

@@ -28,4 +28,10 @@ describe("design tokens", () => {
     expect(ratio("#e9ecec", "#0a0e11")).toBeGreaterThanOrEqual(4.5);
     expect(ratio("#0a0e11", "#1fb390")).toBeGreaterThanOrEqual(4.5);
   });
+  it("--warning tem contraste AA sobre card e sobre fundo", () => {
+    expect(css).toContain("--warning: #f5b638;");
+    expect(ratio("#f5b638", "#131619")).toBeGreaterThanOrEqual(4.5);
+    expect(ratio("#f5b638", "#0a0e11")).toBeGreaterThanOrEqual(4.5);
+    expect(ratio("#0a0e11", "#f5b638")).toBeGreaterThanOrEqual(4.5);
+  });
 });

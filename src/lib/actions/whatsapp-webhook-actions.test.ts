@@ -33,6 +33,7 @@ beforeAll(async () => {
   campId = (await prisma.campaign.create({ data: { name: TAG, userId: user.id, icpId: icp.id, sequenceId: seq.id, whatsappInstanceId: instId } })).id;
 }, 30000);
 afterAll(async () => {
+  await prisma.suppression.deleteMany({ where: { leadId: { in: (await prisma.lead.findMany({ where: { campaignId: campId }, select: { id: true } })).map((l) => l.id) } } });
   await prisma.lead.deleteMany({ where: { campaignId: campId } });
   await prisma.campaign.deleteMany({ where: { id: campId } });
   await prisma.sequence.deleteMany({ where: { name: TAG } });

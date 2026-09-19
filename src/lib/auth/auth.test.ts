@@ -122,7 +122,7 @@ describe("login/logout", () => {
   it("next inválido cai em /", async () => {
     for (const next of ["//evil.com", "https://evil.com", "/\\evil.com", "evil.com", "javascript:alert(1)", "/login"]) {
       const r = await login({ email: EMAIL, password: PASS, next });
-      expect(r).toEqual({ ok: true, data: { redirectTo: "/" } });
+      expect(r).toEqual({ ok: true, data: { redirectTo: "/dashboard" } });
     }
   });
   it("rate limit após N falhas, mesmo com senha correta; outro IP não é afetado", async () => {
@@ -177,7 +177,7 @@ describe("login/logout", () => {
 describe("safeNext", () => {
   it("aceita só caminhos internos", () => {
     expect(safeNext("/campanhas/1?a=b")).toBe("/campanhas/1?a=b");
-    for (const bad of ["//evil.com", "https://evil.com", "/\\evil", "", undefined, 5, "/a\nb", "/%2f%2fevil.com", "/%2F%2Fevil.com", " /x", " //evil.com", "/a\tb", "\t/x", "\n/x", "javascript:alert(1)", "/javascript:alert(1)\n"]) expect(safeNext(bad), String(bad)).toBe("/");
+    for (const bad of ["//evil.com", "https://evil.com", "/\\evil", "", undefined, 5, "/a\nb", "/%2f%2fevil.com", "/%2F%2Fevil.com", " /x", " //evil.com", "/a\tb", "\t/x", "\n/x", "javascript:alert(1)", "/javascript:alert(1)\n"]) expect(safeNext(bad), String(bad)).toBe("/dashboard");
   });
 });
 

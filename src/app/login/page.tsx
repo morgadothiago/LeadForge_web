@@ -17,7 +17,7 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
   } catch (e) {
     if (!(e instanceof UnauthorizedError)) throw e;
   }
-  if (authenticated) redirect("/");
+  if (authenticated) redirect("/dashboard");
 
   const { next } = await searchParams;
   const nextValue = Array.isArray(next) ? next[0] : next;

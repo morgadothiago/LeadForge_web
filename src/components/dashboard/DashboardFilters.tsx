@@ -5,7 +5,7 @@ import type { DashboardParams } from "@/lib/queries/dashboard";
 function href(period: string, campaignId?: string) {
   const q = new URLSearchParams({ period });
   if (campaignId) q.set("campaignId", campaignId);
-  return `/?${q.toString()}`;
+  return `/dashboard?${q.toString()}`;
 }
 
 export function DashboardFilters({

@@ -1,9 +1,11 @@
 import Link from "next/link";
-import { ArrowDown, ArrowUp, ChevronsUpDown, Users } from "lucide-react";
+import { ArrowDown, ArrowUp, ChevronsUpDown, TriangleAlert, Users } from "lucide-react";
 import { ChannelBadge } from "@/components/domain/ChannelBadge";
 import { StatusBadge } from "@/components/domain/StatusBadge";
 import { Card } from "@/components/ui/card";
 import { buttonVariants } from "@/components/ui/button";
+import { InboundReply } from "./InboundReply";
+import { SuppressedBadge } from "./SuppressedBadge";
 import type { ChannelKey } from "@/lib/domain";
 import type { LeadListItem } from "@/lib/queries/leads";
 import { cn } from "@/lib/utils";
@@ -30,6 +32,14 @@ const COLS: { key: SortKey | null; label: string; cls?: string }[] = [
   { key: "score", label: "Score" },
   { key: "createdAt", label: "Criado em" },
 ];
+
+function PossibleOptOutBadge() {
+  return (
+    <p className="mt-1 flex items-center gap-1 text-xs font-medium text-warning">
+      <TriangleAlert className="size-3.5" aria-hidden="true" /> Possível opt-out: revise antes de contatar
+    </p>
+  );
+}
 
 function ScoreChip({ score }: { score: number }) {
   return <span className="rounded-sm bg-muted px-2 py-0.5 text-xs font-medium tabular-nums">{score}</span>;
@@ -94,6 +104,9 @@ export function LeadsTable({ items, total, page, pageSize, pageCount, sort, dir,
                   <Link href={`/leads/${l.id}`} className="rounded-sm outline-none after:absolute after:inset-0 focus-visible:after:ring-2 focus-visible:after:ring-primary/40">
                     {l.name}
                   </Link>
+                  <InboundReply at={l.lastInboundAt} text={l.lastInboundText} max={50} className="mt-1 max-w-[16rem] font-normal" />
+                  {l.possibleOptOut && <PossibleOptOutBadge />}
+                  {l.suppressed && <SuppressedBadge className="mt-1" />}
                 </td>
                 <td className="max-w-[12rem] truncate px-3 py-3 text-muted-foreground">{l.company ?? "—"}</td>
                 <td className="max-w-[12rem] truncate px-3 py-3 text-muted-foreground">{l.campaign.name}</td>
@@ -127,6 +140,9 @@ export function LeadsTable({ items, total, page, pageSize, pageCount, sort, dir,
               <ScoreChip score={l.score} />
               <time className="text-xs text-muted-foreground" dateTime={l.createdAt.toISOString()}>{formatDate(l.createdAt)}</time>
             </div>
+            <InboundReply at={l.lastInboundAt} text={l.lastInboundText} className="mt-2" />
+            {l.possibleOptOut && <PossibleOptOutBadge />}
+            {l.suppressed && <SuppressedBadge className="mt-1" />}
             <p className="mt-1 truncate text-xs text-muted-foreground">{l.campaign.name}</p>
           </li>
         ))}

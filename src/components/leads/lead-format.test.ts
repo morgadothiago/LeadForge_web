@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ariaSort, buildLeadsQuery, formatPhone, maskBrPhone, nextSort, pageRange, relativeTime } from "./lead-format";
+import { ariaSort, buildLeadsQuery, formatPhone, maskBrPhone, nextSort, pageRange, relativeTime, whatsappStatusText } from "./lead-format";
 
 describe("buildLeadsQuery", () => {
   it("ignora vazios e aplica overrides", () => {
@@ -43,5 +43,15 @@ describe("relativeTime / pageRange", () => {
   it("faixa", () => {
     expect(pageRange(2, 20, 45)).toEqual({ from: 21, to: 40 });
     expect(pageRange(1, 20, 0)).toEqual({ from: 0, to: 0 });
+  });
+});
+
+describe("whatsappStatusText", () => {
+  it("sim, não e não verificado", () => {
+    const d = new Date("2026-09-19T15:00:00Z");
+    expect(whatsappStatusText(true, d)).toBe("Sim (verificado em 19/09/2026)");
+    expect(whatsappStatusText(false, null)).toBe("Não");
+    expect(whatsappStatusText(null, null)).toBe("Não verificado");
+    expect(whatsappStatusText(undefined, d)).toBe("Não verificado");
   });
 });

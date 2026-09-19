@@ -1,5 +1,5 @@
 # SPEC-010 — Envio de email (Nodemailer)
-- status: APPROVED (usuario, 2026-09-19: "pode fazer") | domain: backend (+ tela de config: frontend) | sessao: 2 | ordem: 11 | depende de: SPEC-001, SPEC-006, SPEC-008
+- status: IMPLEMENTED (QA aprovado apos correcoes; SMTP real PENDENTE, por decisao do usuario fica por ultimo) | domain: backend (+ tela de config: frontend) | sessao: 2 | ordem: 11 | depende de: SPEC-001, SPEC-006, SPEC-008
 ## Escopo
 `src/lib/channels/email.ts`: transport por EmailAccount, `sendEmail(touch)` com render de template, atualiza Touch (sent/failed, externalId=messageId, error). Cifra AES-256-GCM da senha (ENCRYPTION_KEY). Tela Configuracoes > Email (cadastro, teste de conexao `transporter.verify()`). Rodizio/limite diario por conta [D15]. Link/rodape de descadastro e header List-Unsubscribe (LGPD). Deteccao de resposta por IMAP fora do escopo desta SPEC (D16: polling IMAP? webhook de provedor?).
 ## Criterios de aceite

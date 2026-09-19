@@ -1,11 +1,11 @@
-import { createHash, timingSafeEqual } from "node:crypto";
+import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
 import type { AxiosInstance, AxiosRequestConfig } from "axios";
 import { z } from "zod";
 import { createHttpClient, type RetryOptions } from "@/lib/http";
 import { AppError } from "@/lib/errors";
 import { normalizeBrPhone } from "@/lib/domain/phone";
 import type {
-  ConfigureWebhookInput, ConnectionState, CreateInstanceInput, CreateInstanceResult, InboundMessage, QrResult, SendTextInput, SendTextResult, StatusEvent,
+  ConfigureWebhookInput, ConnectionState, NumberCheck, CreateInstanceInput, CreateInstanceResult, InboundMessage, QrResult, SendTextInput, SendTextResult, StatusEvent,
   WebhookEvent, WhatsAppProvider,
 } from "../provider";
 
@@ -20,6 +20,8 @@ export interface EvolutionOptions {
   adapter?: AxiosRequestConfig["adapter"];
   retry?: RetryOptions | false;
   rng?: () => number;
+  /** Relógio de recebimento em ms (testes). */
+  clock?: () => number;
   logger?: (msg: string, meta: Record<string, unknown>) => void;
 }
 
@@ -36,6 +38,7 @@ const qrRes = z.object({ base64: z.string().nullish(), pairingCode: z.string().n
 const stateRes = z.object({ instance: z.object({ state: z.string() }) });
 const sendRes = z.object({ key: z.object({ id: z.string().min(1) }) });
 
+const numbersRes = z.array(z.object({ exists: z.boolean(), number: z.string().nullish(), jid: z.string().nullish() }));
 const jid = z.string();
 const upsertData = z.object({
   key: z.object({ id: z.string().min(1).optional(), remoteJid: jid, fromMe: z.boolean().optional() }),
@@ -44,7 +47,7 @@ const upsertData = z.object({
   messageTimestamp: z.union([z.number(), z.string()]).nullish(),
 });
 const envelope = z.object({ event: z.string(), instance: z.string().min(1), data: z.unknown() });
-const connData = z.object({ state: z.string() });
+const connData = z.object({ state: z.string(), statusReason: z.union([z.number(), z.string()]).nullish(), reason: z.union([z.number(), z.string()]).nullish() }).passthrough();
 const qrData = z.object({ qrcode: z.object({ base64: z.string() }).optional(), base64: z.string().optional() });
 const updData = z.object({ keyId: z.string().optional(), messageId: z.string().optional(), status: z.string() });
 
@@ -87,9 +90,11 @@ const sha = (s: string) => createHash("sha256").update(s).digest();
 export class EvolutionProvider implements WhatsAppProvider {
   private readonly http: AxiosInstance;
   private readonly rng: () => number;
+  private readonly clock: () => number;
 
   constructor(opts: EvolutionOptions) {
     this.rng = opts.rng ?? Math.random;
+    this.clock = opts.clock ?? Date.now;
     this.http = createHttpClient({
       name: NAME, baseURL: opts.baseURL, timeout: opts.timeout ?? 20_000, headers: { apikey: opts.apiKey },
       adapter: opts.adapter, retry: opts.retry, logger: opts.logger,
@@ -133,6 +138,23 @@ export class EvolutionProvider implements WhatsAppProvider {
     return { externalId: parseRes(sendRes, data).key.id };
   }
 
+  /**
+   * PENDENTE: `POST /chat/whatsappNumbers/{instance}` body `{ numbers: ["5511..."] }` -> `[{ exists, jid, number }]` conforme a doc v2;
+   * NÃO verificado contra a v2.1.1 real. Tolerante: casa por `number`/`jid` (dígitos) e, se o tamanho bater, por posição.
+   * Resposta fora do formato -> AppError upstream (o envio não acontece).
+   */
+  async checkNumbers(instanceName: string, numbers: string[]): Promise<NumberCheck[]> {
+    const { data } = await this.http.post(`/chat/whatsappNumbers/${encodeURIComponent(instanceName)}`, { numbers: numbers.map((n) => n.replace(/\D/g, "")) });
+    const rows = parseRes(numbersRes, data);
+    const digits = (v: string | null | undefined) => (v ?? "").split("@")[0].replace(/\D/g, "");
+    return numbers.map((number, i) => {
+      const d = digits(number);
+      const hit = rows.find((r) => digits(r.number) === d || digits(r.jid) === d) ?? (rows.length === numbers.length ? rows[i] : undefined);
+      if (!hit) throw invalid();
+      return { number, exists: hit.exists };
+    });
+  }
+
   async deleteInstance(instanceName: string): Promise<void> {
     await this.http.delete(`/instance/delete/${encodeURIComponent(instanceName)}`);
   }
@@ -161,18 +183,29 @@ export class EvolutionProvider implements WhatsAppProvider {
       const text = message?.conversation || message?.extendedTextMessage?.text;
       if (!from || !text) return null;
       const ts = Number(messageTimestamp);
-      // O payload de exemplo do PROMPT não traz key.id: id sintético estável (jid+timestamp+texto) mantém a idempotência.
-      const externalId = key.id ?? `h_${sha(`${key.remoteJid}|${messageTimestamp ?? ""}|${text}`).toString("hex").slice(0, 32)}`;
+      const hasTs = Number.isFinite(ts) && ts > 0;
+      // Idempotência: com key.id, é o id do provider (reentrega = mesmo id = duplicate).
+      // Sem key.id (payload de exemplo do PROMPT): só há dedupe com timestamp presente, e o id inclui um bucket de 2 s do instante de RECEBIMENTO
+      // + hash(jid|timestamp|texto): "sim" repetido em momentos distintos passa; reentrega em <2 s do mesmo payload continua deduplicada.
+      // Sem key.id e sem timestamp NÃO há base segura para deduplicar: id aleatório único (processa sempre).
+      const externalId = key.id
+        ?? (hasTs
+          ? `h_${sha(`${key.remoteJid}|${messageTimestamp}|${text}|${Math.floor(this.clock() / 2000)}`).toString("hex").slice(0, 32)}`
+          : `r_${randomUUID()}`);
       const msg: InboundMessage = {
         kind: "inbound", instanceName, from, pushName: pushName ?? null, text, externalId,
-        timestamp: Number.isFinite(ts) && ts > 0 ? new Date(ts * 1000) : new Date(),
+        timestamp: hasTs ? new Date(ts * 1000) : new Date(this.clock()),
       };
       return msg;
     }
     if (event === "connection.update") {
       const d = connData.safeParse(data);
       if (!d.success) throw badWebhook();
-      return { kind: "connection", instanceName, status: mapState(d.data.state) } satisfies StatusEvent;
+      const status = mapState(d.data.state);
+      // PENDENTE: formato REAL do logout na v2.1.1 não verificado; tolerante a statusReason/reason 401 (numérico ou string) e "loggedOut".
+      const why = [d.data.statusReason, d.data.reason].map((v) => String(v ?? "").toLowerCase());
+      const loggedOut = status === "disconnected" && why.some((v) => v === "401" || v === "loggedout" || v === "logged_out");
+      return { kind: "connection", instanceName, status, ...(loggedOut ? { loggedOut } : {}) } satisfies StatusEvent;
     }
     if (event === "qrcode.updated") {
       const d = qrData.safeParse(data);

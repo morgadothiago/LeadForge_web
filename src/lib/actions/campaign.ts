@@ -11,7 +11,7 @@ import { failure, formError, safeAction, success, zodErrors, type ActionResult, 
 function revalidate(id?: string): void {
   revalidatePath("/campanhas");
   if (id) revalidatePath(`/campanhas/${id}`);
-  revalidatePath("/"); // dashboard
+  revalidatePath("/dashboard"); // dashboard
 }
 
 /** Valida existência das FKs opcionais, devolvendo erro por campo em PT-BR. */

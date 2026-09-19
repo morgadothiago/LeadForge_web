@@ -1,5 +1,5 @@
 # SPEC-011 — WhatsApp (provider plugavel; Evolution como 1a implementacao)
-- status: APPROVED (usuario, 2026-09-19: "continuar as specs") | domain: fullstack | sessao: 2 | ordem: 12 | depende de: SPEC-001, SPEC-005, SPEC-000 (docker)
+- status: IMPLEMENTED (QA aprovado + correcoes verificadas; Evolution real e navegador PENDENTES)| domain: fullstack | sessao: 2 | ordem: 12 | depende de: SPEC-001, SPEC-005, SPEC-000 (docker)
 ## Escopo
 **Decisao do usuario (2026-09-19): trocar de provider deve ser facil (risco de banimento Baileys).** Todo o app fala SO com a interface `WhatsAppProvider` (`src/lib/whatsapp/provider.ts`): `createInstance`, `getQr`, `getStatus`, `sendText`, `parseWebhook(request) -> InboundMessage | StatusEvent | null`, `verifyWebhook(request)`. Implementacao `EvolutionProvider` em `src/lib/whatsapp/providers/evolution.ts`; registro `getWhatsAppProvider(instance.provider)` por factory. Nenhum import de Evolution fora de `providers/`. `WhatsAppInstance.provider` (enum: evolution | cloud_api | ...) define qual usar. Webhook (SPEC-012) chama `provider.parseWebhook`, nunca formato Evolution direto. Trocar = novo arquivo em `providers/` + valor no enum, sem tocar scheduler/webhook/UI.
 Backend: client Evolution tipado (Zod nas respostas) — criar instancia, obter QR, status, `sendText` com delay 1-3s; regras: horario 8h-18h no fuso do lead (funcao pura `isWithinSendWindow(lead.timezone, now)`), validacao BR, sem envio fora da janela (reagenda `scheduledAt`). Webhook token por instancia gerado (`webhookToken`). apiKey da instancia cifrada.
@@ -41,3 +41,20 @@ Aplicar as regras de HTTP de saida e rate limit de specs/README.md (client Evolu
 ### Criterios (backend)
 - PASS: interface+factory+fake (`provider.test.ts`, `channels/whatsapp.test.ts`); grep sem import de evolution (`provider.test.ts`); client sucesso/4xx/429/5xx/timeout/Zod/segredos (`providers/evolution.test.ts`); janela 07:59/08:00/17:59/18:00/fusos/DST (`send-window.test.ts`); fora da janela nao chama API e reagenda; sessao (`whatsapp-auth-coverage.test.ts`); typecheck/lint/test/build.
 - PENDENTE: ponta a ponta com Evolution real (QR/telefone); formatos reais de `messages.update`/`hash` da v2.1.1 nao validados contra a API real; frontend (Configuracoes > WhatsApp).
+
+## Frontend (implementado 2026-09-19)
+### Criterios de UI
+- [x] Configuracoes > WhatsApp (`/configuracoes/whatsapp`): aba habilitada, lista (nome, numero formatado, provedor, status com badge+texto, limite, campanhas, `hasApiKey`, `lastError`, ultima conexao), vazio, skeleton.
+- [x] Criar/editar em Dialog (mascara BR, erro por campo, limite 1-200, aviso de aquecimento/banimento/chip dedicado).
+- [x] QR: `getInstanceQr` + `<img>` so com `data:image/png;base64,` validado (`safeQrSrc`); polling de `refreshInstanceStatus` com backoff (3s->10s), teto de 60 tentativas, 3 erros seguidos param, pausa com aba oculta, para ao conectar/desmontar; aria-live; expiracao (60s) com "Gerar novo QR".
+- [x] Atualizar status, desconectar e excluir (ConfirmDialog mostra `_form` de bloqueio por campanhas).
+- [x] Webhook sob demanda ("Mostrar URL do webhook"), mascarado, revelar/copiar com feedback, aviso de segredo/logs/`APP_BASE_URL`; "Gerar novo token" (ConfirmDialog) mostrando URL mascarada + `tokenHint`.
+- [x] CampaignForm: select lista instancias reais com status; hint atualizado.
+- Logica pura testada: `whatsapp-format.test.ts`, `qr-poll.test.ts`. Ainda NAO verificado no navegador nem contra Evolution real.
+### Implementation Notes
+Arquivos: `src/components/settings/{WhatsAppInstanceList,WhatsAppInstanceFormDialog,WhatsAppQrDialog,WhatsAppWebhookSection,WhatsAppCreateButton,whatsapp-format,qr-poll}`, `src/app/(app)/configuracoes/whatsapp/{page,loading}.tsx`, `SettingsTabs.tsx`, `CampaignForm.tsx` + paginas de campanha (passam `listWhatsAppInstances`). Editar instancia reenvia o numero (o backend valida); nome nao editavel.
+
+## Implementation Notes - correcoes do QA (2026-09-19)
+- M1 `providers/evolution.ts`: sem `key.id`, id sintetico = hash(jid|timestamp|texto|bucket de 2 s do instante de RECEBIMENTO), so com timestamp; sem `key.id` e sem timestamp = id aleatorio `r_<uuid>` (processa sempre). Com `key.id`, reentrega continua idempotente. Trade-off: reentrega sem key.id apos >2 s nao e deduplicada. Testes em `evolution.test.ts`.
+- M3 parse de `connection.update` expoe `loggedOut` (statusReason/reason 401 ou "loggedOut", tolerante). PENDENTE: formato REAL na v2.1.1 nao verificado.
+- B10 `deleteWhatsAppInstance`: valida bloqueio, apaga no banco em transacao e SO ENTAO chama o provider em best-effort (falha vira log sem segredo; instancia orfa no provider deve ser removida a mao; alerta nao e possivel pois InstanceAlert cai em cascade).

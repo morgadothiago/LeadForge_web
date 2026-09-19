@@ -12,7 +12,7 @@ import { FakeWhatsAppProvider } from "@/lib/whatsapp/providers/fake";
 import { sendWhatsApp, TIMEOUT_WARNING } from "./whatsapp";
 
 const TAG = "zz-test-spec011ch";
-const IN_WINDOW = new Date("2026-06-10T15:00:00Z"); // SP 12:00
+const IN_WINDOW = new Date("2026-06-10T13:30:00Z"); // quarta, SP 10:30 (janela 9-12)
 let campId = "";
 let stepId = "";
 let instId = "";
@@ -20,14 +20,14 @@ let n = 0;
 
 async function mkLead(over: Record<string, unknown> = {}) {
   n++;
-  return prisma.lead.create({ data: { campaignId: campId, name: `Ana ${n}`, company: "Acme", phone: `+55119${String(10000000 + n * 7 + Date.now() % 1000000).slice(0, 8)}`, ...over } });
+  return prisma.lead.create({ data: { campaignId: campId, name: `Ana ${n}`, company: "Acme", hasWhatsapp: true, phone: `+55119${String(10000000 + n * 7 + Date.now() % 1000000).slice(0, 8)}`, ...over } });
 }
 const mkTouch = (leadId: string, over: Record<string, unknown> = {}) => prisma.touch.create({ data: { leadId, channel: "whatsapp", stepId, status: "scheduled", ...over } });
 const get = (id: string) => prisma.touch.findUniqueOrThrow({ where: { id } });
 const setInst = (data: Record<string, unknown>) => prisma.whatsAppInstance.update({ where: { id: instId }, data });
 async function reset() {
   await prisma.touch.deleteMany({ where: { lead: { campaignId: campId } } });
-  await setInst({ status: "connected", dailyLimit: 30 });
+  await setInst({ status: "connected", dailyLimit: 30, health: "good", pausedUntil: null, pausedReason: null, healthResetAt: null, warmupStartedAt: new Date("2026-01-01T00:00:00Z") });
 }
 
 beforeAll(async () => {
@@ -68,7 +68,7 @@ describe("sendWhatsApp (somente FakeWhatsAppProvider)", () => {
     expect(fake.sent).toHaveLength(1);
   });
 
-  it("fora da janela: não chama API, scheduled com scheduledAt = próximo 08:00 do lead", async () => {
+  it("fora da janela: não chama API, scheduled com scheduledAt = próximo início de janela (9h) do lead", async () => {
     await reset();
     const fake = new FakeWhatsAppProvider();
     const lead = await mkLead();
@@ -78,7 +78,7 @@ describe("sendWhatsApp (somente FakeWhatsAppProvider)", () => {
     expect(fake.sent).toHaveLength(0);
     const db = await get(t.id);
     expect(db.status).toBe("scheduled");
-    expect(db.scheduledAt?.toISOString()).toBe("2026-06-11T11:00:00.000Z");
+    expect(db.scheduledAt?.toISOString()).toBe("2026-06-11T12:00:00.000Z"); // quinta 09:00 SP
   });
 
   it("janela usa o fuso do lead (Tóquio 21:00 = fora)", async () => {
@@ -143,23 +143,23 @@ describe("sendWhatsApp (somente FakeWhatsAppProvider)", () => {
     await setInst({ dailyLimit: 1 });
     const fake = new FakeWhatsAppProvider();
     const t1 = await mkTouch((await mkLead()).id);
-    expect((await sendWhatsApp(t1.id, { now: new Date("2026-06-10T15:00:00Z"), provider: fake })).status).toBe("sent");
+    expect((await sendWhatsApp(t1.id, { now: new Date("2026-06-10T13:30:00Z"), provider: fake })).status).toBe("sent");
     const t2 = await mkTouch((await mkLead()).id);
-    // 60s depois (intervalo mínimo já cumprido com rng 0 = 20s); limite estourou
-    const r = await sendWhatsApp(t2.id, { now: new Date("2026-06-10T15:01:00Z"), provider: fake, rng: () => 0 });
+    // 60s depois (intervalo mínimo já cumprido com rng 0 = 45s); limite estourou
+    const r = await sendWhatsApp(t2.id, { now: new Date("2026-06-10T13:31:00Z"), provider: fake, rng: () => 0 });
     expect(r).toMatchObject({ status: "deferred", reason: "daily_limit" });
     const db = await get(t2.id);
     expect(db.status).toBe("scheduled");
-    expect(db.scheduledAt?.toISOString()).toBe("2026-06-11T11:00:00.000Z");
+    expect(db.scheduledAt?.toISOString()).toBe("2026-06-11T12:00:00.000Z");
     expect(fake.sent).toHaveLength(1);
-    // lead em Tóquio: 08:00 SP do dia seguinte (11:00Z) = 20:00 Tóquio -> fora da janela; vai para o próximo 08:00 Tóquio
+    // lead em Tóquio: 8:00 SP do dia seguinte = 20:00 Tóquio -> fora da janela; vai para o próximo 09:00 Tóquio
     await reset();
     await setInst({ dailyLimit: 1 });
     const u1 = await mkTouch((await mkLead({ timezone: "Asia/Tokyo" })).id);
-    expect((await sendWhatsApp(u1.id, { now: new Date("2026-06-10T04:00:00Z"), provider: fake })).status).toBe("sent");
+    expect((await sendWhatsApp(u1.id, { now: new Date("2026-06-10T02:00:00Z"), provider: fake })).status).toBe("sent"); // 11:00 Tóquio
     const u2 = await mkTouch((await mkLead({ timezone: "Asia/Tokyo" })).id);
-    expect(await sendWhatsApp(u2.id, { now: new Date("2026-06-10T05:00:00Z"), provider: fake })).toMatchObject({ status: "deferred", reason: "daily_limit" });
-    expect((await get(u2.id)).scheduledAt?.toISOString()).toBe("2026-06-11T23:00:00.000Z"); // 12/jun 08:00 Tóquio
+    expect(await sendWhatsApp(u2.id, { now: new Date("2026-06-10T02:05:00Z"), provider: fake })).toMatchObject({ status: "deferred", reason: "daily_limit" });
+    expect((await get(u2.id)).scheduledAt?.toISOString()).toBe("2026-06-11T00:00:00.000Z"); // 11/jun 09:00 Tóquio
   });
 
   it("dia novo (SP) zera a contagem", async () => {
@@ -167,12 +167,12 @@ describe("sendWhatsApp (somente FakeWhatsAppProvider)", () => {
     await setInst({ dailyLimit: 1 });
     const fake = new FakeWhatsAppProvider();
     const t1 = await mkTouch((await mkLead()).id);
-    await sendWhatsApp(t1.id, { now: new Date("2026-06-10T15:00:00Z"), provider: fake });
+    await sendWhatsApp(t1.id, { now: new Date("2026-06-10T13:30:00Z"), provider: fake });
     const t2 = await mkTouch((await mkLead()).id);
-    expect((await sendWhatsApp(t2.id, { now: new Date("2026-06-11T15:00:00Z"), provider: fake })).status).toBe("sent");
+    expect((await sendWhatsApp(t2.id, { now: new Date("2026-06-11T13:30:00Z"), provider: fake })).status).toBe("sent");
   });
 
-  it("intervalo mínimo 20-60s entre envios da mesma instância (deferral, sem sleep)", async () => {
+  it("intervalo mínimo 45-180s entre envios da mesma instância (deferral, sem sleep)", async () => {
     await reset();
     const fake = new FakeWhatsAppProvider();
     const t1 = await mkTouch((await mkLead()).id);
@@ -181,9 +181,9 @@ describe("sendWhatsApp (somente FakeWhatsAppProvider)", () => {
     const at = new Date(IN_WINDOW.getTime() + 5_000);
     const r = await sendWhatsApp(t2.id, { now: at, provider: fake, rng: () => 0 });
     expect(r).toMatchObject({ status: "deferred", reason: "min_interval" });
-    expect((await get(t2.id)).scheduledAt?.getTime()).toBe(IN_WINDOW.getTime() + 20_000);
+    expect((await get(t2.id)).scheduledAt?.getTime()).toBe(IN_WINDOW.getTime() + 45_000);
     expect(fake.sent).toHaveLength(1);
-    const later = new Date(IN_WINDOW.getTime() + 61_000);
+    const later = new Date(IN_WINDOW.getTime() + 181_000);
     expect((await sendWhatsApp(t2.id, { now: later, provider: fake })).status).toBe("sent");
   });
 
@@ -223,7 +223,7 @@ describe("sendWhatsApp (somente FakeWhatsAppProvider)", () => {
     const db = await get(t.id);
     expect(db.status).toBe("failed");
     expect(db.error).toBe(TIMEOUT_WARNING.slice(0, 200));
-    expect(db.whatsappInstanceId).toBeNull();
+    expect(db.whatsappInstanceId).toBe(instId);
   });
 
   it("exceção inesperada nunca deixa Touch em sending", async () => {

@@ -8,7 +8,7 @@ export interface NavItem {
 }
 
 export const NAV_ITEMS: readonly NavItem[] = [
-  { href: "/", label: "Dashboard", description: "Visão geral das métricas de prospecção.", icon: LayoutDashboard },
+  { href: "/dashboard", label: "Dashboard", description: "Visão geral das métricas de prospecção.", icon: LayoutDashboard },
   { href: "/pipeline", label: "Pipeline", description: "Acompanhe leads por etapa do funil.", icon: Kanban },
   { href: "/leads", label: "Leads", description: "Lista e detalhes dos seus leads.", icon: Users },
   { href: "/campanhas", label: "Campanhas", description: "Gerencie campanhas e ICPs.", icon: Megaphone },
@@ -17,7 +17,7 @@ export const NAV_ITEMS: readonly NavItem[] = [
 ];
 
 export function isActivePath(pathname: string, href: string): boolean {
-  return href === "/" ? pathname === "/" : pathname === href || pathname.startsWith(`${href}/`);
+  return pathname === href || pathname.startsWith(`${href}/`);
 }
 
 export function getPageTitle(pathname: string): string {

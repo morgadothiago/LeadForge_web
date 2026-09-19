@@ -3,6 +3,7 @@ import { CampaignActions } from "@/components/campaigns/CampaignActions";
 import { CampaignForm } from "@/components/campaigns/CampaignForm";
 import { CampaignStatusBadge } from "@/components/campaigns/CampaignStatusBadge";
 import { getCampaign, listCampaignFormOptions, listIcps } from "@/lib/queries/campaigns";
+import { listWhatsAppInstances } from "@/lib/queries/whatsapp";
 import { idSchema } from "@/lib/schemas/campaign";
 
 export const dynamic = "force-dynamic";
@@ -10,7 +11,8 @@ export const dynamic = "force-dynamic";
 export default async function Page({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   if (!idSchema.safeParse(id).success) notFound();
-  const [campaign, icps, { sequences, whatsappInstances }] = await Promise.all([
+  const [waInstances, campaign, icps, { sequences }] = await Promise.all([
+    listWhatsAppInstances(),
     getCampaign(id),
     listIcps(),
     listCampaignFormOptions(),
@@ -47,7 +49,7 @@ export default async function Page({ params }: { params: Promise<{ id: string }>
         }}
         icps={icps.map(({ id, name, niche }) => ({ id, name, niche }))}
         sequences={sequences}
-        whatsappInstances={whatsappInstances}
+        whatsappInstances={waInstances.map(({ id, instanceName, status }) => ({ id, instanceName, status }))}
       />
     </div>
   );

@@ -7,6 +7,7 @@ import { processInbound } from "@/lib/domain/whatsapp-inbound";
 import { getWhatsAppProvider, type StatusEvent, type WebhookEvent, type WhatsAppProvider } from "./provider";
 import { invalidAttemptRetry, validTrafficRetry } from "./webhook-rate-limit";
 import { redactWebhookToken } from "./redact";
+import { evaluateInstanceHealth, onConnectionChange } from "./health";
 
 /** 32 bytes em base64url = 43 caracteres. Formato inválido nunca chega ao banco nem cria chave de rate limit. */
 const TOKEN_RE = /^[A-Za-z0-9_-]{43}$/;
@@ -30,12 +31,14 @@ function log(msg: string): void {
   console.info(`[whatsapp-webhook] ${redactWebhookToken(msg)}`);
 }
 
-async function updateStatus(instance: { id: string }, ev: Extract<StatusEvent, { kind: "connection" | "qrcode" }>, now: Date): Promise<void> {
+async function updateStatus(instance: { id: string; status: string }, ev: Extract<StatusEvent, { kind: "connection" | "qrcode" }>, now: Date): Promise<void> {
   if (ev.kind === "connection") {
     await prisma.whatsAppInstance.update({
       where: { id: instance.id },
       data: ev.status === "connected" ? { status: "connected", lastConnectedAt: now, lastError: null } : { status: ev.status },
     });
+    // SPEC-017: 1ª conexão inicia o aquecimento; desconexão de instância conectada pausa o envio.
+    await onConnectionChange(instance, ev.status, now, { loggedOut: ev.loggedOut });
   } else {
     // QR novo = sessão ainda não pareada. O QR em si não é armazenado (a tela usa getInstanceQr).
     await prisma.whatsAppInstance.update({ where: { id: instance.id }, data: { status: "connecting" } });
@@ -85,6 +88,29 @@ async function persist(instance: { id: string }, ev: Exclude<WebhookEvent, { kin
   }
 }
 
+/** Lê o stream com teto real de bytes (sem confiar em content-length). null = excedeu o teto (o stream é cancelado). */
+async function readBodyLimited(request: Request, max: number): Promise<Uint8Array | null> {
+  if (Number(request.headers.get("content-length") ?? 0) > max) return null;
+  if (!request.body) return new Uint8Array(0);
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > max) {
+      await reader.cancel().catch(() => undefined);
+      return null;
+    }
+    chunks.push(value);
+  }
+  const out = new Uint8Array(total);
+  let off = 0;
+  for (const c of chunks) { out.set(c, off); off += c.byteLength; }
+  return out;
+}
+
 /**
  * Receiver do webhook do WhatsApp (SPEC-012). Ordem: formato do token -> instância pelo token -> verify (tempo constante + apikey opcional)
  * -> rate limit (global/token) -> parseWebhook (400) -> conferência de instância -> processamento no banco. Sem chamada externa síncrona.
@@ -106,12 +132,14 @@ export async function handleWhatsAppWebhook(request: Request, token: string, opt
     if (instance.apiKey) {
       try { apiKey = decrypt(instance.apiKey); } catch { log(`apiKey da instância ${instance.instanceName} ilegível; 2º fator ignorado`); }
     }
+    // Teto REAL de bytes ANTES de verify/parse: ambos passam a operar sobre uma cópia já limitada (nunca relêem corpo ilimitado).
+    const bytes = await readBodyLimited(request, MAX_BODY_BYTES);
+    if (!bytes) return json(413, { error: "payload_too_large", message: "Corpo da requisição grande demais." });
+    request = new Request(request.url, { method: request.method, headers: request.headers, body: bytes.byteLength ? (bytes as unknown as BodyInit) : undefined });
     if (!(await provider.verifyWebhook(request, { webhookToken: instance.webhookToken, apiKey }, token))) return unauthorized();
 
     const wait = validTrafficRetry(token, now.getTime());
     if (wait !== null) return tooManyRequests(wait);
-
-    if (Number(request.headers.get("content-length") ?? 0) > MAX_BODY_BYTES) return json(413, { error: "payload_too_large", message: "Corpo da requisição grande demais." });
 
     let event: WebhookEvent | null;
     try {
@@ -127,7 +155,9 @@ export async function handleWhatsAppWebhook(request: Request, token: string, opt
       await updateStatus(instance, event, now);
       return ok("status_updated");
     }
-    return ok(await persist(instance, event, now));
+    const result = await persist(instance, event, now);
+    if (event.kind === "message_status") await evaluateInstanceHealth(instance.id, now);
+    return ok(result);
   } catch (e) {
     console.error("[whatsapp-webhook] erro:", redactWebhookToken(safeErrorForLog(e)));
     return json(500, { error: "internal_error", message: "Não foi possível processar o webhook." });

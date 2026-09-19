@@ -60,6 +60,7 @@ beforeAll(async () => {
 }, 30000);
 
 afterAll(async () => {
+  await prisma.suppression.deleteMany({ where: { value: { contains: TAG } } });
   await prisma.lead.deleteMany({ where: { campaignId: campId } });
   await prisma.emailAccount.deleteMany({ where: { email: { contains: TAG } } });
   await prisma.sequenceStep.deleteMany({ where: { id: stepId } });

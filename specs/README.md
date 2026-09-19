@@ -1,5 +1,5 @@
 # LeadForge — Indice de SPECs (SDD)
-SPECs 000-008 APPROVED (usuario, 2026-09-19); 013-015 DRAFT (009-012, 016, 017 APPROVED). Aprovar com `APROVAR SPEC-XXX`. Uma SPEC por vez, na ordem. Toda SPEC de codigo Next 16: ler `node_modules/next/dist/docs/` antes (AGENTS.md).
+SPECs 000-008 APPROVED (usuario, 2026-09-19); 014, 015, 018 DRAFT (013 APPROVED). Aprovar com `APROVAR SPEC-XXX`. Uma SPEC por vez, na ordem. Toda SPEC de codigo Next 16: ler `node_modules/next/dist/docs/` antes (AGENTS.md).
 Fullstack = executa dev-backend primeiro, depois dev-frontend.
 
 | SPEC | Feature | Agente | Sessao | Status | Depende de |
@@ -15,11 +15,13 @@ Fullstack = executa dev-backend primeiro, depois dev-frontend.
 | 008 | Leads (lista/detalhe) | backend+frontend | 1 | APPROVED | 001,003,007 |
 | 009 | Autenticacao | backend+frontend | 2 (antecipar?) | APPROVED | 001,003 |
 | 010 | Email Nodemailer | backend (+cfg UI) | 2 | APPROVED | 001,006,008 |
-| 011 | WhatsApp Evolution | backend+frontend | 2 | APPROVED | 001,005 |
-| 012 | Webhook receiver | dev-backend | 2 | APPROVED | 011 |
-| 013 | Scheduler follow-up | dev-backend | 2 | DRAFT | 006,010,011,012 |
+| 011 | WhatsApp Evolution | backend+frontend | 2 | IMPLEMENTED | 001,005 |
+| 012 | Webhook receiver | dev-backend | 2 | IMPLEMENTED | 011 |
+| 013 | Scheduler follow-up | dev-backend | 2 | APPROVED | 006,010,011,012 |
 | 014 | Integracao n8n | dev-backend | 2/posterior | DRAFT | 013 |
-| 017 | Politica de envio gentil + anti-banimento + supressao global | backend+frontend | 2 | APPROVED | 010,011,012 |
+| 017 | Politica de envio gentil + anti-banimento + supressao global | backend+frontend | 2 | IMPLEMENTED | 010,011,012 |
+| 019 | Agentes de IA (SDR, Follow-up, Closer) configuraveis | backend+frontend | 3 (depois de 013 e 018) | DRAFT | 013,017,012,018 |
+| 018 | Chaves de API e integracoes pelo painel (Configuracoes) | backend+frontend | 2 (depois de 017/013) | DRAFT | 009,010,011,016 |
 | 016 | Erros HTTP/axios em PT-BR (prerequisito de 011-015) | dev-backend | 2 | APPROVED | 000 |
 | 015 | Busca de leads por IA | dev-backend | posterior | DRAFT | 005,008,014 |
 

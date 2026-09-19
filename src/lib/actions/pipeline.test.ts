@@ -70,7 +70,7 @@ describe("pipeline", () => {
     expect(h).toHaveLength(1);
     expect(h[0].toStage).toBe("contactado");
     expect(revalidatePath).toHaveBeenCalledWith("/pipeline");
-    expect(revalidatePath).toHaveBeenCalledWith("/");
+    expect(revalidatePath).toHaveBeenCalledWith("/dashboard");
   });
 
   it("reordena na mesma coluna e limita toIndex", async () => {

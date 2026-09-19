@@ -18,7 +18,7 @@ export interface InboundMessage {
 }
 
 export type StatusEvent =
-  | { kind: "connection"; instanceName: string; status: ConnectionState }
+  | { kind: "connection"; instanceName: string; status: ConnectionState; /** Logout real confirmado pelo provider (Evolution: statusReason 401/loggedOut). */ loggedOut?: boolean }
   | { kind: "qrcode"; instanceName: string; qrCode: string }
   | { kind: "message_status"; instanceName: string; externalId: string; status: "sent" | "delivered" | "read" | "failed" };
 
@@ -54,12 +54,23 @@ export interface SendTextResult {
   externalId: string;
 }
 
+export interface NumberCheck {
+  /** E.164 (+55...) como enviado. */
+  number: string;
+  exists: boolean;
+}
+
 export interface WhatsAppProvider {
   createInstance(input: CreateInstanceInput): Promise<CreateInstanceResult>;
   getQr(instanceName: string): Promise<QrResult>;
   getStatus(instanceName: string): Promise<{ status: ConnectionState }>;
   /** NÃO idempotente: implementações não podem repetir automaticamente (evita mensagem duplicada). */
   sendText(input: SendTextInput): Promise<SendTextResult>;
+  /**
+   * Verifica quais números têm WhatsApp (SPEC-017). Falha (429/timeout/upstream) lança AppError: o chamador NUNCA envia às cegas.
+   * Evolution: PENDENTE de verificação contra a v2.1.1 real.
+   */
+  checkNumbers(instanceName: string, numbers: string[]): Promise<NumberCheck[]>;
   deleteInstance?(instanceName: string): Promise<void>;
   logoutInstance?(instanceName: string): Promise<void>;
   /** null = evento ignorado (grupo, fromMe, tipo sem texto, evento desconhecido). Payload malformado -> AppError validation. */

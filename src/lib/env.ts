@@ -16,6 +16,8 @@ export const envSchema = z.object({
   ADMIN_PASSWORD: z.string().min(12, "ADMIN_PASSWORD deve ter ao menos 12 caracteres.").optional(),
   AUTH_URL: z.string().url().optional(),
   ENCRYPTION_KEY: z.string().min(1).optional(),
+  /** SPEC-017: palavras promocionais (vírgulas) usadas no validador do 1º toque de WhatsApp. Default: lista embutida. */
+  WHATSAPP_PROMO_WORDS: z.string().optional(),
 });
 
 export type Env = z.infer<typeof envSchema>;

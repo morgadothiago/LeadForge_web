@@ -61,21 +61,21 @@ describe("actions/queries WhatsApp", () => {
     expect(cfg).toEqual({ ok: true, data: { url: `http://app.test/api/webhooks/whatsapp/${row.webhookToken}`, token: row.webhookToken } });
   });
 
-  it("valida: nome duplicado, número inválido, limite fora de 1-200, nome inválido", async () => {
+  it("valida: nome duplicado, número inválido, limite fora de 1-40, nome inválido", async () => {
     await mk("dup");
     expect(await createWhatsAppInstance({ instanceName: `${TAG}-dup`, number: NUMBER })).toMatchObject({ ok: false, errors: { instanceName: [expect.stringMatching(/Já existe/)] } });
     expect(f.created).toHaveLength(1); // duplicado não chama o provider
     expect(await createWhatsAppInstance({ instanceName: `${TAG}-x`, number: "123" })).toMatchObject({ ok: false, errors: { number: [expect.stringMatching(/Telefone inválido/)] } });
     expect(await createWhatsAppInstance({ instanceName: "a b", number: NUMBER })).toMatchObject({ ok: false });
-    expect(await createWhatsAppInstance({ instanceName: `${TAG}-y`, number: NUMBER, dailyLimit: 201 })).toMatchObject({ ok: false, errors: { dailyLimit: [expect.stringMatching(/máximo/)] } });
+    expect(await createWhatsAppInstance({ instanceName: `${TAG}-y`, number: NUMBER, dailyLimit: 41 })).toMatchObject({ ok: false, errors: { dailyLimit: [expect.stringMatching(/máximo/)] } });
   });
 
-  it("updateInstance: dailyLimit 1-200 e número", async () => {
+  it("updateInstance: dailyLimit 1-40 e número", async () => {
     const id = await mk("upd");
     expect(await updateInstance({ id, dailyLimit: 0 })).toMatchObject({ ok: false });
-    expect(await updateInstance({ id, dailyLimit: 201 })).toMatchObject({ ok: false });
-    expect(await updateInstance({ id, dailyLimit: 50, number: "11 98888-7777" })).toMatchObject({ ok: true });
-    expect(await prisma.whatsAppInstance.findUniqueOrThrow({ where: { id } })).toMatchObject({ dailyLimit: 50, number: "+5511988887777" });
+    expect(await updateInstance({ id, dailyLimit: 41 })).toMatchObject({ ok: false });
+    expect(await updateInstance({ id, dailyLimit: 40, number: "11 98888-7777" })).toMatchObject({ ok: true });
+    expect(await prisma.whatsAppInstance.findUniqueOrThrow({ where: { id } })).toMatchObject({ dailyLimit: 40, number: "+5511988887777" });
     expect(await updateInstance({ id: "00000000-0000-4000-8000-000000000000", dailyLimit: 5 })).toMatchObject({ ok: false });
   });
 

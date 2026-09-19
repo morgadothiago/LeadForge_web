@@ -1,5 +1,5 @@
-/** Aceita apenas caminhos internos ("/x"); rejeita "//host", "/\host", URLs absolutas, controle/espacos. Fallback "/". */
-export function safeNext(next: unknown, fallback = "/"): string {
+/** Aceita apenas caminhos internos ("/x"); rejeita "//host", "/\host", URLs absolutas, controle/espacos. Fallback "/dashboard". */
+export function safeNext(next: unknown, fallback = "/dashboard"): string {
   if (typeof next !== "string" || next.length === 0 || next.length > 2048) return fallback;
   if (!next.startsWith("/")) return fallback;
   if (next.startsWith("//") || next.startsWith("/\\")) return fallback;

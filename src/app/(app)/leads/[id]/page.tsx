@@ -2,11 +2,14 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import { StatusBadge } from "@/components/domain/StatusBadge";
+import { InboundReply } from "@/components/leads/InboundReply";
+import { PossibleOptOutAlert } from "@/components/leads/PossibleOptOutAlert";
 import { LeadActions } from "@/components/leads/LeadActions";
 import { LeadNotes } from "@/components/leads/LeadNotes";
 import { LeadTags } from "@/components/leads/LeadTags";
 import { LeadTimeline } from "@/components/leads/LeadTimeline";
-import { formatDateTime, formatPhone, relativeTime } from "@/components/leads/lead-format";
+import { SuppressedBadge } from "@/components/leads/SuppressedBadge";
+import { formatDateTime, formatPhone, relativeTime, whatsappStatusText } from "@/components/leads/lead-format";
 import { formatBRL } from "@/components/pipeline/board-state";
 import { Card } from "@/components/ui/card";
 import { SEQUENCE_STATUS_LABELS } from "@/lib/domain";
@@ -67,13 +70,23 @@ export default async function Page({ params }: { params: Promise<{ id: string }>
             {opp && <StatusBadge stage={opp.stage} />}
             {lead.company && <span>{lead.company}</span>}
             <span>Score {lead.score}</span>
+            {lead.suppressed && <SuppressedBadge />}
           </p>
         </div>
         <LeadActions
           stage={opp?.stage ?? null}
+          suppressed={Boolean(lead.suppressed)}
           lead={{ id: lead.id, name: lead.name, company: lead.company, email: lead.email, phone: lead.phone, website: lead.website, linkedin: lead.linkedin, source: lead.source }}
         />
       </div>
+
+      {lead.possibleOptOut && <PossibleOptOutAlert leadId={lead.id} leadName={lead.name} className="max-w-xl text-sm" />}
+      {lead.lastInboundAt && (
+        <Card className="p-4">
+          <h3 className="mb-2 font-heading text-base font-semibold">Última resposta</h3>
+          <InboundReply at={lead.lastInboundAt} text={lead.lastInboundText} max={200} className="text-sm" />
+        </Card>
+      )}
 
       <div className="grid gap-6 lg:grid-cols-3">
         <div className="space-y-6 lg:col-span-2">
@@ -82,6 +95,7 @@ export default async function Page({ params }: { params: Promise<{ id: string }>
             <dl className="grid gap-4 sm:grid-cols-2">
               <Item label="E-mail">{lead.email}</Item>
               <Item label="Telefone">{formatPhone(lead.phone)}</Item>
+              {lead.phone && <Item label="Tem WhatsApp">{whatsappStatusText(lead.hasWhatsapp, lead.whatsappCheckedAt)}</Item>}
               <Item label="Site">{ext(lead.website)}</Item>
               <Item label="LinkedIn">{ext(lead.linkedin)}</Item>
               <Item label="Campanha">
