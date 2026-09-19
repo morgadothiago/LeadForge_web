@@ -2,15 +2,21 @@ import Link from "next/link";
 import { FileText, MessageCircle, Users, Workflow } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import type { CampaignListItem } from "@/lib/queries/campaigns";
+import { Badge } from "@/components/ui/badge";
+import { NO_CHANNELS_TEXT, autoStartLabel } from "@/components/sequences/sequence-start-format";
 import { CampaignActions } from "./CampaignActions";
 import { CampaignStatusBadge } from "./CampaignStatusBadge";
 
-export function CampaignCard({ campaign: c }: { campaign: CampaignListItem }) {
+export function CampaignCard({ campaign: c, noChannels = false }: { campaign: CampaignListItem; noChannels?: boolean }) {
   return (
     <Card className="hover-lift flex flex-col gap-3 p-5">
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0 space-y-1.5">
-          <CampaignStatusBadge status={c.status} />
+          <div className="flex flex-wrap items-center gap-1.5">
+            <CampaignStatusBadge status={c.status} />
+            <Badge variant="muted">Início: {autoStartLabel(c.autoStart)}</Badge>
+            {noChannels && <Badge variant="destructive">{NO_CHANNELS_TEXT}</Badge>}
+          </div>
           <h2 className="truncate font-heading text-base font-semibold">
             <Link
               href={`/campanhas/${c.id}`}

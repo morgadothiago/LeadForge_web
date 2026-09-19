@@ -9,6 +9,7 @@ process.env.ENCRYPTION_KEY = randomBytes(32).toString("base64");
 process.env.APP_BASE_URL = "http://app.test";
 
 import { prisma } from "@/lib/prisma";
+import { purgeTestCampaigns } from "@/lib/test-utils/purge";
 import { signInAsSeedAdmin } from "@/lib/auth/test-helpers";
 import { seed } from "../../../prisma/seed";
 import { AppError } from "@/lib/errors";
@@ -24,6 +25,7 @@ let instId = "";
 const OLD = randomBytes(32).toString("base64url");
 
 beforeAll(async () => {
+  await purgeTestCampaigns(TAG);
   await seed(prisma);
   await signInAsSeedAdmin();
   const user = await prisma.user.findFirstOrThrow({ where: { email: "admin@leadforge.local" } });
@@ -33,6 +35,7 @@ beforeAll(async () => {
   campId = (await prisma.campaign.create({ data: { name: TAG, userId: user.id, icpId: icp.id, sequenceId: seq.id, whatsappInstanceId: instId } })).id;
 }, 30000);
 afterAll(async () => {
+  await purgeTestCampaigns(TAG).catch(() => {});
   await prisma.suppression.deleteMany({ where: { leadId: { in: (await prisma.lead.findMany({ where: { campaignId: campId }, select: { id: true } })).map((l) => l.id) } } });
   await prisma.lead.deleteMany({ where: { campaignId: campId } });
   await prisma.campaign.deleteMany({ where: { id: campId } });

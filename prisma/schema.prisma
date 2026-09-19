@@ -23,6 +23,8 @@ enum SequenceStatus {
   not_started
   active
   paused_replied
+  /// SPEC-013: parada manual (stopSequence). Só volta por startSequence.
+  paused_manual
   completed
   opted_out
 }
@@ -120,6 +122,8 @@ model Campaign {
   icp                IcpProfile        @relation(fields: [icpId], references: [id], onDelete: Restrict)
   sequenceId         String?
   sequence           Sequence?         @relation(fields: [sequenceId], references: [id], onDelete: SetNull)
+  /// SPEC-013: true = fase 0 do tick inicia sozinha leads not_started elegíveis. Default false (início explícito).
+  autoStart          Boolean           @default(false)
   whatsappInstanceId String?
   whatsappInstance   WhatsAppInstance? @relation(fields: [whatsappInstanceId], references: [id], onDelete: SetNull)
   userId             String

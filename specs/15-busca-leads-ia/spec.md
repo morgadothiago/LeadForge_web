@@ -16,3 +16,6 @@ Interface `LeadSource` (search(icp) -> RawLead[]), 1 adaptador aprovado, normali
 
 ## Regra transversal: HTTP/429
 Aplicar as regras de HTTP de saida e rate limit de specs/README.md (clients de busca/LLM): axios com interceptor, tratamento de 429 com `Retry-After`/backoff, testes de 429/5xx/timeout.
+
+## Padrao pre-configurado (usuario: "deixar tudo pre-configurado para arrumar depois", 2026-09-19)
+Defaults CONSERVADORES e reversiveis (D21-23): fonte = interface `LeadSource` com UMA implementacao inicial baseada em API OFICIAL (Google Places) com chave cadastrada no painel (SPEC-018); SEM scraping do LinkedIn nem de sites (viola termos e amplia risco LGPD); LLM opcional so para qualificar/pontuar (SPEC-019/`LlmProvider`); frequencia manual + agendada configuravel; teto de custo e de resultados por execucao; DESLIGADA ate existir chave e orcamento; resultados entram como leads com origem/fonte registradas, deduplicados, e passam pela supressao global antes de qualquer contato; so telefones/e-mails de cadastro publico de empresas; registrar base legal (interesse legitimo B2B) e fonte. Revisavel depois. Ver docs/CONFIGURACAO_POS_PROJETO.md.

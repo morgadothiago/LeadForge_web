@@ -18,6 +18,10 @@ export const envSchema = z.object({
   ENCRYPTION_KEY: z.string().min(1).optional(),
   /** SPEC-017: palavras promocionais (vírgulas) usadas no validador do 1º toque de WhatsApp. Default: lista embutida. */
   WHATSAPP_PROMO_WORDS: z.string().optional(),
+  /** SPEC-013: segredo do /api/cron/tick (32+ chars). Ausente/curto => endpoint 503. Validado em runtime (scheduler/config), não aqui, para não derrubar o app. */
+  CRON_SECRET: z.string().optional(),
+  SCHEDULER_TIME_BUDGET_MS: z.string().optional(),
+  SCHEDULER_MAX_SENDS: z.string().optional(),
 });
 
 export type Env = z.infer<typeof envSchema>;

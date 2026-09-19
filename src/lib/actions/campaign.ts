@@ -39,7 +39,7 @@ export async function createCampaign(input: unknown): Promise<ActionResult<{ id:
     const user = await requireUser();
     const parsed = campaignCreateSchema.safeParse(input);
     if (!parsed.success) return { ok: false, errors: zodErrors(parsed.error) };
-    const { icp, icpId, sequenceId, whatsappInstanceId, name, description, status } = parsed.data;
+    const { icp, icpId, sequenceId, whatsappInstanceId, name, description, status, autoStart } = parsed.data;
     const refErrors = await checkRefs({ icpId, sequenceId, whatsappInstanceId });
     if (refErrors) return failure(refErrors);
 
@@ -47,7 +47,7 @@ export async function createCampaign(input: unknown): Promise<ActionResult<{ id:
       const resolvedIcpId = icp ? (await tx.icpProfile.create({ data: icp, select: { id: true } })).id : icpId;
       if (!resolvedIcpId) throw new Error("icpId ausente após validação.");
       return tx.campaign.create({
-        data: { name, description, status, sequenceId, whatsappInstanceId, userId: user.id, icpId: resolvedIcpId },
+        data: { name, description, status, ...(autoStart !== undefined ? { autoStart } : {}), sequenceId, whatsappInstanceId, userId: user.id, icpId: resolvedIcpId },
         select: { id: true },
       });
     });

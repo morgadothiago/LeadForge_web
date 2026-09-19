@@ -25,6 +25,8 @@ const baseFields = {
     .transform((v) => (v ? v : null)),
   sequenceId: optionalId("Sequência"),
   whatsappInstanceId: optionalId("Instância de WhatsApp"),
+  /** SPEC-013: início automático (default false = início explícito). Omitido na edição = não altera. */
+  autoStart: z.boolean({ error: "Valor inválido para início automático." }).optional(),
 };
 
 /** ICP existente (icpId) ou inline (icp). Exatamente um dos dois. */

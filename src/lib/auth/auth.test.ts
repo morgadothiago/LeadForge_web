@@ -210,8 +210,8 @@ describe("proxy", () => {
   it("matcher: só assets exatos passam; paths dinâmicos com extensão são protegidos", async () => {
     const { config } = await import("@/proxy");
     const re = new RegExp(`^${config.matcher[0]}$`);
-    for (const p of ["/leads/abc.png", "/campanhas/x.svg", "/sequences/x.txt", "/pipeline.js", "/pipeline", "/leads", "/", "/api/outra", "/favicon.ico.x", "/api/webhooksx"]) expect(re.test(p), p).toBe(true);
-    for (const p of ["/_next/static/x.js", "/favicon.ico", "/file.svg", "/api/webhooks/x", "/api/webhooks/evolution"]) expect(re.test(p), p).toBe(false);
+    for (const p of ["/leads/abc.png", "/campanhas/x.svg", "/sequences/x.txt", "/pipeline.js", "/pipeline", "/leads", "/", "/api/outra", "/favicon.ico.x", "/api/webhooksx", "/api/cronx", "/api/other", "/api/cron-tick", "/api/crons/tick"]) expect(re.test(p), p).toBe(true);
+    for (const p of ["/_next/static/x.js", "/favicon.ico", "/file.svg", "/api/webhooks/x", "/api/webhooks/evolution", "/api/cron/tick", "/api/cron", "/api/cron/x/y"]) expect(re.test(p), p).toBe(false);
     expect((await proxy(req("/leads/abc.png"))).status).toBe(307);
     expect((await proxy(req("/login"))).status).toBe(200);
   });

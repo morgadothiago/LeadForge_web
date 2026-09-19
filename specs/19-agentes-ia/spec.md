@@ -51,3 +51,6 @@ Provider fake com replay; conjunto de conversas de referencia (regressao); teste
 - [ ] build/lint/typecheck OK.
 ## Riscos (honestos)
 Conversa automatizada em numero nao oficial aumenta o risco de denuncia e banimento; alucinacao de preco/condicao; injecao de prompt via mensagem do lead; custo; expectativa legal sobre transparencia e bots no WhatsApp pode mudar; qualidade depende da base de conhecimento; sem verificacao real com provedor de IA, Evolution e navegador ate haver credenciais.
+
+## Padrao pre-configurado (usuario: "deixar tudo pre-configurado para arrumar depois", 2026-09-19)
+D24-D28 adotados com as recomendacoes: SDR e Follow-up primeiro (rascunho), Closer depois; provedor via `LlmProvider` (Claude); teto de gasto configuravel, valor a definir (padrao: agentes DESLIGADOS ate haver chave e teto); aviso de IA ligado no Closer; autonomia padrao `draft`. Todos ajustaveis depois pelo painel. Continua NAO implementar antes da SPEC-013 e da SPEC-018.

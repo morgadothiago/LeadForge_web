@@ -60,6 +60,9 @@ export async function seed(prisma: PrismaClient, now: Date = new Date()) {
       icpId: SEED_IDS.icp,
       sequenceId: SEED_IDS.sequence,
       userId: SEED_IDS.user,
+      // Dado de teste nunca pode disparar envio: campanha nasce pausada e sem início automático (SPEC-013).
+      status: "paused",
+      autoStart: false,
     },
   });
   for (const s of STEPS) {
@@ -200,7 +203,9 @@ export async function seed(prisma: PrismaClient, now: Date = new Date()) {
           stepId: stepRow.id,
           channel: step.channel,
           direction: "outbound",
-          status: "scheduled",
+          // Já `skipped`: nada de seed pode ser enviado (o histórico do dashboard não depende de agendados futuros).
+          status: "skipped",
+          error: "dado de teste (seed)",
           scheduledAt: nextTouchAt,
           createdAt: lastSent,
         },

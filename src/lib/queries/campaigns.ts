@@ -22,6 +22,8 @@ export interface CampaignListItem {
   name: string;
   description: string | null;
   status: CampaignStatus;
+  /** SPEC-013: true = o scheduler inicia sozinho leads not_started elegíveis. */
+  autoStart: boolean;
   createdAt: Date;
   updatedAt: Date;
   icp: { id: string; name: string; niche: string };

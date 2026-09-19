@@ -68,7 +68,7 @@ export async function applyOptOut(tx: Prisma.TransactionClient, leadId: string, 
   return false;
 }
 
-/** Transacional (o chamador abre a $transaction Serializable e trata P2034). Sem chamadas externas. */
+/** Transacional (o chamador abre a $transaction Serializable e trata conflito via withSerializableRetry). Sem chamadas externas. */
 export async function processInbound(tx: Prisma.TransactionClient, instance: { id: string }, msg: InboundInput, now: Date): Promise<InboundOutcome> {
   const rows = await tx.lead.findMany({
     where: { phone: msg.from },

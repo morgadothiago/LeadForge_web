@@ -1,5 +1,5 @@
 # SPEC-018 — Chaves de API e integracoes pelo painel (Configuracoes)
-- status: DRAFT (pedido do usuario, 2026-09-19; implementar DEPOIS das SPECs 017 e 013) | domain: fullstack | depende de: SPEC-009 (auth), SPEC-010, SPEC-011, SPEC-016
+- status: APPROVED (usuario, 2026-09-19; decisoes fechadas abaixo; implementar DEPOIS do scheduler SPEC-013 terminar, por causa de migrations e da fabrica de provider) | domain: fullstack | depende de: SPEC-009 (auth), SPEC-010, SPEC-011, SPEC-016
 ## Objetivo
 O administrador cadastra as chaves/URLs das integracoes (Evolution, n8n, provedor de LLM, busca de leads etc.) em Configuracoes > Integracoes, sem editar codigo nem `.env`, com as chaves cifradas no banco e nunca exibidas de volta.
 ## O que NAO pode sair do .env (honesto)
@@ -27,3 +27,9 @@ Segredos de BOOTSTRAP precisam existir antes do banco: `DATABASE_URL`, `ENCRYPTI
 - [ ] Auditoria registra quem/quando/acao sem o valor.
 - [ ] Rotacao/re-cifragem da ENCRYPTION_KEY documentada e testada.
 - [ ] build/lint/typecheck OK.
+
+## Decisoes fechadas (usuario, 2026-09-19)
+- SSRF: enderecos de metadados/link-local (169.254.0.0/16, fd00:ec2::254 etc.) SEMPRE bloqueados; localhost e redes privadas (127/8, ::1, 10/8, 172.16/12, 192.168/16, fc00::/7) so aceitos se o admin marcar explicitamente "instancia propria" ao salvar a integracao (campo `allowPrivateHost`, gravado e auditado); a checagem roda ao SALVAR e de novo ao CONECTAR (resolve DNS e checa o IP; conecta no IP checado; sem redirecionamento cruzado para hosts nao permitidos). Reusar `src/lib/channels/ssrf.ts`.
+- Papeis: SO `admin` ve e altera integracoes (`requireAdmin()`); nao-admin nem ve a aba. Sem papel intermediario agora.
+## Ordem de execucao
+Backend (dev-backend) primeiro: modelo + migration, resolvedor com cache/fallback, migrar `getWhatsAppProvider` para o resolvedor, actions, auditoria, testes; depois frontend (dev-frontend): Configuracoes > Integracoes; depois QA (com foco em vazamento de segredo).

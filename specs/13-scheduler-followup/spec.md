@@ -1,5 +1,5 @@
 # SPEC-013 — Scheduler de follow-up (dias 0,2,5,7,10)
-- status: APPROVED (usuario, 2026-09-19; D19 = opcao 1, endpoint /api/cron/tick chamado por cron) | domain: backend | sessao: 2 | ordem: 14 | depende de: SPEC-006, SPEC-010, SPEC-011, SPEC-012
+- status: IMPLEMENTED (QA achou NEEDS_FIX; correcoes verificadas por testes 614/614, sem segundo QA; execucao real com canais, navegador e cron real PENDENTES)| domain: backend | sessao: 2 | ordem: 14 | depende de: SPEC-006, SPEC-010, SPEC-011, SPEC-012
 ## Contexto
 Requisito ausente no PROMPT como item proprio. Redis existe no compose mas sem uso definido.
 ## [NEEDS_DECISION D19] Executor
@@ -49,3 +49,85 @@ Supressao global, 3 toques/14 dias, intervalo minimo, nunca dois canais no mesmo
 - [ ] Execucao real com Evolution/SMTP: PENDENTE.
 ### Fora de escopo
 Tela de acompanhamento (candidata a SPEC futura: Configuracoes > Execucao mostrando `SchedulerRun`); n8n (SPEC-014); busca de leads (SPEC-015).
+
+## Backend (implementado em 2026-09-19; status segue APPROVED ate o QA)
+### Contrato
+- `runTick(now: Date, deps?: Partial<TickDeps>): Promise<TickSummary>` em `src/lib/scheduler/run-tick.ts`. `TickSummary = { status: "ok"|"locked"|"error", skipped?: "locked", runId, durationMs, budget: "time"|"sends"|null, counters, error? }`. Contadores sem PII (`result_sent`, `deferred_<motivo>`, `skipped_<motivo>`, `retry_scheduled`, `failed_final`, `timeout_no_retry`, `instance_busy`, `completed`, `stage_<x>`...).
+- Decisoes puras e testaveis em `decide.ts`: `computeNextTouchAt`, `decideAfterSend`, `pickDueLeads`, `decideStage`, `safeDeferAt`. O tempo entra sempre por parametro (`now`); o orcamento de tempo usa `deps.clock` (relogio real injetavel).
+- Lock global: `pg_try_advisory_lock` (sessao) numa conexao `pg` DEDICADA (`lock.ts`), liberado em `finally` na MESMA conexao (e, se o processo morrer, o Postgres libera ao fechar a conexao). Escolhido em vez de `xact_lock` porque o pool do adapter-pg do Prisma nao garante a mesma conexao entre lock e unlock e a transacao interativa teria de ficar aberta ~50 s.
+- Ordem da rodada: lock -> `evaluateAllInstances(now)` (falha nao derruba) -> Fila A (Touch `scheduled` com `scheduledAt <= now`, campanha ativa, `email`/`whatsapp`) -> Fila B (SOMENTE leads `active` com `nextTouchAt <= now`; `not_started` NAO dispara sozinho — ver "Adendo de seguranca"; campanha ativa com sequencia, sem `optedOutAt`/`repliedAt`, `source != seed`). Cada Touch/lead e processado no maximo 1x por rodada; lead tratado na Fila A nao entra na B; lead com Touch aberto no step atual e dono da Fila A.
+- Step atual = `steps[currentStepOrder]` (steps ordenados por `order`; `currentStepOrder` = quantos steps ja foram concluidos, como no seed). O 1o toque grava `sequenceStartedAt` e `sequenceStatus=active`; `nextTouchAt` = inicio + `step.day` dias do proximo step.
+- Resultados: `sent` -> avanca + stage (`contactado` no 1o enviado, `em_followup` nos seguintes, forward-only via `runMoveOpportunity`); `deferred` -> mantem Touch `scheduled` no instante do canal (se <= agora, empurra +60 s: sem laco); `skipped` opted_out/replied/sequence_completed/suppressed -> lead `opted_out`/`paused_replied`/`completed` (suppressed: `opted_out` se opt-out, `completed` se bounce/manual); `no_whatsapp`/`touch_limit` -> pula o step e avanca; `failed` -> Touch volta a `scheduled` com `attempts+1` e backoff 30 min/2 h/6 h (3 retries = ate 4 tentativas); esgotado -> Touch fica `failed`, avanca; timeout ("Nao foi possivel confirmar o envio...") -> NAO reenvia, avanca (so `retryTouch` humano); sem proximo step -> `completed`.
+- Steps de canal sem envio automatico (`linkedin`/`phone`): Touch `skipped` ("canal manual") e a sequencia avanca.
+- Orcamento: `SCHEDULER_TIME_BUDGET_MS` (25000; teto efetivo 25000, ver Implementation Notes) e `SCHEDULER_MAX_SENDS` (20); max. 1 WhatsApp por instancia por rodada (excedente: `instance_busy`, fica para a proxima). Envios sao sequenciais.
+- Isolamento opcional `deps.campaignIds` (testes/execucao dirigida).
+### Endpoint `/api/cron/tick` (`src/app/api/cron/tick/route.ts` + `src/lib/scheduler/cron-endpoint.ts`)
+POST e GET, `Authorization: Bearer <CRON_SECRET>` (SHA-256 + `timingSafeEqual`). 503 se `CRON_SECRET` ausente/< 32; 401 identico (sem/malformado/errado); 405 (com `Allow`) para HEAD/OPTIONS/PUT/PATCH/DELETE; 200 com o `TickSummary`; 429 so para tentativas invalidas (1 chave global, 20/min, sem chave por segredo forjado; credencial valida nunca e bloqueada); 500 generico. `dynamic = "force-dynamic"`, `Cache-Control: no-store`, `maxDuration = 60`. `/api/cron/*` isento do login em `src/proxy.ts` (matcher literal, testado em `auth.test.ts`). Nao usa `requireUser` (auth por segredo); nao ha Server Action nova (teste geral de `requireUser` inalterado).
+### Schema (migration `20260919210000_scheduler_followup`)
+`Lead.sequenceStartedAt DateTime?` (backfill: 1o Touch outbound ou `createdAt`, para leads ja iniciados), `Touch.attempts Int @default(0)`, model `SchedulerRun { id, startedAt, finishedAt?, status, counters Json, error? }` (retencao 30 dias, podada a cada rodada; rodadas `locked` tambem registradas).
+### Env
+`CRON_SECRET` (obrigatoria para o endpoint, 32+), `SCHEDULER_TIME_BUDGET_MS`, `SCHEDULER_MAX_SENDS` (ver `.env.example`).
+### Como agendar (a cada 1-2 min)
+- crontab: `* * * * * curl -fsS -X POST -H "Authorization: Bearer $CRON_SECRET" https://SEU-APP/api/cron/tick`
+- n8n: Schedule Trigger (1 min) -> HTTP Request POST na URL, header `Authorization: Bearer <CRON_SECRET>`.
+- Vercel Cron: `vercel.json` `{"crons":[{"path":"/api/cron/tick","schedule":"* * * * *"}]}` + env `CRON_SECRET` (a Vercel envia o Bearer via GET).
+- Dev: `npm run tick` (`src/scripts/tick.ts`, chama `runTick` direto e imprime so contadores). ATENCAO: uma rodada real processa leads `active` de campanhas ativas com os canais reais configurados (leads de seed e `not_started` nao sao enviados; ver adendo).
+### Decisoes/desvios a validar no QA
+1. (SUPERADA pelo adendo de seguranca) Antes, `not_started` em campanha ativa era devido; agora o inicio e explicito.
+2. "N=3" interpretado como 3 retries (ate 4 tentativas).
+3. Falha final e timeout avancam a sequencia; o Touch permanece `failed`.
+### Criterios (evidencia: `src/lib/scheduler/*.test.ts`, `src/lib/auth/auth.test.ts`)
+Todos os itens dos criterios revisados cobertos por teste com provider/transport FAKES, exceto: build (nao executado, servidor do usuario ativo), `npm run tick` (nao executado para nao disparar canais reais no banco de dev) e execucao real Evolution/SMTP: PENDENTE.
+
+## Adendo de seguranca (2026-09-19): inicio explicito e dados de seed nunca enviaveis
+Risco corrigido: qualquer lead novo (e os 20 do seed) comecaria a receber mensagem no 1o tick com canais reais.
+### Regras
+- Fila A e B EXCLUEM leads `source="seed"`; `sendEmail`/`sendWhatsApp` tambem barram (Touch `skipped`, erro "dado de teste (seed)", retorno `{status:"skipped", reason:"seed_data"}`, sem provider/transport; `decideAfterSend` -> noop). Unica excecao: env `ALLOW_SEED_SENDS=true` (default ausente; SO dev; documentada em `.env.example`).
+- Fila B so processa `active`. `not_started` nunca dispara sozinho. `Campaign.autoStart Boolean @default(false)`: se `true`, a **fase 0** do tick (apos a saude, antes da Fila A) ativa (`not_started` -> `active`, `nextTouchAt=now`; `sequenceStartedAt` continua gravado no 1o envio) SO leads dessa campanha com campanha `active` + sequencia, contato valido para o 1o canal (email->e-mail valido; whatsapp->telefone BR valido; canal manual->qualquer contato), nao suprimidos, sem opt-out/resposta/possibleOptOut, nao seed. Ate 500 leads por campanha/rodada. Contador `auto_started`.
+- Enum `SequenceStatus` ganhou `paused_manual` (parada manual). Os canais tratam `paused_manual` como sequencia encerrada (nao enviam Touch de lead parado). ATENCAO frontend: mapas `Record<SequenceStatus,...>` precisam da chave `paused_manual` (ex.: `src/app/(app)/leads/[id]/page.tsx` quebra o typecheck ate ser atualizado, rotulo sugerido "Pausada (manual)").
+- Seed: campanha de exemplo nasce `paused` + `autoStart=false`; o "proximo passo agendado" dos leads seed nasce `skipped` ("dado de teste (seed)"); nenhum Touch `scheduled` futuro de seed.
+### Actions (`src/lib/actions/sequence-start.ts`, `"use server"`, `requireUser`, Zod PT-BR, `ActionResult`)
+- `startSequence({leadId})` -> `{leadId, started}`. Valida: campanha `active`, sequencia com steps, contato compativel com o 1o canal, nao suprimido, nao seed, sem opt-out/resposta/possibleOptOut; status `not_started` ou `paused_manual` (reinicia de onde parou). Inelegivel -> erro no campo `leadId` com o motivo em PT-BR. Idempotente (ja `active` -> `started:false`). Define `active` + `nextTouchAt=now`; NAO envia (o proximo tick envia, respeitando janelas/limites).
+- `startCampaignSequences({campaignId, confirm: true})` -> `{campaignId, started, ineligible: {motivo: n}, ineligibleTotal}`. `confirm` obrigatorio (literal `true`). Campanha nao ativa/sem sequencia -> erro `_form`. Idempotente.
+- `stopSequence({leadId})` -> `{leadId, stopped, cancelledTouches}`. So para `active` (outros -> erro; ja `paused_manual` -> `stopped:false`). Define `paused_manual`, `nextTouchAt=null`, Touches outbound `scheduled`/`pending` -> `skipped` ("sequencia parada manualmente"); `sending` nao e tocado. Serializable.
+- Motivos (`IneligibleReason`): `campaign_inactive`, `no_sequence`, `seed`, `suppressed`, `opted_out`, `replied`, `possible_opt_out`, `no_contact`, `wrong_status` (rotulos PT-BR em `REASON_LABEL`, `src/lib/domain/sequence-start.ts`).
+- Campanha: `createCampaign`/`updateCampaign` aceitam `autoStart?: boolean` (omitido na edicao = nao altera); `CampaignListItem/Detail.autoStart`.
+### Queries
+- `countStartableLeads(campaignId)` (`src/lib/queries/sequence-start.ts`) -> `{campaignId, campaignActive, hasSequence, autoStart, eligible, ineligible, ineligibleByReason: [{reason, label, count}]}` ou `null`. Candidatos = leads `not_started`/`paused_manual`. Mostrar ANTES de confirmar `startCampaignSequences`.
+- Status de sequencia do lead ja e exposto por `getLead`/`listLeads` (`sequenceStatus`, `nextTouchAt`); nao foi preciso query nova.
+### Auditoria (sem PII)
+`WebhookEvent` `source="sequence_audit"`, payload `{action: start_sequence|start_campaign|stop_sequence|auto_start, campaignId, leadId?, count, userId?, at}`.
+### Schema (migration `20260919220000_sequence_explicit_start`)
+`ALTER TYPE SequenceStatus ADD VALUE 'paused_manual'`; `Campaign.autoStart BOOLEAN NOT NULL DEFAULT false` (backfill false).
+### Env
+`ALLOW_SEED_SENDS` (default ausente; so dev).
+
+## Implementation Notes (adendo de seguranca)
+- Arquivos: prisma/schema.prisma, migrations/20260919220000_sequence_explicit_start, prisma/seed.ts, src/lib/domain/{seed-guard,sequence-start}.ts, src/lib/schemas/{sequence-start,campaign}.ts, src/lib/actions/{sequence-start,campaign}.ts, src/lib/queries/{sequence-start,campaigns}.ts, src/lib/channels/{reserve,email,whatsapp}.ts, src/lib/scheduler/{run-tick,decide}.ts, src/lib/domain/move-opportunity.ts, src/lib/test-utils/purge.ts, .env.example.
+- Testes (VERIFIED): `npm test` 47 arquivos / 579 testes passam (novos: `scheduler/sequence-start.test.ts`, `actions/sequence-start-auth-coverage.test.ts`; `decide.test.ts` e `run-tick.test.ts` ajustados: lead devido = `active`); `prisma validate`, `migrate status` (13 migrations, em dia), lint OK. Typecheck: FALHA SOMENTE em `src/app/(app)/leads/[id]/page.tsx` (frontend, fora do escopo; falta `paused_manual` no mapa de rotulos).
+- Lixo de teste `zz-test-spec010`: causa = execucao anterior abortada de `email.test.ts` deixou a campanha; o `afterAll` apagava so por id em memoria (e as sequencias por nome), entao o resto nunca era limpo. Correcao: `purgeTestCampaigns(prefixo)` (por nome) em `beforeAll` e `afterAll` (try/finally onde ha disconnect) de email/whatsapp(ch)/send-policy/pipeline/lead/webhook-handler/whatsapp-webhook-actions e do novo teste.
+- Teste instavel `pipeline.test.ts > movimentos concorrentes`: causa provavel = `runMoveOpportunity` devolvia `conflict` no 1o P2034 (Serializable) e o teste (5 s default) sob carga da suite completa; corrigido com ate 6 tentativas com backoff+jitter em `runMoveOpportunity` (garantia de posicoes integras inalterada) + assert de que os 4 movimentos retornam ok + timeout 30 s. Nao reproduzido antes (1 falha em ~N execucoes); suite completa passou 2x apos a correcao.
+- Teste `sequence.test.ts > sequencia em campanha ativa nao exclui` dependia da campanha ativa do seed; agora cria a propria campanha ativa.
+- Dados do banco de dev: apagada 1 campanha `zz-test-spec010` (0 leads/opps); campanha do seed pausada (`paused`, autoStart false); 7 Touches `scheduled` de leads seed -> `skipped`.
+- Limitacoes: `npm run tick`/build nao executados; frontend implementado abaixo.
+
+
+## Frontend do inicio explicito (2026-09-19)
+Criterios de UI:
+- [x] Typecheck limpo: `paused_manual` ("Pausada manualmente"; na ficha: "Voce pausou esta sequencia") via `SEQUENCE_STATUS_TEXT` local (src/components/sequences), pois src/lib/domain nao pode ser alterado.
+- [x] Form de campanha (criar/editar): toggle `role=switch` "Iniciar leads automaticamente" (desligado por padrao), ajuda e aviso em destaque ao ligar. Estado "Inicio: Automatico/Manual" no cartao e no detalhe.
+- [x] Detalhe da campanha: "Iniciar sequencia para os leads pendentes" -> carrega contagem sob demanda, resumo X/Y, motivos PT-BR, aviso de canais/limites, checkbox obrigatorio (`confirm: true`), botao bloqueado (com motivo) se X=0/pausada/sem sequencia, toast + `router.refresh()`.
+- [x] Ficha do lead: "Iniciar sequencia" (not_started/paused_manual) e "Pausar sequencia" (active) com ConfirmDialog e erros `_form`/`leadId`; status, proximo contato e badge "Dado de teste" (source=seed; botao oculto para seed). Lista de leads: coluna/linha "Sequencia".
+- [x] Indicador "Sem canais configurados" (sem e-mail ativo nem WhatsApp conectado) no cartao e no detalhe.
+Implementation Notes (frontend): arquivos novos src/components/sequences/{sequence-start-format.ts,.test.ts}, campaigns/{CampaignStartSequence.tsx,start-actions.ts}, leads/LeadSequenceActions.tsx; alterados ConfirmDialog (children/confirmDisabled), CampaignForm/Card, LeadsTable, paginas campanhas, campanhas/[id], leads/[id]. `start-actions.ts` e um wrapper "use server" porque `countStartableLeads` e uma query, nao Server Action. Nao verificado no navegador (so curl sem cookie: 307).
+
+## Implementation Notes (correcoes do QA, 2026-09-19)
+- A1 (ALTO) retry Serializable: com adapter-pg o conflito chega como `DriverAdapterError` (name `DriverAdapterError`, message/cause.kind `TransactionWriteConflict`, SQLSTATE 40001/40P01), nao `PrismaClientKnownRequestError` P2034. Novo `src/lib/db/tx-conflict.ts`: `isRetryableTxConflict(e)` (estrutural: P2034, SQLSTATE 40001/40P01 em code/meta/cause, kind/mensagem TransactionWriteConflict) e `withSerializableRetry(fn, {attempts=6, sleep, random})` (backoff + jitter). Aplicado em: `domain/move-opportunity.ts` (runMoveOpportunity; esgotado -> `conflict`), `actions/lead.ts` (addTag, removeTag, deleteLead), `actions/sequence-start.ts` (stopSequence), `actions/suppression.ts`, `actions/whatsapp.ts` (confirmOptOut), `whatsapp/webhook-handler.ts` (persist, 3 tentativas; P2002 -> duplicate mantido) e `actions/result.ts` (`handleActionError` mapeia conflito residual para "Conflito ao salvar, tente novamente."). Teste unitario `db/tx-conflict.test.ts` com `DriverAdapterError` real. O teste concorrente exige os 4 movimentos ok.
+- M2 reinicio: `activateLeads` (domain/sequence-start.ts) em lead `paused_manual`: (a) o Touch do step atual `skipped` com `error = STOP_NOTE` ("sequencia parada manualmente") volta a `scheduled` (scheduledAt=now, error=null; mesmo registro, unique leadId+stepId intacto, skipped nao conta nos 3 toques/14 dias); `skipped` por regra (suprimido/sem WhatsApp/limite/seed) NAO e reaberto; (b) `sequenceStartedAt = now - day(stepAtual)*DAY_MS` (so se ja tinha inicio), logo o step seguinte vence em `day(seguinte)-day(atual)` dias apos o reinicio, sem vencer tudo de uma vez. `currentStepOrder` e indice do array de steps ordenados. Testes em `scheduler/sequence-start.test.ts`.
+- M3 Touch orfao: varredura na rodada (antes da Fila A): Touch outbound `sending` com `updatedAt < now - SENDING_STALE_MS (15 min)` -> `failed` com `NEEDS_REVIEW_PREFIX` (nunca reenvia), `attempts+1`, lead avanca como no timeout (`advanceLead`), contador `staleSending` no `SchedulerRun`, `InstanceAlert` (kind `warning`, sem PII) quando ha instancia WhatsApp. Recente nao e varrido.
+- M4 orcamento: `SEND_WORST_CASE_MS=30s`, `BUDGET_MARGIN_MS=5s`, `ROUTE_MAX_DURATION_S=60`; orcamento efetivo = min(`SCHEDULER_TIME_BUDGET_MS`, 60s-30s-5s = 25 s) aplicado em `getSchedulerConfig`; default `SCHEDULER_TIME_BUDGET_MS` = 25000 (documentado no `.env.example`). Timeouts SMTP: connection 8 s, greeting 8 s, socket 15 s (`TIMEOUTS` exportado; teste de sanitizacao mantido). Testes: invariante das constantes vs `route.maxDuration` e relogio injetado.
+- B5: `components/campaigns/start-actions.ts` chama `requireUser()` e nao lanca UnauthorizedError (devolve `null`, mantendo o contrato do componente; PENDENTE de UI: migrar para ActionResult). Teste estatico global `src/lib/use-server-auth.test.ts` (todo arquivo "use server": `requireUser` direto ou via query/action guardada; allowlist `login`/`logout`).
+- B6: testes do scheduler agora removem os `SchedulerRun` criados (`startedAt >= SUITE_START` no cleanup de `sequence-start.test.ts`). Banco de dev: as 20 linhas acumuladas foram removidas por serem inequivocamente de teste (todas com `finishedAt < startedAt`, impossivel em rodada real); contagem 20 -> 0; apos 2 suites completas = 0.
+- B7: `DAY_MS` e fixo de 24 h (sem tratamento de DST; irrelevante no Brasil, sem horario de verao).
+- Verificacao: pipeline concurrent 10/10 (isolado) e `pipeline.test.ts` inteiro 10/10; `npm test` 2x = 50 arquivos / 614 testes OK; prisma validate, migrate status (em dia), tsc e eslint limpos. Build/tick/dev nao executados (regra).
+- Risco conhecido (fora de escopo): a fase 0 `autoStart` usa `classifyStartable`, que inclui `paused_manual`; campanha com autoStart poderia reiniciar lead parado manualmente.

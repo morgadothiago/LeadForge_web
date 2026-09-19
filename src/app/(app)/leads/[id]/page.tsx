@@ -12,28 +12,13 @@ import { SuppressedBadge } from "@/components/leads/SuppressedBadge";
 import { formatDateTime, formatPhone, relativeTime, whatsappStatusText } from "@/components/leads/lead-format";
 import { formatBRL } from "@/components/pipeline/board-state";
 import { Card } from "@/components/ui/card";
-import { SEQUENCE_STATUS_LABELS } from "@/lib/domain";
-import { getLead, type LeadDetail } from "@/lib/queries/leads";
+import { LeadSequenceActions } from "@/components/leads/LeadSequenceActions";
+import { Badge } from "@/components/ui/badge";
+import { SEQUENCE_STATUS_TEXT, isSeedSource, leadSequenceText } from "@/components/sequences/sequence-start-format";
+import { getLead } from "@/lib/queries/leads";
 import { leadIdSchema } from "@/lib/schemas/lead";
 
 export const dynamic = "force-dynamic";
-
-function sequenceText(l: LeadDetail): string {
-  switch (l.sequenceStatus) {
-    case "not_started":
-      return "Sequência ainda não iniciada.";
-    case "active":
-      return l.nextTouchAt
-        ? `Sequência ativa. Próximo contato ${relativeTime(l.nextTouchAt)} (${formatDateTime(l.nextTouchAt)}).`
-        : "Sequência ativa.";
-    case "paused_replied":
-      return `Sequência pausada: o lead respondeu${l.repliedAt ? ` ${relativeTime(l.repliedAt)} (${formatDateTime(l.repliedAt)})` : ""}.`;
-    case "completed":
-      return "Sequência concluída.";
-    case "opted_out":
-      return `Lead pediu para não ser contatado${l.optedOutAt ? ` ${relativeTime(l.optedOutAt)} (${formatDateTime(l.optedOutAt)})` : ""}. Sequência encerrada.`;
-  }
-}
 
 function Item({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -71,13 +56,17 @@ export default async function Page({ params }: { params: Promise<{ id: string }>
             {lead.company && <span>{lead.company}</span>}
             <span>Score {lead.score}</span>
             {lead.suppressed && <SuppressedBadge />}
+            {isSeedSource(lead.source) && <Badge variant="muted">Dado de teste</Badge>}
           </p>
         </div>
+        <div className="flex flex-wrap items-center gap-2">
+        {!isSeedSource(lead.source) && <LeadSequenceActions leadId={lead.id} leadName={lead.name} status={lead.sequenceStatus} />}
         <LeadActions
           stage={opp?.stage ?? null}
           suppressed={Boolean(lead.suppressed)}
           lead={{ id: lead.id, name: lead.name, company: lead.company, email: lead.email, phone: lead.phone, website: lead.website, linkedin: lead.linkedin, source: lead.source }}
         />
+        </div>
       </div>
 
       {lead.possibleOptOut && <PossibleOptOutAlert leadId={lead.id} leadName={lead.name} className="max-w-xl text-sm" />}
@@ -103,6 +92,8 @@ export default async function Page({ params }: { params: Promise<{ id: string }>
                   {lead.campaign.name}
                 </Link>
               </Item>
+              <Item label="Status da sequência">{SEQUENCE_STATUS_TEXT[lead.sequenceStatus]}</Item>
+              {lead.sequenceStatus === "active" && lead.nextTouchAt && <Item label="Próximo contato">{formatDateTime(lead.nextTouchAt)}</Item>}
               <Item label="Origem">{lead.source}</Item>
               <Item label="Valor da oportunidade">{opp?.value != null ? formatBRL(opp.value) : null}</Item>
               <Item label="Criado em">
@@ -110,9 +101,8 @@ export default async function Page({ params }: { params: Promise<{ id: string }>
               </Item>
               {opp?.stage === "perdido" && <Item label="Motivo da perda">{opp.lostReason ?? "Não informado"}</Item>}
             </dl>
-            <p className="mt-4 rounded-md bg-muted px-3 py-2 text-sm">{sequenceText(lead)}</p>
-            <p className="sr-only">Status técnico: {SEQUENCE_STATUS_LABELS[lead.sequenceStatus]}</p>
-          </Card>
+            <p className="mt-4 rounded-md bg-muted px-3 py-2 text-sm">{leadSequenceText(lead, { dateTime: formatDateTime, relative: (d) => relativeTime(d) })}</p>
+                      </Card>
 
           <Card className="p-5">
             <h3 className="mb-4 font-heading text-base font-semibold">Histórico de contatos</h3>

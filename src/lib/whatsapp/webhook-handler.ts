@@ -1,5 +1,6 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { withSerializableRetry } from "@/lib/db/tx-conflict";
 import { AppError, safeErrorForLog } from "@/lib/errors";
 import { tooManyRequests } from "@/lib/http";
 import { decrypt } from "@/lib/crypto/secret-box";
@@ -57,9 +58,9 @@ async function applyMessageStatus(tx: Prisma.TransactionClient, instanceId: stri
 
 async function persist(instance: { id: string }, ev: Exclude<WebhookEvent, { kind: "connection" | "qrcode" }>, now: Date): Promise<string> {
   const eventId = ev.kind === "inbound" ? `wa:${instance.id}:upsert:${ev.externalId}` : `wa:${instance.id}:update:${ev.externalId}:${ev.status}`;
-  for (let attempt = 1; ; attempt++) {
-    try {
-      return await prisma.$transaction(
+  try {
+    return await withSerializableRetry(
+      () => prisma.$transaction(
         async (tx) => {
           // Sem texto, telefone ou token: só o necessário para auditoria/idempotência.
           await tx.webhookEvent.create({
@@ -77,14 +78,12 @@ async function persist(instance: { id: string }, ev: Exclude<WebhookEvent, { kin
           return r.kind;
         },
         { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
-      );
-    } catch (e) {
-      if (e instanceof Prisma.PrismaClientKnownRequestError) {
-        if (e.code === "P2002") return "duplicate"; // eventId já processado
-        if (e.code === "P2034" && attempt < MAX_TX_ATTEMPTS) continue;
-      }
-      throw e;
-    }
+      ),
+      { attempts: MAX_TX_ATTEMPTS },
+    );
+  } catch (e) {
+    if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") return "duplicate"; // eventId já processado
+    throw e;
   }
 }
 

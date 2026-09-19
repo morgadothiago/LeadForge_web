@@ -1,5 +1,6 @@
 "use server";
 
+import { withSerializableRetry } from "@/lib/db/tx-conflict";
 import { revalidatePath } from "next/cache";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
@@ -143,7 +144,7 @@ export async function addTag(input: unknown): Promise<ActionResult<{ tags: strin
     const parsed = tagSchema.safeParse(input);
     if (!parsed.success) return failure(zodErrors(parsed.error));
     const { leadId, tag } = parsed.data;
-    const tags = await prisma.$transaction(async (tx) => {
+    const tags = await withSerializableRetry(() => prisma.$transaction(async (tx) => {
       const lead = await tx.lead.findUnique({ where: { id: leadId }, select: { tags: true } });
       if (!lead) return null;
       if (lead.tags.includes(tag)) return { tags: lead.tags, error: null };
@@ -151,7 +152,7 @@ export async function addTag(input: unknown): Promise<ActionResult<{ tags: strin
       const next = [...lead.tags, tag];
       await tx.lead.update({ where: { id: leadId }, data: { tags: next } });
       return { tags: next, error: null };
-    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }));
     if (!tags) return formError("Lead não encontrado.");
     if (tags.error) return failure({ tag: [tags.error] });
     revalidate(leadId);
@@ -165,13 +166,13 @@ export async function removeTag(input: unknown): Promise<ActionResult<{ tags: st
     const parsed = tagSchema.safeParse(input);
     if (!parsed.success) return failure(zodErrors(parsed.error));
     const { leadId, tag } = parsed.data;
-    const tags = await prisma.$transaction(async (tx) => {
+    const tags = await withSerializableRetry(() => prisma.$transaction(async (tx) => {
       const lead = await tx.lead.findUnique({ where: { id: leadId }, select: { tags: true } });
       if (!lead) return null;
       const next = lead.tags.filter((t) => t !== tag);
       if (next.length !== lead.tags.length) await tx.lead.update({ where: { id: leadId }, data: { tags: next } });
       return next;
-    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }));
     if (!tags) return formError("Lead não encontrado.");
     revalidate(leadId);
     return success({ tags });
@@ -239,7 +240,7 @@ export async function deleteLead(id: unknown): Promise<ActionResult<{ id: string
     if (!parsed.success) return formError("Lead inválido.");
     const leadId = parsed.data;
     try {
-      const outcome = await prisma.$transaction(
+      const outcome = await withSerializableRetry(() => prisma.$transaction(
         async (tx) => {
           const lead = await tx.lead.findUnique({ where: { id: leadId }, select: { id: true } });
           if (!lead) return "not_found" as const;
@@ -257,7 +258,7 @@ export async function deleteLead(id: unknown): Promise<ActionResult<{ id: string
           return "deleted" as const;
         },
         { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
-      );
+      ));
       if (outcome === "not_found") return formError("Lead não encontrado.");
       if (outcome === "blocked")
         return formError("Este lead já teve contato (mensagens enviadas, respostas ou reunião) e não pode ser excluído. Mova o lead para Perdido em vez de excluir.");

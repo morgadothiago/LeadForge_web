@@ -8,6 +8,7 @@ process.env.EVOLUTION_API_URL = "http://evolution.invalid";
 process.env.EVOLUTION_API_KEY = "test-global-key";
 
 import { prisma } from "@/lib/prisma";
+import { purgeTestCampaigns } from "@/lib/test-utils/purge";
 import { encrypt } from "@/lib/crypto/secret-box";
 import { seed } from "../../../prisma/seed";
 import { POST } from "@/app/api/webhooks/whatsapp/[token]/[[...evento]]/route";
@@ -49,6 +50,7 @@ async function clean() {
 }
 
 beforeAll(async () => {
+  await purgeTestCampaigns(TAG);
   await seed(prisma);
   const user = await prisma.user.findFirstOrThrow({ where: { email: "admin@leadforge.local" } });
   const icp = await prisma.icpProfile.findFirstOrThrow();
@@ -59,6 +61,7 @@ beforeAll(async () => {
   stepId = (await prisma.sequenceStep.create({ data: { sequenceId: seq.id, day: 0, channel: "whatsapp", templateId: tpl.id, order: 1 } })).id;
 }, 30000);
 afterAll(async () => {
+  await purgeTestCampaigns(TAG).catch(() => {});
   await clean();
   await prisma.sequenceStep.deleteMany({ where: { id: stepId } });
   await prisma.campaign.deleteMany({ where: { id: campId } });

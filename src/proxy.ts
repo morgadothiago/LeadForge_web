@@ -5,7 +5,7 @@ import { verifySessionToken } from "@/lib/auth/session-token";
 /**
  * Guarda de rotas (Next 16 "proxy", antigo middleware): checagem OTIMISTA (assinatura/expiração do JWT).
  * A autorização real continua em requireUser() nas actions/queries.
- * Fora da guarda: /login, /api/webhooks/* (segredo próprio, SPEC-012), _next/static, _next/image e arquivos exatos de /public (PUBLIC_FILES).
+ * Fora da guarda: /login, /api/webhooks/* (segredo próprio, SPEC-012), /api/cron/* (Bearer CRON_SECRET, SPEC-013), _next/static, _next/image e arquivos exatos de /public (PUBLIC_FILES).
  */
 export async function proxy(request: NextRequest) {
   const { pathname, search } = request.nextUrl;
@@ -23,5 +23,5 @@ export async function proxy(request: NextRequest) {
  * isenção por extensão genérica). Ao adicionar arquivo em /public, liste-o aqui.
  */
 export const config = {
-  matcher: ["/((?!api/webhooks(?:/|$)|_next/static/|_next/image(?:/|$|\\?)|(?:favicon\\.ico|file\\.svg|globe\\.svg|next\\.svg|vercel\\.svg|window\\.svg)$).*)"],
+  matcher: ["/((?!api/webhooks(?:/|$)|api/cron(?:/|$)|_next/static/|_next/image(?:/|$|\\?)|(?:favicon\\.ico|file\\.svg|globe\\.svg|next\\.svg|vercel\\.svg|window\\.svg)$).*)"],
 };

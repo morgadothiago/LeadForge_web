@@ -1,5 +1,6 @@
 "use server";
 
+import { withSerializableRetry } from "@/lib/db/tx-conflict";
 import { revalidatePath } from "next/cache";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
@@ -32,7 +33,7 @@ export async function addToSuppression(input: unknown): Promise<ActionResult<{ a
       email = email ?? lead.email ?? undefined;
       phone = phone ?? lead.phone ?? undefined;
     }
-    const added = await prisma.$transaction(async (tx) => {
+    const added = await withSerializableRetry(() => prisma.$transaction(async (tx) => {
       const n = await addSuppression(tx, { email, phone, reason, leadId, note });
       if (leadId) {
         await tx.lead.updateMany({ where: { id: leadId, optedOutAt: null }, data: { optedOutAt: now } });
@@ -40,7 +41,7 @@ export async function addToSuppression(input: unknown): Promise<ActionResult<{ a
         await tx.touch.updateMany({ where: { leadId, direction: "outbound", status: { in: ["pending", "scheduled"] } }, data: { status: "skipped" } });
       }
       return n;
-    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }));
     if (added === 0) return failure({ leadId: ["O lead não tem e-mail ou telefone válido para suprimir."] });
     revalidate(leadId);
     return success({ added });

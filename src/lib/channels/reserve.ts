@@ -1,6 +1,7 @@
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { findSuppression, SUPPRESSED_MESSAGE } from "@/lib/domain/suppression";
+import { allowSeedSends, isSeedSource, SEED_BLOCK_MESSAGE } from "@/lib/domain/seed-guard";
 
 /**
  * Marcador tipado: Touch `failed` cujo erro começa assim (timeout de envio WhatsApp: a mensagem PODE ter saído) NUNCA é reservado
@@ -35,7 +36,7 @@ export async function skipSuppressedBeforeReserve(touchId: string, where: Prisma
 export function repliedOrEnded(lead: { repliedAt: Date | null; sequenceStatus: string }, touchCreatedAt: Date): boolean {
   return (
     (lead.repliedAt !== null && lead.repliedAt.getTime() > touchCreatedAt.getTime()) ||
-    lead.sequenceStatus === "paused_replied" || lead.sequenceStatus === "opted_out" || lead.sequenceStatus === "completed"
+    lead.sequenceStatus === "paused_replied" || lead.sequenceStatus === "opted_out" || lead.sequenceStatus === "completed" || lead.sequenceStatus === "paused_manual"
   );
 }
 
@@ -43,4 +44,13 @@ export function repliedOrEnded(lead: { repliedAt: Date | null; sequenceStatus: s
 export async function leadStopped(leadId: string, touchCreatedAt: Date): Promise<boolean> {
   const lead = await prisma.lead.findUnique({ where: { id: leadId }, select: { repliedAt: true, sequenceStatus: true, optedOutAt: true } });
   return !lead || lead.optedOutAt !== null || repliedOrEnded(lead, touchCreatedAt);
+}
+
+/** SPEC-013: lead de seed (`source="seed"`) nunca é enviado (defesa em profundidade; ALLOW_SEED_SENDS=true libera, só dev). Antes de reservar/chamar provider. */
+export async function skipSeedBeforeReserve(touchId: string, where: Prisma.TouchWhereInput): Promise<boolean> {
+  if (allowSeedSends()) return false;
+  const t = await prisma.touch.findUnique({ where: { id: touchId }, select: { lead: { select: { source: true } } } });
+  if (!t || !isSeedSource(t.lead.source)) return false;
+  const r = await prisma.touch.updateMany({ where, data: { status: "skipped", error: SEED_BLOCK_MESSAGE } });
+  return r.count > 0;
 }

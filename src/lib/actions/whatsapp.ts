@@ -1,5 +1,6 @@
 "use server";
 
+import { withSerializableRetry } from "@/lib/db/tx-conflict";
 import { randomBytes } from "node:crypto";
 import { revalidatePath } from "next/cache";
 import { Prisma } from "@prisma/client";
@@ -210,10 +211,10 @@ export async function confirmOptOut(leadId: unknown): Promise<ActionResult<{ id:
     if (!pid.success) return failure(zodErrors(pid.error));
     const lead = await prisma.lead.findUnique({ where: { id: pid.data }, select: { id: true, opportunities: { select: { id: true, stage: true }, take: 1 } } });
     if (!lead) return formError("Lead não encontrado.");
-    await prisma.$transaction(
+    await withSerializableRetry(() => prisma.$transaction(
       (tx) => applyOptOut(tx, lead.id, lead.opportunities[0] ?? null, new Date(), "possible_opt_out_confirmed"),
       { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
-    );
+    ));
     revalidateLead(lead.id);
     return success({ id: lead.id });
   });

@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { CAMPAIGN_STATUS_LABELS } from "@/lib/domain";
 import { createCampaign, updateCampaign } from "@/lib/actions/campaign";
 import type { ActionResult, FieldErrors } from "@/lib/actions/result";
+import { AUTO_START_WARNING } from "@/components/sequences/sequence-start-format";
 import { Field } from "./Field";
 import { IcpFields } from "./IcpFields";
 import { OptionSelect } from "./OptionSelect";
@@ -24,6 +25,7 @@ interface Props {
     icpId: string;
     sequenceId: string | null;
     whatsappInstanceId: string | null;
+    autoStart?: boolean;
   };
   icps: { id: string; name: string; niche: string }[];
   sequences: { id: string; name: string }[];
@@ -42,13 +44,14 @@ export function CampaignForm({ mode, campaign, icps, sequences, whatsappInstance
   const [status, setStatus] = React.useState<string | null>(campaign?.status ?? "active");
   const [sequenceId, setSequenceId] = React.useState<string | null>(campaign?.sequenceId ?? null);
   const [waId, setWaId] = React.useState<string | null>(campaign?.whatsappInstanceId ?? null);
+  const [autoStart, setAutoStart] = React.useState(campaign?.autoStart ?? false);
   const [icpMode, setIcpMode] = React.useState<"existing" | "new">(icps.length === 0 && mode === "create" ? "new" : "existing");
   const [icpId, setIcpId] = React.useState<string | null>(campaign?.icpId ?? null);
   const [icp, setIcp] = React.useState<IcpValues>(EMPTY_ICP);
 
   const [state, action, pending] = React.useActionState(
     async (): Promise<ActionResult<{ id: string }>> => {
-      const base = { name, description, sequenceId, whatsappInstanceId: waId };
+      const base = { name, description, sequenceId, whatsappInstanceId: waId, autoStart };
       if (mode === "edit" && campaign) {
         return updateCampaign({ ...base, id: campaign.id, status, icpId });
       }
@@ -206,6 +209,38 @@ export function CampaignForm({ mode, campaign, icps, sequences, whatsappInstance
             )}
           </Field>
         </div>
+      </Card>
+
+      <Card className="space-y-3 p-5">
+        <h2 className="font-heading text-base font-semibold">Início dos leads</h2>
+        <div className="flex items-start justify-between gap-4">
+          <div className="min-w-0">
+            <label htmlFor="c-autostart" id="c-autostart-label" className="text-sm font-medium">
+              Iniciar leads automaticamente
+            </label>
+            <p id="c-autostart-hint" className="text-xs text-muted-foreground">
+              Desligado: você inicia a sequência manualmente (na campanha ou em cada lead). Ligado: o scheduler inicia sozinho os leads elegíveis.
+            </p>
+          </div>
+          <button
+            id="c-autostart"
+            type="button"
+            role="switch"
+            aria-checked={autoStart}
+            aria-labelledby="c-autostart-label"
+            aria-describedby="c-autostart-hint"
+            onClick={() => setAutoStart((v) => !v)}
+            className={`relative mt-0.5 h-6 w-11 shrink-0 rounded-full outline-none transition-colors focus-visible:ring-2 focus-visible:ring-primary/40 ${autoStart ? "bg-primary" : "bg-muted"}`}
+          >
+            <span className={`absolute left-0.5 top-0.5 size-5 rounded-full bg-white transition-transform ${autoStart ? "translate-x-5" : ""}`} />
+          </button>
+        </div>
+        {autoStart && (
+          <p role="alert" className="rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-sm text-warning">
+            {AUTO_START_WARNING}
+          </p>
+        )}
+        {fieldError(errors, "autoStart") && <p className="text-xs text-destructive">{fieldError(errors, "autoStart")}</p>}
       </Card>
 
       <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">

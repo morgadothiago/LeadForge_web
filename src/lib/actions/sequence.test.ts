@@ -139,7 +139,11 @@ describe("integridade", () => {
     expect(await prisma.messageTemplate.count({ where: { id: tEmail } })).toBe(1);
   });
   it("sequência em campanha ativa não exclui", async () => {
-    const d = await deleteSequence(SEED_IDS.sequence);
+    // A campanha do seed nasce PAUSADA (SPEC-013); a própria teste cria uma campanha ativa vinculada (limpa no afterAll por prefixo TAG).
+    const own = await createSequence({ name: `${TAG} inuse`, steps: [] });
+    if (!own.ok) throw new Error("x");
+    await prisma.campaign.create({ data: { name: `${TAG} c-active`, icpId: SEED_IDS.icp, userId: SEED_IDS.user, status: "active", sequenceId: own.data.id } });
+    const d = await deleteSequence(own.data.id);
     expect(!d.ok && d.errors._form?.[0]).toMatch(/campanha\(s\) ativa/);
     const free = await createSequence({ name: `${TAG} free`, steps: [] });
     if (!free.ok) throw new Error("x");

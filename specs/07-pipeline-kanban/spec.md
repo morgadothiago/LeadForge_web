@@ -41,3 +41,7 @@ Arquivos: `src/lib/schemas/pipeline.ts`, `src/lib/queries/pipeline.ts`, `src/lib
 - `board-state.ts`: `MoveIntent.lostReason?`, `nextLostReason`, `needsLostReason` (+2 testes). Card em Perdido mostra "Motivo: ..." truncado com title; EditOpportunityDialog exibe motivo somente leitura.
 - Criterios de UI: dialogo pre-move PASS; cancelar nao move PASS (codigo); motivo no card/edicao PASS; toast sequencia PASS. Verificado: tsc, lint, vitest, build. NOT VERIFIED em browser.
 - Limitacao: reordenar dentro de Perdido nao reabre dialogo (motivo preservado).
+
+## Implementation Notes (correcao do retry Serializable, QA SPEC-013 A1)
+- O retry de `runMoveOpportunity` so capturava `PrismaClientKnownRequestError` P2034; com adapter-pg o conflito e `DriverAdapterError` (`TransactionWriteConflict`), entao nao havia tentativa e `pipeline.test.ts > movimentos concorrentes` falhava ~2/3. Agora usa `withSerializableRetry`/`isRetryableTxConflict` (`src/lib/db/tx-conflict.ts`, unificado com tags, deleteLead, stopSequence, suppression, confirmOptOut, webhook WhatsApp). Esgotadas as 6 tentativas -> `conflict` ("O quadro foi alterado por outra acao..."). O teste exige os 4 movimentos ok e posicoes integras.
+- VERIFIED: teste concorrente 10/10 e `pipeline.test.ts` inteiro 10/10; `npm test` 2x (614 testes) OK.

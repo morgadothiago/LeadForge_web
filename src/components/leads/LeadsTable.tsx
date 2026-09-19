@@ -6,6 +6,7 @@ import { Card } from "@/components/ui/card";
 import { buttonVariants } from "@/components/ui/button";
 import { InboundReply } from "./InboundReply";
 import { SuppressedBadge } from "./SuppressedBadge";
+import { SEQUENCE_STATUS_TEXT } from "@/components/sequences/sequence-start-format";
 import type { ChannelKey } from "@/lib/domain";
 import type { LeadListItem } from "@/lib/queries/leads";
 import { cn } from "@/lib/utils";
@@ -29,6 +30,7 @@ const COLS: { key: SortKey | null; label: string; cls?: string }[] = [
   { key: null, label: "Campanha" },
   { key: null, label: "Etapa" },
   { key: null, label: "Canal" },
+  { key: null, label: "Sequência" },
   { key: "score", label: "Score" },
   { key: "createdAt", label: "Criado em" },
 ];
@@ -112,6 +114,7 @@ export function LeadsTable({ items, total, page, pageSize, pageCount, sort, dir,
                 <td className="max-w-[12rem] truncate px-3 py-3 text-muted-foreground">{l.campaign.name}</td>
                 <td className="px-3 py-3">{l.opportunity ? <StatusBadge stage={l.opportunity.stage} /> : "—"}</td>
                 <td className="px-3 py-3">{l.lastChannel ? <ChannelBadge channel={l.lastChannel as ChannelKey} /> : <span className="text-muted-foreground">—</span>}</td>
+                <td className="whitespace-nowrap px-3 py-3 text-muted-foreground">{SEQUENCE_STATUS_TEXT[l.sequenceStatus]}</td>
                 <td className="px-3 py-3"><ScoreChip score={l.score} /></td>
                 <td className="px-3 py-3 text-muted-foreground">
                   <time dateTime={l.createdAt.toISOString()}>{formatDate(l.createdAt)}</time>
@@ -138,6 +141,7 @@ export function LeadsTable({ items, total, page, pageSize, pageCount, sort, dir,
             <div className="mt-2 flex flex-wrap items-center gap-2">
               {l.lastChannel && <ChannelBadge channel={l.lastChannel as ChannelKey} />}
               <ScoreChip score={l.score} />
+              <span className="text-xs text-muted-foreground">Sequência: {SEQUENCE_STATUS_TEXT[l.sequenceStatus]}</span>
               <time className="text-xs text-muted-foreground" dateTime={l.createdAt.toISOString()}>{formatDate(l.createdAt)}</time>
             </div>
             <InboundReply at={l.lastInboundAt} text={l.lastInboundText} className="mt-2" />

@@ -2,6 +2,10 @@ import { notFound } from "next/navigation";
 import { CampaignActions } from "@/components/campaigns/CampaignActions";
 import { CampaignForm } from "@/components/campaigns/CampaignForm";
 import { CampaignStatusBadge } from "@/components/campaigns/CampaignStatusBadge";
+import { CampaignStartSequence } from "@/components/campaigns/CampaignStartSequence";
+import { Badge } from "@/components/ui/badge";
+import { NO_CHANNELS_TEXT, autoStartLabel, hasNoChannels } from "@/components/sequences/sequence-start-format";
+import { listEmailAccounts } from "@/lib/queries/email";
 import { getCampaign, listCampaignFormOptions, listIcps } from "@/lib/queries/campaigns";
 import { listWhatsAppInstances } from "@/lib/queries/whatsapp";
 import { idSchema } from "@/lib/schemas/campaign";
@@ -11,8 +15,9 @@ export const dynamic = "force-dynamic";
 export default async function Page({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   if (!idSchema.safeParse(id).success) notFound();
-  const [waInstances, campaign, icps, { sequences }] = await Promise.all([
+  const [waInstances, emailAccounts, campaign, icps, { sequences }] = await Promise.all([
     listWhatsAppInstances(),
+    listEmailAccounts(),
     getCampaign(id),
     listIcps(),
     listCampaignFormOptions(),
@@ -24,8 +29,10 @@ export default async function Page({ params }: { params: Promise<{ id: string }>
       <div className="mx-auto flex max-w-3xl items-center justify-between gap-3">
         <div className="min-w-0">
           <h2 className="truncate font-heading text-xl font-semibold">{campaign.name}</h2>
-          <p className="mt-1 flex items-center gap-2 text-sm text-muted-foreground">
+          <p className="mt-1 flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
             <CampaignStatusBadge status={campaign.status} />
+            <Badge variant="muted">Início: {autoStartLabel(campaign.autoStart)}</Badge>
+            {hasNoChannels(emailAccounts, waInstances) && <Badge variant="destructive">{NO_CHANNELS_TEXT}</Badge>}
             {campaign.leadCount} lead{campaign.leadCount === 1 ? "" : "s"} · {campaign.templateCount} template
             {campaign.templateCount === 1 ? "" : "s"}
           </p>
@@ -35,6 +42,7 @@ export default async function Page({ params }: { params: Promise<{ id: string }>
           afterDeleteHref="/campanhas"
         />
       </div>
+      <CampaignStartSequence campaignId={campaign.id} campaignName={campaign.name} />
       <CampaignForm
         key={campaign.updatedAt.toISOString()}
         mode="edit"
@@ -46,6 +54,7 @@ export default async function Page({ params }: { params: Promise<{ id: string }>
           icpId: campaign.icp.id,
           sequenceId: campaign.sequence?.id ?? null,
           whatsappInstanceId: campaign.whatsappInstance?.id ?? null,
+          autoStart: campaign.autoStart,
         }}
         icps={icps.map(({ id, name, niche }) => ({ id, name, niche }))}
         sequences={sequences}

@@ -1,6 +1,7 @@
 import { Prisma } from "@prisma/client";
 import type { ZodError } from "zod";
 import { UnauthorizedError } from "@/lib/auth/require-user";
+import { isRetryableTxConflict, CONFLICT_MESSAGE } from "@/lib/db/tx-conflict";
 import { isAppError, safeErrorForLog } from "@/lib/errors";
 
 /** Erros por campo (chave = path com ponto, ex.: "icp.name"); "_form" p/ erro geral. */
@@ -40,6 +41,7 @@ export function handleActionError<T = never>(e: unknown): ActionResult<T> {
     console.error("[action]", safeErrorForLog(e));
     return formError(e.userMessage);
   }
+  if (isRetryableTxConflict(e)) return formError(CONFLICT_MESSAGE);
   if (e instanceof Prisma.PrismaClientKnownRequestError) {
     if (e.code === "P2025") return formError("Registro não encontrado.");
     if (e.code === "P2003") return formError("Operação inválida: há registros relacionados ou referência inexistente.");

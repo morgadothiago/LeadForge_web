@@ -4,6 +4,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn(), revalidateTag: vi.fn(), updateTag: vi.fn() }));
 
 import { prisma } from "@/lib/prisma";
+import { purgeTestCampaigns } from "@/lib/test-utils/purge";
 import { signInAsSeedAdmin } from "@/lib/auth/test-helpers";
 import { seed } from "../../../prisma/seed";
 import {
@@ -16,6 +17,7 @@ let campId = "";
 let campB = "";
 
 beforeAll(async () => {
+  await purgeTestCampaigns(TAG);
   await seed(prisma);
   await signInAsSeedAdmin();
   const icp = await prisma.icpProfile.findFirstOrThrow();
@@ -25,6 +27,7 @@ beforeAll(async () => {
 }, 30000);
 
 afterAll(async () => {
+  await purgeTestCampaigns(TAG).catch(() => {});
   await prisma.lead.deleteMany({ where: { campaignId: { in: [campId, campB] } } });
   await prisma.campaign.deleteMany({ where: { id: { in: [campId, campB] } } });
   await prisma.$disconnect();

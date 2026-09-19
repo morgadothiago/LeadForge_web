@@ -9,7 +9,7 @@ import { findSuppression, SUPPRESSED_MESSAGE } from "@/lib/domain/suppression";
 import { expandSpintax } from "@/lib/templates/spintax";
 import { effectiveDailyLimit } from "@/lib/whatsapp/warmup";
 import { ensureWarmupStarted, evaluateInstanceHealth, resumeInstanceNow } from "@/lib/whatsapp/health";
-import { leadStopped, reservableWhere, repliedOrEnded, skipSuppressedBeforeReserve, REPLIED_MESSAGE, NEEDS_REVIEW_PREFIX } from "./reserve";
+import { leadStopped, reservableWhere, repliedOrEnded, skipSuppressedBeforeReserve, skipSeedBeforeReserve, REPLIED_MESSAGE, NEEDS_REVIEW_PREFIX } from "./reserve";
 import { nextSendWindow, sanitizeError, SENDING_STALE_MS, startOfDaySP } from "./email";
 
 const NOT_CONNECTED_RETRY_MS = 5 * 60_000;
@@ -38,7 +38,7 @@ export interface SendWhatsAppOptions {
 export type SendWhatsAppResult =
   | { status: "sent"; externalId: string; instanceId: string }
   | { status: "already_sent" }
-  | { status: "skipped"; reason: "opted_out" | "sequence_completed" | "replied" | "suppressed" | "touch_limit" | "no_whatsapp" }
+  | { status: "skipped"; reason: "opted_out" | "sequence_completed" | "replied" | "suppressed" | "seed_data" | "touch_limit" | "no_whatsapp" }
   | {
       status: "deferred";
       nextAt: Date;
@@ -68,6 +68,7 @@ export async function sendWhatsApp(touchId: string, opts: SendWhatsAppOptions = 
   // SPEC-017: supressão ANTES de reservar (Touch suprimido nunca passa por `sending`). Falha `timeout` exige revisão humana (retryTouch).
   const where = reservableWhere(touchId, SENDING_STALE_MS, false);
   if (await skipSuppressedBeforeReserve(touchId, where)) return { status: "skipped", reason: "suppressed" };
+  if (await skipSeedBeforeReserve(touchId, where)) return { status: "skipped", reason: "seed_data" };
   const reserved = await prisma.touch.updateMany({ where, data: { status: "sending" } });
   if (reserved.count === 0) {
     const cur = await prisma.touch.findUnique({ where: { id: touchId }, select: { status: true } });

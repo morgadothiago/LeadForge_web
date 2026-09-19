@@ -8,7 +8,7 @@ import { normalizeSmtpError } from "./smtp-errors";
 import { buildUnsubscribeUrl } from "./unsubscribe";
 import { findSuppression, SUPPRESSED_MESSAGE } from "@/lib/domain/suppression";
 import { startOfLocalDay, startOfNextLocalDay } from "@/lib/whatsapp/send-window";
-import { leadStopped, reservableWhere, repliedOrEnded, skipSuppressedBeforeReserve, REPLIED_MESSAGE } from "./reserve";
+import { leadStopped, reservableWhere, repliedOrEnded, skipSuppressedBeforeReserve, skipSeedBeforeReserve, REPLIED_MESSAGE } from "./reserve";
 import { resolvePublicHost, allowPrivateSmtpHosts, type HostResolver } from "./ssrf";
 
 export { normalizeSmtpError };
@@ -78,7 +78,7 @@ export interface SendEmailOptions {
 export type SendEmailResult =
   | { status: "sent"; messageId: string; accountId: string }
   | { status: "already_sent" }
-  | { status: "skipped"; reason: "opted_out" | "sequence_completed" | "replied" | "suppressed" }
+  | { status: "skipped"; reason: "opted_out" | "sequence_completed" | "replied" | "suppressed" | "seed_data" }
   | { status: "deferred"; nextAt: Date }
   | { status: "failed"; error: AppError };
 
@@ -95,7 +95,7 @@ export function smtpConfig(account: EmailAccount): SmtpConfig {
   };
 }
 
-const TIMEOUTS = { connectionTimeout: 10_000, greetingTimeout: 10_000, socketTimeout: 20_000 };
+export const TIMEOUTS = { connectionTimeout: 8_000, greetingTimeout: 8_000, socketTimeout: 15_000 };
 
 /** Resolve o host (bloqueando rede interna, SSRF) e conecta no IP checado. */
 export async function buildTransport(account: EmailAccount, opts: Pick<SendEmailOptions, "createTransport" | "resolveHost"> = {}): Promise<Transporter> {
@@ -117,6 +117,7 @@ export async function sendEmail(touchId: string, opts: SendEmailOptions = {}): P
   // SPEC-017: supressão ANTES de reservar.
   const where = reservableWhere(touchId, SENDING_STALE_MS);
   if (await skipSuppressedBeforeReserve(touchId, where)) return { status: "skipped", reason: "suppressed" };
+  if (await skipSeedBeforeReserve(touchId, where)) return { status: "skipped", reason: "seed_data" };
   const reserved = await prisma.touch.updateMany({ where, data: { status: "sending" } });
   if (reserved.count === 0) {
     const cur = await prisma.touch.findUnique({ where: { id: touchId }, select: { status: true } });
@@ -143,7 +144,7 @@ async function doSend(touchId: string, now: Date, opts: SendEmailOptions): Promi
   if (touch.channel !== "email") return fail(touchId, new AppError({ code: "validation", userMessage: "Este envio não é do canal e-mail." }));
 
   const { lead } = touch;
-  const skip = async (reason: "opted_out" | "sequence_completed" | "replied" | "suppressed"): Promise<SendEmailResult> => {
+  const skip = async (reason: "opted_out" | "sequence_completed" | "replied" | "suppressed" | "seed_data"): Promise<SendEmailResult> => {
     await prisma.touch.update({ where: { id: touchId }, data: { status: "skipped", ...(reason === "suppressed" ? { error: SUPPRESSED_MESSAGE } : reason === "replied" ? { error: REPLIED_MESSAGE } : {}) } });
     return { status: "skipped", reason };
   };

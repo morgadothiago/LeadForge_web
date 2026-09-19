@@ -5,6 +5,7 @@ vi.mock("next/cache", () => ({ revalidatePath: vi.fn(), revalidateTag: vi.fn(), 
 
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
+import { purgeTestCampaigns } from "@/lib/test-utils/purge";
 import { signInAsSeedAdmin } from "@/lib/auth/test-helpers";
 import { seed } from "../../../prisma/seed";
 import { moveOpportunity, updateOpportunity } from "./pipeline";
@@ -19,6 +20,7 @@ async function col(stage: "novo_lead" | "contactado" | "fechado") {
 }
 
 beforeAll(async () => {
+  await purgeTestCampaigns(TAG);
   await seed(prisma);
   await signInAsSeedAdmin();
   const icp = await prisma.icpProfile.findFirstOrThrow();
@@ -37,6 +39,7 @@ beforeAll(async () => {
 }, 30000);
 
 afterAll(async () => {
+  await purgeTestCampaigns(TAG).catch(() => {});
   await prisma.lead.deleteMany({ where: { campaignId: campId } });
   await prisma.campaign.deleteMany({ where: { id: campId } });
   await prisma.$disconnect();
@@ -104,9 +107,11 @@ describe("pipeline", () => {
   });
 
   it("movimentos concorrentes mantêm posições íntegras", async () => {
-    await Promise.all(
+    const rs = await Promise.all(
       ids.map((id, i) => moveOpportunity({ opportunityId: id, toStage: "contactado", toIndex: i, campaignId: campId })),
     );
+    // Com retry+jitter no núcleo, conflitos Serializable sob carga não podem sobrar como falha.
+    expect(rs.every((r) => r.ok)).toBe(true);
     const c = await col("contactado");
     const others = await Promise.all([col("novo_lead"), col("fechado")]);
     expect(c.length + others[0].length + others[1].length).toBe(4);
@@ -114,7 +119,7 @@ describe("pipeline", () => {
       const pos = list.map((o) => o.position);
       expect(pos).toEqual(pos.map((_, i) => i));
     }
-  });
+  }, 30000);
 
   it("updateOpportunity atualiza valor/notas e valida", async () => {
     const r = await updateOpportunity({ opportunityId: ids[0], value: 555, notes: "  nota  " });

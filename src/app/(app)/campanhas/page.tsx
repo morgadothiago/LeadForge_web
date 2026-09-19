@@ -4,7 +4,10 @@ import { CampaignCard } from "@/components/campaigns/CampaignCard";
 import { Card } from "@/components/ui/card";
 import { buttonVariants } from "@/components/ui/button";
 import { CAMPAIGN_STATUS_LABELS } from "@/lib/domain";
+import { hasNoChannels } from "@/components/sequences/sequence-start-format";
 import { listCampaigns } from "@/lib/queries/campaigns";
+import { listEmailAccounts } from "@/lib/queries/email";
+import { listWhatsAppInstances } from "@/lib/queries/whatsapp";
 import { campaignStatusSchema } from "@/lib/schemas/campaign";
 import { cn } from "@/lib/utils";
 
@@ -14,7 +17,8 @@ export default async function Page({ searchParams }: { searchParams: Promise<Rec
   const raw = (await searchParams).status;
   const parsed = campaignStatusSchema.safeParse(Array.isArray(raw) ? raw[0] : raw);
   const status = parsed.success ? parsed.data : undefined;
-  const campaigns = await listCampaigns({ status });
+  const [campaigns, emailAccounts, waInstances] = await Promise.all([listCampaigns({ status }), listEmailAccounts(), listWhatsAppInstances()]);
+  const noChannels = hasNoChannels(emailAccounts, waInstances);
 
   const filters = [
     { href: "/campanhas", label: "Todas", active: !status },
@@ -68,7 +72,7 @@ export default async function Page({ searchParams }: { searchParams: Promise<Rec
         <ul className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
           {campaigns.map((c) => (
             <li key={c.id}>
-              <CampaignCard campaign={c} />
+              <CampaignCard campaign={c} noChannels={noChannels} />
             </li>
           ))}
         </ul>

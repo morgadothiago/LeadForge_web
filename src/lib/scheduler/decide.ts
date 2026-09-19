@@ -35,14 +35,13 @@ export interface DueLeadInput {
 }
 
 /**
- * Leads devidos: `active` com nextTouchAt <= now, OU `not_started` (lead novo: dia 0 dispara já); campanha ativa com sequência;
- * nunca optado/respondeu. Ordem determinística (mais antigo primeiro) e teto opcional.
+ * Leads devidos: SOMENTE `active` com nextTouchAt <= now (`not_started` NUNCA dispara sozinho: início explícito ou autoStart, fase 0);
+ * campanha ativa com sequência; nunca optado/respondeu. Ordem determinística (mais antigo primeiro) e teto opcional.
  */
 export function pickDueLeads<T extends DueLeadInput>(leads: T[], now: Date, limit = Infinity): T[] {
   return leads
     .filter((l) => {
       if (l.campaignStatus !== "active" || !l.hasSequence || l.optedOutAt || l.repliedAt) return false;
-      if (l.sequenceStatus === "not_started") return true;
       return l.sequenceStatus === "active" && l.nextTouchAt !== null && l.nextTouchAt.getTime() <= now.getTime();
     })
     .sort((a, b) => (a.nextTouchAt?.getTime() ?? a.createdAt.getTime()) - (b.nextTouchAt?.getTime() ?? b.createdAt.getTime()) || a.id.localeCompare(b.id))
@@ -79,6 +78,7 @@ export function decideAfterSend(r: ChannelResult, ctx: AfterSendCtx): Decision {
       if (r.reason === "replied") return { kind: "end", status: "paused_replied" };
       if (r.reason === "sequence_completed") return { kind: "end", status: "completed" };
       if (r.reason === "suppressed") return { kind: "end", status: "suppressed" };
+      if (r.reason === "seed_data") return { kind: "noop" }; // dado de teste: não envia e não mexe no lead
       return { kind: "advance", outcome: "skipped_step" }; // no_whatsapp | touch_limit: fallback para o próximo step
     case "failed":
       if (ctx.needsReview) return { kind: "advance", outcome: "timeout_no_retry" };

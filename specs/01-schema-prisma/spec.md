@@ -99,3 +99,7 @@ D3 (enums vs String), D4 (resposta -> stage automatico?), D6 (lead pertence a 1 
 
 ## Adendo (autorizado pelo usuario) - Opportunity.lostReason
 - Novo campo `Opportunity.lostReason String?` (motivo de perda, max 500 validado na action). Migration `opportunity_lost_reason`. Ver SPEC-007.
+
+## Implementation Notes (adendo SPEC-013: inicio explicito)
+- Schema: `SequenceStatus.paused_manual` e `Campaign.autoStart Boolean @default(false)` (migration `20260919220000_sequence_explicit_start`, backfill false). Ver SPEC-013.
+- Seed: campanha de exemplo criada `paused` + `autoStart=false`; Touch "proximo passo" dos leads seed nasce `skipped` ("dado de teste (seed)"), sem `scheduled` futuros; leads seed continuam `source="seed"` (nunca enviaveis). Idempotencia mantida (`seed.test.ts` verde). No banco de dev ja existente a campanha foi pausada e os 7 Touches `scheduled` de seed foram marcados `skipped` (upsert nao sobrescreve).

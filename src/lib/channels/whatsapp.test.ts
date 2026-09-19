@@ -6,6 +6,7 @@ vi.mock("next/cache", () => ({ revalidatePath: vi.fn(), revalidateTag: vi.fn(), 
 process.env.ENCRYPTION_KEY = randomBytes(32).toString("base64");
 
 import { prisma } from "@/lib/prisma";
+import { purgeTestCampaigns } from "@/lib/test-utils/purge";
 import { seed } from "../../../prisma/seed";
 import { AppError } from "@/lib/errors";
 import { FakeWhatsAppProvider } from "@/lib/whatsapp/providers/fake";
@@ -31,6 +32,7 @@ async function reset() {
 }
 
 beforeAll(async () => {
+  await purgeTestCampaigns(TAG);
   await seed(prisma);
   const user = await prisma.user.findFirstOrThrow({ where: { email: "admin@leadforge.local" } });
   const icp = await prisma.icpProfile.findFirstOrThrow();
@@ -42,6 +44,7 @@ beforeAll(async () => {
 }, 30000);
 
 afterAll(async () => {
+  await purgeTestCampaigns(TAG).catch(() => {});
   await prisma.lead.deleteMany({ where: { campaignId: campId } });
   await prisma.sequenceStep.deleteMany({ where: { id: stepId } });
   await prisma.campaign.deleteMany({ where: { id: campId } });

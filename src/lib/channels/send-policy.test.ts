@@ -16,6 +16,7 @@ process.env.AUTH_URL = "http://app.test";
 process.env.ALLOW_PRIVATE_SMTP_HOSTS = "true";
 
 import { prisma } from "@/lib/prisma";
+import { purgeTestCampaigns } from "@/lib/test-utils/purge";
 import { signInAsSeedAdmin } from "@/lib/auth/test-helpers";
 import { seed } from "../../../prisma/seed";
 import { encrypt } from "@/lib/crypto/secret-box";
@@ -71,6 +72,7 @@ const spyTransport = () => {
 };
 
 beforeAll(async () => {
+  await purgeTestCampaigns(TAG);
   await seed(prisma);
   await signInAsSeedAdmin();
   const user = await prisma.user.findFirstOrThrow({ where: { email: "admin@leadforge.local" } });
@@ -88,6 +90,7 @@ beforeAll(async () => {
 }, 30000);
 
 afterAll(async () => {
+  await purgeTestCampaigns(TAG).catch(() => {});
   await prisma.lead.deleteMany({ where: { campaignId: { in: [campA, campB] } } });
   await prisma.suppression.deleteMany({ where: { OR: [{ value: { contains: TAG } }, { value: { in: phones } }] } });
   await prisma.webhookEvent.deleteMany({ where: { source: "suppression", payload: { path: ["reason"], string_contains: TAG } } });

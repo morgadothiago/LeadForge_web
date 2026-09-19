@@ -1,5 +1,6 @@
 import { Prisma, type Stage } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { isRetryableTxConflict, withSerializableRetry } from "@/lib/db/tx-conflict";
 import { recordStageChange } from "./stage-history";
 
 export interface MoveResult {
@@ -56,26 +57,22 @@ export type MoveOutcome =
 /**
  * Núcleo transacional (Serializable) do move de oportunidade, compartilhado por
  * `moveOpportunity` (pipeline) e `moveLeadStage` (leads). Sem auth/revalidate: quem chama cuida.
+ * Conflito Serializable é esperado sob concorrência: `withSerializableRetry` repete a transação inteira; esgotado -> "conflict".
  */
 export async function runMoveOpportunity(
   params: MoveParams,
 ): Promise<MoveOutcome> {
-  let result: MoveResult | null;
   try {
-    result = await prisma.$transaction(
-      (tx) => moveOpportunityInTx(tx, params),
-      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+    const result = await withSerializableRetry(() =>
+      prisma.$transaction((tx) => moveOpportunityInTx(tx, params), {
+        isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+      }),
     );
+    return result ? { status: "ok", result } : { status: "not_found" };
   } catch (e) {
-    if (
-      e instanceof Prisma.PrismaClientKnownRequestError &&
-      e.code === "P2034"
-    ) {
-      return { status: "conflict" };
-    }
+    if (isRetryableTxConflict(e)) return { status: "conflict" };
     throw e;
   }
-  return result ? { status: "ok", result } : { status: "not_found" };
 }
 
 /**

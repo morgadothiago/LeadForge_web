@@ -11,6 +11,7 @@ process.env.AUTH_URL = "http://app.test";
 process.env.ALLOW_PRIVATE_SMTP_HOSTS = "true";
 
 import { prisma } from "@/lib/prisma";
+import { purgeTestCampaigns } from "@/lib/test-utils/purge";
 import { signInAsSeedAdmin, signOut } from "@/lib/auth/test-helpers";
 import { seed } from "../../../prisma/seed";
 import { encrypt } from "@/lib/crypto/secret-box";
@@ -43,6 +44,7 @@ const params = (t: string) => ({ params: Promise.resolve({ token: t }) });
 const req = (m: string, ip = "9.9.9.9") => new Request("http://x/api/webhooks/unsubscribe/t", { method: m, headers: { "x-real-ip": ip } });
 
 beforeAll(async () => {
+  await purgeTestCampaigns(TAG);
   process.env.TRUSTED_PROXY_IP_HEADER = "x-real-ip";
   await seed(prisma);
   await signInAsSeedAdmin();
@@ -60,6 +62,7 @@ beforeAll(async () => {
 }, 30000);
 
 afterAll(async () => {
+  await purgeTestCampaigns(TAG).catch(() => {});
   await prisma.suppression.deleteMany({ where: { value: { contains: TAG } } });
   await prisma.lead.deleteMany({ where: { campaignId: campId } });
   await prisma.emailAccount.deleteMany({ where: { email: { contains: TAG } } });
