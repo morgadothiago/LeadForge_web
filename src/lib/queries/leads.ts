@@ -1,6 +1,7 @@
 import { Prisma, type Channel, type SequenceStatus, type Stage, type TouchDirection, type TouchStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth/require-user";
+import { getLastInboundByLead, sanitizeInboundText } from "@/lib/whatsapp/last-inbound";
 import { leadListParamsSchema, type LeadListParams } from "@/lib/schemas/lead";
 
 export interface LeadListItem {
@@ -17,6 +18,10 @@ export interface LeadListItem {
   opportunity: { id: string; stage: Stage; value: number | null } | null;
   /** Canal do último touch (mais recente por createdAt); null sem touches. */
   lastChannel: Channel | null;
+  /** SPEC-012 (aditivo/opcional). */
+  lastInboundAt?: Date | null;
+  lastInboundText?: string | null;
+  possibleOptOut?: boolean;
 }
 
 export interface LeadListResult {
@@ -76,6 +81,7 @@ export async function listLeads(params: LeadListParams = {}): Promise<LeadListRe
         score: true,
         tags: true,
         sequenceStatus: true,
+        possibleOptOut: true,
         createdAt: true,
         campaign: { select: { id: true, name: true } },
         opportunities: { select: { id: true, stage: true, value: true }, take: 1 },
@@ -84,6 +90,7 @@ export async function listLeads(params: LeadListParams = {}): Promise<LeadListRe
     }),
     prisma.lead.count({ where }),
   ]);
+  const inbound = await getLastInboundByLead(rows.map((r) => r.id));
   return {
     items: rows.map((r) => ({
       id: r.id,
@@ -98,6 +105,9 @@ export async function listLeads(params: LeadListParams = {}): Promise<LeadListRe
       campaign: r.campaign,
       opportunity: r.opportunities[0] ?? null,
       lastChannel: r.touches[0]?.channel ?? null,
+      lastInboundAt: inbound.get(r.id)?.lastInboundAt ?? null,
+      lastInboundText: inbound.get(r.id)?.lastInboundText ?? null,
+      possibleOptOut: r.possibleOptOut,
     })),
     total,
     page: p.page,
@@ -139,6 +149,10 @@ export interface LeadDetail {
   nextTouchAt: Date | null;
   repliedAt: Date | null;
   optedOutAt: Date | null;
+  /** SPEC-012 (aditivo/opcional). */
+  possibleOptOut?: boolean;
+  lastInboundAt?: Date | null;
+  lastInboundText?: string | null;
   opportunity: { id: string; stage: Stage; value: number | null; lostReason: string | null; notes: string | null } | null;
   /** Mais recente primeiro (createdAt desc, id desc). */
   touches: LeadTouchItem[];
@@ -171,5 +185,12 @@ export async function getLead(id: string): Promise<LeadDetail | null> {
   if (!l) return null;
   const { opportunities, rawData: _raw, campaignId: _c, currentStepOrder, ...rest } = l;
   void _raw; void _c;
-  return { ...rest, currentStepOrder, opportunity: opportunities[0] ?? null };
+  const lastIn = l.touches.find((t) => t.direction === "inbound");
+  return {
+    ...rest,
+    currentStepOrder,
+    opportunity: opportunities[0] ?? null,
+    lastInboundAt: lastIn ? (lastIn.repliedAt ?? lastIn.createdAt) : null,
+    lastInboundText: sanitizeInboundText(lastIn?.content),
+  };
 }

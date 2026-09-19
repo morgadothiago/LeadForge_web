@@ -1,6 +1,7 @@
 import type { Channel, Prisma, Stage } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth/require-user";
+import { getLastInboundByLead } from "@/lib/whatsapp/last-inbound";
 import { boardParamsSchema, STAGES, type BoardParams } from "@/lib/schemas/pipeline";
 
 export interface BoardCard {
@@ -14,6 +15,11 @@ export interface BoardCard {
   /** Canal do último touch do lead; null se ainda sem touches. */
   channel: Channel | null;
   campaign: { id: string; name: string };
+  /** SPEC-012 (aditivo/opcional): última resposta inbound do lead. Texto truncado (200), sem HTML; renderizar como texto. */
+  lastInboundAt?: Date | null;
+  lastInboundText?: string | null;
+  /** SPEC-012: alerta "Possível opt-out: revise antes de contatar". */
+  possibleOptOut?: boolean;
 }
 
 export interface BoardColumn {
@@ -73,11 +79,13 @@ export async function getPipelineBoard(params: BoardParams = {}): Promise<BoardC
           name: true,
           company: true,
           score: true,
+          possibleOptOut: true,
           touches: { select: { channel: true }, orderBy: { createdAt: "desc" }, take: 1 },
         },
       },
     },
   });
+  const inbound = await getLastInboundByLead([...new Set(rows.map((r) => r.lead.id))]);
   const columns: BoardColumn[] = STAGES.map((stage) => ({
     stage,
     label: STAGE_LABELS[stage],
@@ -101,6 +109,9 @@ export async function getPipelineBoard(params: BoardParams = {}): Promise<BoardC
       lead: { id: r.lead.id, name: r.lead.name, company: r.lead.company, score: r.lead.score },
       channel: r.lead.touches[0]?.channel ?? null,
       campaign: r.campaign,
+      lastInboundAt: inbound.get(r.lead.id)?.lastInboundAt ?? null,
+      lastInboundText: inbound.get(r.lead.id)?.lastInboundText ?? null,
+      possibleOptOut: r.lead.possibleOptOut,
     });
   }
   return columns;

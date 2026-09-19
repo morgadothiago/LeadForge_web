@@ -18,3 +18,6 @@ Nucleo puro `computeDueTouches(leads, now)`: lead `active` com `nextTouchAt <= n
 
 ## Regra transversal: HTTP/429
 Aplicar as regras de HTTP de saida e rate limit de specs/README.md (reagendar em 429 do provider): axios com interceptor, tratamento de 429 com `Retry-After`/backoff, testes de 429/5xx/timeout.
+
+## Dependencia (2026-09-19): SPEC-017 (politica de envio)
+O scheduler DEVE aplicar a politica de specs/17-politica-envio/spec.md (supressao global, 3 toques/14 dias no WhatsApp, WhatsApp primeiro, janela 9-12/14-17 seg-sex, aquecimento, intervalo 45-180 s, disjuntor de saude) e SERIALIZAR envios por instancia (um envio por vez por instancia), porque o intervalo minimo e o teto diario dependem disso.

@@ -1,6 +1,11 @@
 import type { FieldErrors } from "@/lib/actions/result";
 import type { IcpInput } from "@/lib/schemas/icp";
 
+/** Mensagem geral (`_form`) do ActionResult; senão a 1a mensagem de qualquer campo; senão `fallback`. */
+export function getFormError(errors: FieldErrors | undefined, fallback = "Não foi possível concluir a operação. Tente novamente."): string {
+  return errors?._form?.[0] ?? Object.values(errors ?? {}).flat()[0] ?? fallback;
+}
+
 /** Mensagens do campo `key` (inclui subchaves como "signals.0"). */
 export function fieldError(errors: FieldErrors | undefined, key: string): string | undefined {
   if (!errors) return undefined;

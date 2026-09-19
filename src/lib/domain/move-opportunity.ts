@@ -40,7 +40,6 @@ const ORDER = [
   { id: "asc" },
 ] as const;
 
-
 export interface MoveParams {
   opportunityId: string;
   toStage: Stage;
@@ -58,122 +57,132 @@ export type MoveOutcome =
  * Núcleo transacional (Serializable) do move de oportunidade, compartilhado por
  * `moveOpportunity` (pipeline) e `moveLeadStage` (leads). Sem auth/revalidate: quem chama cuida.
  */
-export async function runMoveOpportunity(params: MoveParams): Promise<MoveOutcome> {
-  const { opportunityId, toStage, toIndex, campaignId, lostReason } = params;
-    let result: MoveResult | null;
-    try {
-      result = await prisma.$transaction(
-        async (tx): Promise<MoveResult | null> => {
-          const opp = await tx.opportunity.findUnique({
-            where: { id: opportunityId },
-            select: {
-              id: true,
-              stage: true,
-              position: true,
-              campaignId: true,
-              leadId: true,
-              lostReason: true,
-            },
-          });
-          if (!opp) return null;
-          if (campaignId && opp.campaignId !== campaignId) return null;
-          const scope: Prisma.OpportunityWhereInput = campaignId
-            ? { campaignId }
-            : {};
-
-          const dest = await tx.opportunity.findMany({
-            where: { ...scope, stage: toStage, id: { not: opp.id } },
-            orderBy: [...ORDER],
-            select: { id: true, position: true },
-          });
-          const idx = Math.min(toIndex, dest.length);
-          const ordered = [
-            ...dest.slice(0, idx),
-            { id: opp.id, position: opp.position },
-            ...dest.slice(idx),
-          ];
-
-          const sameStage = opp.stage === toStage;
-          if (sameStage) {
-            const current = await tx.opportunity.findMany({
-              where: { ...scope, stage: toStage },
-              orderBy: [...ORDER],
-              select: { id: true, position: true },
-            });
-            const unchanged =
-              current.length === ordered.length &&
-              current.every(
-                (c, i) => c.id === ordered[i].id && c.position === i,
-              );
-            if (unchanged) {
-              // Mesma coluna/posição: só atualiza o motivo se perdido e mudou.
-              if (toStage === "perdido" && lostReason !== opp.lostReason) {
-                await tx.opportunity.update({
-                  where: { id: opp.id },
-                  data: { lostReason },
-                });
-                return {
-                  id: opp.id,
-                  stage: toStage,
-                  position: idx,
-                  changed: true,
-                };
-              }
-              return {
-                id: opp.id,
-                stage: toStage,
-                position: idx,
-                changed: false,
-              };
-            }
-          }
-
-          for (let i = 0; i < ordered.length; i++) {
-            const o = ordered[i];
-            if (o.id === opp.id) {
-              await tx.opportunity.update({
-                where: { id: o.id },
-                data: {
-                  stage: toStage,
-                  position: i,
-                  lostReason: toStage === "perdido" ? lostReason : null,
-                },
-              });
-            } else if (o.position !== i) {
-              await tx.opportunity.updateMany({
-                where: { id: o.id },
-                data: { position: i },
-              });
-            }
-          }
-          if (!sameStage) {
-            const src = await tx.opportunity.findMany({
-              where: { ...scope, stage: opp.stage },
-              orderBy: [...ORDER],
-              select: { id: true, position: true },
-            });
-            for (let i = 0; i < src.length; i++) {
-              if (src[i].position !== i) {
-                await tx.opportunity.update({
-                  where: { id: src[i].id },
-                  data: { position: i },
-                });
-              }
-            }
-            await recordStageChange(tx, opp.id, opp.stage, toStage);
-            if (toStage === "fechado" || toStage === "perdido") {
-              await endSequence(tx, opp.leadId);
-            }
-          }
-          return { id: opp.id, stage: toStage, position: idx, changed: true };
-        },
-        { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
-      );
-    } catch (e) {
-      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2034") {
-        return { status: "conflict" };
-      }
-      throw e;
+export async function runMoveOpportunity(
+  params: MoveParams,
+): Promise<MoveOutcome> {
+  let result: MoveResult | null;
+  try {
+    result = await prisma.$transaction(
+      (tx) => moveOpportunityInTx(tx, params),
+      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+    );
+  } catch (e) {
+    if (
+      e instanceof Prisma.PrismaClientKnownRequestError &&
+      e.code === "P2034"
+    ) {
+      return { status: "conflict" };
     }
-    return result ? { status: "ok", result } : { status: "not_found" };
+    throw e;
+  }
+  return result ? { status: "ok", result } : { status: "not_found" };
+}
+
+/**
+ * Corpo do move DENTRO de uma transação já aberta (o chamador é dono do isolamento/retry; use Serializable).
+ * Reutilizado pelo receiver do WhatsApp (SPEC-012) para mover a oportunidade na MESMA transação da resposta. null = não encontrada.
+ */
+export async function moveOpportunityInTx(
+  tx: Prisma.TransactionClient,
+  params: MoveParams,
+): Promise<MoveResult | null> {
+  const { opportunityId, toStage, toIndex, campaignId, lostReason } = params;
+  const opp = await tx.opportunity.findUnique({
+    where: { id: opportunityId },
+    select: {
+      id: true,
+      stage: true,
+      position: true,
+      campaignId: true,
+      leadId: true,
+      lostReason: true,
+    },
+  });
+  if (!opp) return null;
+  if (campaignId && opp.campaignId !== campaignId) return null;
+  const scope: Prisma.OpportunityWhereInput = campaignId ? { campaignId } : {};
+
+  const dest = await tx.opportunity.findMany({
+    where: { ...scope, stage: toStage, id: { not: opp.id } },
+    orderBy: [...ORDER],
+    select: { id: true, position: true },
+  });
+  const idx = Math.min(toIndex, dest.length);
+  const ordered = [
+    ...dest.slice(0, idx),
+    { id: opp.id, position: opp.position },
+    ...dest.slice(idx),
+  ];
+
+  const sameStage = opp.stage === toStage;
+  if (sameStage) {
+    const current = await tx.opportunity.findMany({
+      where: { ...scope, stage: toStage },
+      orderBy: [...ORDER],
+      select: { id: true, position: true },
+    });
+    const unchanged =
+      current.length === ordered.length &&
+      current.every((c, i) => c.id === ordered[i].id && c.position === i);
+    if (unchanged) {
+      // Mesma coluna/posição: só atualiza o motivo se perdido e mudou.
+      if (toStage === "perdido" && lostReason !== opp.lostReason) {
+        await tx.opportunity.update({
+          where: { id: opp.id },
+          data: { lostReason },
+        });
+        return {
+          id: opp.id,
+          stage: toStage,
+          position: idx,
+          changed: true,
+        };
+      }
+      return {
+        id: opp.id,
+        stage: toStage,
+        position: idx,
+        changed: false,
+      };
+    }
+  }
+
+  for (let i = 0; i < ordered.length; i++) {
+    const o = ordered[i];
+    if (o.id === opp.id) {
+      await tx.opportunity.update({
+        where: { id: o.id },
+        data: {
+          stage: toStage,
+          position: i,
+          lostReason: toStage === "perdido" ? lostReason : null,
+        },
+      });
+    } else if (o.position !== i) {
+      await tx.opportunity.updateMany({
+        where: { id: o.id },
+        data: { position: i },
+      });
+    }
+  }
+  if (!sameStage) {
+    const src = await tx.opportunity.findMany({
+      where: { ...scope, stage: opp.stage },
+      orderBy: [...ORDER],
+      select: { id: true, position: true },
+    });
+    for (let i = 0; i < src.length; i++) {
+      if (src[i].position !== i) {
+        await tx.opportunity.update({
+          where: { id: src[i].id },
+          data: { position: i },
+        });
+      }
+    }
+    await recordStageChange(tx, opp.id, opp.stage, toStage);
+    if (toStage === "fechado" || toStage === "perdido") {
+      await endSequence(tx, opp.leadId);
+    }
+  }
+  return { id: opp.id, stage: toStage, position: idx, changed: true };
 }

@@ -30,6 +30,7 @@ enum SequenceStatus {
 enum TouchStatus {
   pending
   scheduled
+  sending
   sent
   delivered
   failed
@@ -132,6 +133,7 @@ model Lead {
   nextTouchAt      DateTime?
   repliedAt        DateTime?
   optedOutAt       DateTime?
+  possibleOptOut   Boolean        @default(false)
   timezone         String         @default("America/Sao_Paulo")
   createdAt        DateTime       @default(now())
   updatedAt        DateTime       @updatedAt
@@ -179,25 +181,32 @@ model SequenceStep {
 }
 
 model Touch {
-  id          String         @id @default(uuid())
-  leadId      String
-  lead        Lead           @relation(fields: [leadId], references: [id], onDelete: Cascade)
-  stepId      String?
-  step        SequenceStep?  @relation(fields: [stepId], references: [id], onDelete: SetNull)
-  channel     Channel
-  direction   TouchDirection @default(outbound)
-  status      TouchStatus    @default(pending)
-  scheduledAt DateTime?
-  sentAt      DateTime?
-  repliedAt   DateTime?
-  externalId  String?
-  error       String?
-  content     String?
-  createdAt   DateTime       @default(now())
+  id                 String            @id @default(uuid())
+  leadId             String
+  lead               Lead              @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  stepId             String?
+  step               SequenceStep?     @relation(fields: [stepId], references: [id], onDelete: SetNull)
+  channel            Channel
+  direction          TouchDirection    @default(outbound)
+  status             TouchStatus       @default(pending)
+  scheduledAt        DateTime?
+  sentAt             DateTime?
+  repliedAt          DateTime?
+  externalId         String?
+  error              String?
+  content            String?
+  emailAccountId     String?
+  emailAccount       EmailAccount?     @relation(fields: [emailAccountId], references: [id], onDelete: SetNull)
+  whatsappInstanceId String?
+  whatsappInstance   WhatsAppInstance? @relation(fields: [whatsappInstanceId], references: [id], onDelete: SetNull)
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @default(now()) @updatedAt
 
   @@unique([leadId, stepId])
   @@index([leadId, createdAt])
   @@index([status, scheduledAt])
+  @@index([emailAccountId, status, sentAt])
+  @@index([whatsappInstanceId, status, sentAt])
 }
 
 model Opportunity {
@@ -237,30 +246,39 @@ model Meeting {
 }
 
 model WhatsAppInstance {
-  id           String               @id @default(uuid())
-  instanceName String               @unique
-  number       String
-  provider     WhatsAppProviderKind @default(evolution)
-  status       WaStatus             @default(disconnected)
-  webhookToken String
-  apiKey       String?
-  createdAt    DateTime             @default(now())
-  updatedAt    DateTime             @updatedAt
-  campaigns    Campaign[]
+  id              String               @id @default(uuid())
+  instanceName    String               @unique
+  number          String
+  provider        WhatsAppProviderKind @default(evolution)
+  status          WaStatus             @default(disconnected)
+  webhookToken    String               @unique
+  apiKey          String?
+  dailyLimit      Int                  @default(30)
+  lastError       String?
+  lastConnectedAt DateTime?
+  createdAt       DateTime             @default(now())
+  updatedAt       DateTime             @updatedAt
+  campaigns       Campaign[]
+  touches         Touch[]
 }
 
 model EmailAccount {
-  id                String   @id @default(uuid())
+  id                String    @id @default(uuid())
   userId            String
-  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user              User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   provider          String
   imapHost          String?
   smtpHost          String
-  port              Int      @default(587)
-  email             String   @unique
+  port              Int       @default(587)
+  email             String    @unique
   encryptedPassword String
-  isActive          Boolean  @default(true)
-  createdAt         DateTime @default(now())
+  isActive          Boolean   @default(true)
+  fromName          String?
+  dailyLimit        Int       @default(50)
+  lastVerifiedAt    DateTime?
+  lastError         String?
+  createdAt         DateTime  @default(now())
+  touches           Touch[]
 
   @@index([userId])
 }

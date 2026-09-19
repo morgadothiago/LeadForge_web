@@ -40,9 +40,9 @@ services:
       - CACHE_REDIS_ENABLED=true
       - CACHE_REDIS_URI=redis://redis:6379/6
       - CACHE_LOCAL_ENABLED=false
-      - WEBHOOK_GLOBAL_ENABLED=true
-      - WEBHOOK_GLOBAL_URL=http://host.docker.internal:3000/api/webhooks/whatsapp
-      - WEBHOOK_GLOBAL_BY_EVENTS=true
+      # Webhook POR INSTANCIA (SPEC-011/012): a URL com o token de cada instancia e configurada na criacao/rotacao
+      # (/instance/create e /webhook/set). O webhook GLOBAL fica desligado: nao carrega token por instancia.
+      - WEBHOOK_GLOBAL_ENABLED=false
       - AUTHENTICATION_EXPOSE_IN_FETCH_INSTANCES=true
       - DELAY_MESSAGE=1200
       - DELAY_MESSAGE_TYPING=1000
