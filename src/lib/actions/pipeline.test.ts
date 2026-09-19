@@ -5,6 +5,7 @@ vi.mock("next/cache", () => ({ revalidatePath: vi.fn(), revalidateTag: vi.fn(), 
 
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
+import { signInAsSeedAdmin } from "@/lib/auth/test-helpers";
 import { seed } from "../../../prisma/seed";
 import { moveOpportunity, updateOpportunity } from "./pipeline";
 import { getPipelineBoard } from "@/lib/queries/pipeline";
@@ -19,6 +20,7 @@ async function col(stage: "novo_lead" | "contactado" | "fechado") {
 
 beforeAll(async () => {
   await seed(prisma);
+  await signInAsSeedAdmin();
   const icp = await prisma.icpProfile.findFirstOrThrow();
   const user = await prisma.user.findFirstOrThrow();
   const c = await prisma.campaign.create({ data: { name: TAG, userId: user.id, icpId: icp.id } });

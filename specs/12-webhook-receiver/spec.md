@@ -14,3 +14,6 @@ D17, D4. Nota: opt-out por substring pode gerar falso positivo ("nao quero parar
 
 ## Nota (decisao do usuario)
 Webhook deve usar `WhatsAppProvider.parseWebhook`/`verifyWebhook` (SPEC-011), nunca parsear formato Evolution direto, para permitir troca de provider.
+
+## Regra transversal: HTTP/429
+Aplicar as regras de HTTP de saida e rate limit de specs/README.md (429 + Retry-After no receiver): axios com interceptor, tratamento de 429 com `Retry-After`/backoff, testes de 429/5xx/timeout.

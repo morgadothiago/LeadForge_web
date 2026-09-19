@@ -5,6 +5,7 @@ vi.mock("next/cache", () => ({ revalidatePath: vi.fn(), revalidateTag: vi.fn(), 
 
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
+import { signInAsSeedAdmin } from "@/lib/auth/test-helpers";
 import { seed, SEED_IDS } from "../../../prisma/seed";
 import { archiveCampaign, createCampaign, deleteCampaign, duplicateCampaign, pauseCampaign, resumeCampaign, updateCampaign } from "./campaign";
 import { createIcp, deleteIcp, updateIcp } from "./icp";
@@ -20,6 +21,7 @@ const icpIds: string[] = [];
 
 beforeAll(async () => {
   await seed(prisma);
+  await signInAsSeedAdmin();
 });
 
 afterAll(async () => {

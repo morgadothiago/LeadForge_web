@@ -4,6 +4,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn(), revalidateTag: vi.fn(), updateTag: vi.fn() }));
 
 import { prisma } from "@/lib/prisma";
+import { signInAsSeedAdmin } from "@/lib/auth/test-helpers";
 import { seed, SEED_IDS } from "../../../prisma/seed";
 import { createTemplate, deleteTemplate, previewTemplate, updateTemplate } from "./template";
 import { createSequence, deleteSequence, duplicateSequence, reorderSteps, saveSequenceSteps } from "./sequence";
@@ -18,6 +19,7 @@ let seqId = "";
 
 beforeAll(async () => {
   await seed(prisma);
+  await signInAsSeedAdmin();
   const c = await prisma.campaign.create({
     data: { name: `${TAG} c2`, icpId: SEED_IDS.icp, userId: SEED_IDS.user, status: "paused" },
   });

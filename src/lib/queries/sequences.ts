@@ -1,5 +1,6 @@
 import type { Channel } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { requireUser } from "@/lib/auth/require-user";
 import { renderTemplate, type RenderResult, type TemplateVars } from "@/lib/templates/render";
 
 export interface SequenceListItem {
@@ -13,6 +14,7 @@ export interface SequenceListItem {
 }
 
 export async function listSequences(): Promise<SequenceListItem[]> {
+  await requireUser();
   const rows = await prisma.sequence.findMany({
     orderBy: { createdAt: "desc" },
     select: {
@@ -48,6 +50,7 @@ export interface SequenceDetail {
 }
 
 export async function getSequence(id: string): Promise<SequenceDetail | null> {
+  await requireUser();
   return prisma.sequence.findUnique({
     where: { id },
     select: {
@@ -80,6 +83,7 @@ export interface TemplateListItem {
 }
 
 export async function listTemplates(campaignId: string, channel?: Channel): Promise<TemplateListItem[]> {
+  await requireUser();
   const rows = await prisma.messageTemplate.findMany({
     where: { campaignId, ...(channel ? { channel } : {}) },
     orderBy: { createdAt: "asc" },
@@ -108,6 +112,7 @@ export interface StepPreview {
 
 /** Preview server-side por step (uma query). Lead de exemplo por padrão; `lead` real opcional. */
 export async function previewSequence(id: string, lead: TemplateVars = SAMPLE_LEAD): Promise<StepPreview[] | null> {
+  await requireUser();
   const seq = await getSequence(id);
   if (!seq) return null;
   const vars: TemplateVars = { ...lead, firstName: lead.firstName ?? lead.name?.split(/\s+/)[0] };

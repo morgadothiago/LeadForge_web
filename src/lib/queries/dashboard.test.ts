@@ -2,6 +2,7 @@ import "dotenv/config";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { PrismaClient } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
+import { signInAsSeedAdmin } from "@/lib/auth/test-helpers";
 import { seed, SEED_IDS } from "../../../prisma/seed";
 import {
   buildWeeklySeries,
@@ -47,6 +48,7 @@ describe("getDashboardData (seed)", () => {
   const marker = "dashboard-test";
   beforeAll(async () => {
     await seed(prisma);
+    await signInAsSeedAdmin();
     const lead = await prisma.lead.findFirstOrThrow({ where: { campaignId: SEED_IDS.campaign } });
     await prisma.touch.createMany({
       data: [

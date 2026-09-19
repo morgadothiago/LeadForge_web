@@ -1,6 +1,7 @@
 import "dotenv/config";
 import { PrismaClient, Channel, Stage, SequenceStatus, TouchStatus } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
+import { hashPassword } from "../src/lib/auth/password";
 
 export const SEED_IDS = {
   user: "00000000-0000-4000-8000-000000000001",
@@ -275,12 +276,34 @@ export async function seed(prisma: PrismaClient, now: Date = new Date()) {
   }
 }
 
+/** Cria/atualiza o admin a partir de ADMIN_EMAIL/ADMIN_PASSWORD (idempotente). Sem senha no env: pula com aviso. */
+export async function seedAdmin(
+  prisma: PrismaClient,
+  env: Record<string, string | undefined> = process.env,
+): Promise<"skipped" | "upserted"> {
+  const email = env.ADMIN_EMAIL?.trim().toLowerCase();
+  const password = env.ADMIN_PASSWORD;
+  if (!email || !password) {
+    console.warn("[seed] ADMIN_EMAIL/ADMIN_PASSWORD ausentes: admin com senha NÃO criado (login indisponível).");
+    return "skipped";
+  }
+  if (password.length < 12) throw new Error("ADMIN_PASSWORD deve ter ao menos 12 caracteres.");
+  const passwordHash = await hashPassword(password);
+  await prisma.user.upsert({
+    where: { email },
+    update: { passwordHash },
+    create: { name: "Admin", email, role: "admin", passwordHash },
+  });
+  return "upserted";
+}
+
 async function main() {
   const prisma = new PrismaClient({
     adapter: new PrismaPg({ connectionString: process.env.DATABASE_URL }),
   });
   try {
     await seed(prisma);
+    await seedAdmin(prisma);
     console.log("seed ok");
   } finally {
     await prisma.$disconnect();

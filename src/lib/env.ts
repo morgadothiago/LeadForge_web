@@ -9,7 +9,9 @@ export const envSchema = z.object({
   SMTP_PORT: z.coerce.number().int().positive().optional(),
   SMTP_USER: z.string().min(1).optional(),
   SMTP_PASS: z.string().min(1).optional(),
-  AUTH_SECRET: z.string().min(16).optional(),
+  AUTH_SECRET: z.string().min(32, "AUTH_SECRET deve ter ao menos 32 caracteres."),
+  ADMIN_EMAIL: z.string().email().optional(),
+  ADMIN_PASSWORD: z.string().min(12, "ADMIN_PASSWORD deve ter ao menos 12 caracteres.").optional(),
   AUTH_URL: z.string().url().optional(),
 });
 

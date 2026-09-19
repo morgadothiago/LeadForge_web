@@ -1,13 +1,11 @@
 import { prisma } from "@/lib/prisma";
+import { getSession } from "./session";
 
 export interface CurrentUser {
   id: string;
   name: string;
   email: string;
 }
-
-/** Email do usuário mock até a SPEC-009 (auth). Único ponto a trocar. */
-export const MOCK_USER_EMAIL = "admin@leadforge.local";
 
 export class UnauthorizedError extends Error {
   constructor() {
@@ -16,10 +14,12 @@ export class UnauthorizedError extends Error {
   }
 }
 
-/** Único helper de autenticação das actions. Mock até a SPEC-009. */
+/** Único helper de autenticação das actions/queries: valida a sessão e relê o usuário no banco. */
 export async function requireUser(): Promise<CurrentUser> {
+  const session = await getSession();
+  if (!session) throw new UnauthorizedError();
   const user = await prisma.user.findUnique({
-    where: { email: MOCK_USER_EMAIL },
+    where: { id: session.userId },
     select: { id: true, name: true, email: true },
   });
   if (!user) throw new UnauthorizedError();

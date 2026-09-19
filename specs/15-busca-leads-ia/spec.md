@@ -13,3 +13,6 @@ Interface `LeadSource` (search(icp) -> RawLead[]), 1 adaptador aprovado, normali
 - [ ] Respeita limite diario/orcamento.
 - [ ] Leads entram como `novo_lead` na campanha do ICP com sequenceStatus not_started.
 - [ ] Chave da API em env, nunca no cliente.
+
+## Regra transversal: HTTP/429
+Aplicar as regras de HTTP de saida e rate limit de specs/README.md (clients de busca/LLM): axios com interceptor, tratamento de 429 com `Retry-After`/backoff, testes de 429/5xx/timeout.

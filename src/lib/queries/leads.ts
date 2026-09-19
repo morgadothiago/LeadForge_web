@@ -1,5 +1,6 @@
 import { Prisma, type Channel, type SequenceStatus, type Stage, type TouchDirection, type TouchStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { requireUser } from "@/lib/auth/require-user";
 import { leadListParamsSchema, type LeadListParams } from "@/lib/schemas/lead";
 
 export interface LeadListItem {
@@ -32,6 +33,7 @@ export interface LeadListResult {
  * campanha/oportunidade/último touch aninhados) + count — sem N+1.
  */
 export async function listLeads(params: LeadListParams = {}): Promise<LeadListResult> {
+  await requireUser();
   const p = leadListParamsSchema.parse(params);
   const and: Prisma.LeadWhereInput[] = [];
   if (p.campaignId) and.push({ campaignId: p.campaignId });
@@ -146,6 +148,7 @@ export interface LeadDetail {
 
 /** Ficha completa em 1 query (include aninhado, batch do Prisma). null se não existir. */
 export async function getLead(id: string): Promise<LeadDetail | null> {
+  await requireUser();
   const l = await prisma.lead.findUnique({
     where: { id },
     include: {

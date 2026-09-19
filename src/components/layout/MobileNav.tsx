@@ -3,10 +3,11 @@ import * as React from "react";
 import { Dialog as DialogPrimitive } from "@base-ui/react/dialog";
 import { Menu, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { LogoutButton } from "@/components/auth/LogoutButton";
 import { Logo } from "./Logo";
 import { SidebarNav } from "./SidebarNav";
 
-export function MobileNav() {
+export function MobileNav({ user }: { user: { name: string; email: string } }) {
   const [open, setOpen] = React.useState(false);
   return (
     <DialogPrimitive.Root open={open} onOpenChange={setOpen}>
@@ -29,6 +30,13 @@ export function MobileNav() {
             </DialogPrimitive.Close>
           </div>
           <SidebarNav onNavigate={() => setOpen(false)} />
+          <div className="mt-auto space-y-2 border-t border-[#202226] p-4">
+            <div className="min-w-0 leading-tight">
+              <p className="truncate text-sm font-medium">{user.name}</p>
+              <p className="truncate text-xs text-muted-foreground">{user.email}</p>
+            </div>
+            <LogoutButton className="w-full justify-start" />
+          </div>
         </DialogPrimitive.Popup>
       </DialogPrimitive.Portal>
     </DialogPrimitive.Root>

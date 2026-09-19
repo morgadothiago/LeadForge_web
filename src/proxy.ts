@@ -1,0 +1,27 @@
+import { NextResponse, type NextRequest } from "next/server";
+import { SESSION_COOKIE } from "@/lib/auth/config";
+import { verifySessionToken } from "@/lib/auth/session-token";
+
+/**
+ * Guarda de rotas (Next 16 "proxy", antigo middleware): checagem OTIMISTA (assinatura/expiração do JWT).
+ * A autorização real continua em requireUser() nas actions/queries.
+ * Fora da guarda: /login, /api/webhooks/* (segredo próprio, SPEC-012), _next/static, _next/image e arquivos exatos de /public (PUBLIC_FILES).
+ */
+export async function proxy(request: NextRequest) {
+  const { pathname, search } = request.nextUrl;
+  const session = await verifySessionToken(request.cookies.get(SESSION_COOKIE)?.value);
+
+  if (pathname === "/login" || session) return NextResponse.next();
+
+  const url = new URL("/login", request.url);
+  url.searchParams.set("next", pathname + search);
+  return NextResponse.redirect(url);
+}
+
+/**
+ * Isenções: somente assets estáticos reais e exatos de /public (literal estático exigido pelo Next; nenhuma
+ * isenção por extensão genérica). Ao adicionar arquivo em /public, liste-o aqui.
+ */
+export const config = {
+  matcher: ["/((?!api/webhooks(?:/|$)|_next/static/|_next/image(?:/|$|\\?)|(?:favicon\\.ico|file\\.svg|globe\\.svg|next\\.svg|vercel\\.svg|window\\.svg)$).*)"],
+};

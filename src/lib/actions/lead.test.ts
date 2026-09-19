@@ -4,6 +4,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn(), revalidateTag: vi.fn(), updateTag: vi.fn() }));
 
 import { prisma } from "@/lib/prisma";
+import { signInAsSeedAdmin } from "@/lib/auth/test-helpers";
 import { seed } from "../../../prisma/seed";
 import {
   addNote, addTag, createLead, deleteLead, deleteNote, moveLeadStage, removeTag, updateLead,
@@ -16,6 +17,7 @@ let campB = "";
 
 beforeAll(async () => {
   await seed(prisma);
+  await signInAsSeedAdmin();
   const icp = await prisma.icpProfile.findFirstOrThrow();
   const user = await prisma.user.findFirstOrThrow();
   campId = (await prisma.campaign.create({ data: { name: TAG, userId: user.id, icpId: icp.id } })).id;

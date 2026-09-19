@@ -15,3 +15,6 @@ Nucleo puro `computeDueTouches(leads, now)`: lead `active` com `nextTouchAt <= n
 - [ ] Falha de envio marca Touch failed e nao avanca step (retry limitado a N).
 - [ ] Endpoint sem CRON_SECRET -> 401.
 - [ ] Execucao real com canais: PENDENTE (integracoes nao testaveis).
+
+## Regra transversal: HTTP/429
+Aplicar as regras de HTTP de saida e rate limit de specs/README.md (reagendar em 429 do provider): axios com interceptor, tratamento de 429 com `Retry-After`/backoff, testes de 429/5xx/timeout.

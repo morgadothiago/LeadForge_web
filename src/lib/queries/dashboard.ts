@@ -2,6 +2,7 @@ import { z } from "zod";
 import { addDays, startOfDay, subDays } from "date-fns";
 import type { Prisma, Stage, Channel, TouchDirection } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { requireUser } from "@/lib/auth/require-user";
 
 /* ---------- Input (Zod) ---------- */
 
@@ -234,6 +235,7 @@ export async function getDashboardData(
   params: DashboardParams,
   now: Date = new Date(),
 ): Promise<DashboardData> {
+  await requireUser();
   const ranges = getPeriodRanges(now, params.period);
   const [metrics, weekly, activities] = await Promise.all([
     getMetrics(ranges, params.campaignId),

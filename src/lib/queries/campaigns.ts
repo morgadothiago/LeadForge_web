@@ -1,5 +1,6 @@
 import type { CampaignStatus, Channel } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { requireUser } from "@/lib/auth/require-user";
 import { campaignListParamsSchema, type CampaignListParams } from "@/lib/schemas/campaign";
 
 export interface IcpSummary {
@@ -54,6 +55,7 @@ function toIcpSummary(i: {
 
 /** Lista com contagem de leads (1 query, sem N+1). Arquivadas ocultas por padrão. */
 export async function listCampaigns(params: CampaignListParams = {}): Promise<CampaignListItem[]> {
+  await requireUser();
   const { status, includeArchived } = campaignListParamsSchema.parse(params);
   const rows = await prisma.campaign.findMany({
     where: status ? { status } : includeArchived ? {} : { status: { not: "archived" } },
@@ -69,6 +71,7 @@ export async function listCampaigns(params: CampaignListParams = {}): Promise<Ca
 }
 
 export async function getCampaign(id: string): Promise<CampaignDetail | null> {
+  await requireUser();
   const c = await prisma.campaign.findUnique({
     where: { id },
     include: {
@@ -86,6 +89,7 @@ export async function getCampaign(id: string): Promise<CampaignDetail | null> {
 
 /** ICPs para select/gestão, com nº de campanhas que os usam. */
 export async function listIcps(): Promise<IcpSummary[]> {
+  await requireUser();
   const rows = await prisma.icpProfile.findMany({
     orderBy: { createdAt: "desc" },
     include: { _count: { select: { campaigns: true } } },
@@ -94,6 +98,7 @@ export async function listIcps(): Promise<IcpSummary[]> {
 }
 
 export async function getIcp(id: string): Promise<IcpSummary | null> {
+  await requireUser();
   const i = await prisma.icpProfile.findUnique({
     where: { id },
     include: { _count: { select: { campaigns: true } } },
@@ -106,6 +111,7 @@ export async function listCampaignFormOptions(): Promise<{
   sequences: { id: string; name: string }[];
   whatsappInstances: { id: string; instanceName: string }[];
 }> {
+  await requireUser();
   const [sequences, whatsappInstances] = await Promise.all([
     prisma.sequence.findMany({ select: { id: true, name: true }, orderBy: { name: "asc" } }),
     prisma.whatsAppInstance.findMany({ select: { id: true, instanceName: true }, orderBy: { instanceName: "asc" } }),

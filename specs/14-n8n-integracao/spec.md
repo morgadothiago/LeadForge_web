@@ -10,3 +10,6 @@ Endpoint autenticado por segredo para ingestao de leads (Zod, dedupe, atribui ca
 ## Criterios de aceite
 - [ ] Endpoint de ingestao: 401 sem segredo, 400 invalido, dedupe correto (testes).
 - [ ] Workflow JSON importavel (validacao de schema JSON); execucao real PENDENTE (docker parado).
+
+## Regra transversal: HTTP/429
+Aplicar as regras de HTTP de saida e rate limit de specs/README.md (client n8n): axios com interceptor, tratamento de 429 com `Retry-After`/backoff, testes de 429/5xx/timeout.

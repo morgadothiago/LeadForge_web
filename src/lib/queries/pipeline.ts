@@ -1,5 +1,6 @@
 import type { Channel, Prisma, Stage } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { requireUser } from "@/lib/auth/require-user";
 import { boardParamsSchema, STAGES, type BoardParams } from "@/lib/schemas/pipeline";
 
 export interface BoardCard {
@@ -39,6 +40,7 @@ export const STAGE_LABELS: Record<Stage, string> = {
  * Contadores e soma de valor refletem filtro de campanha e busca.
  */
 export async function getPipelineBoard(params: BoardParams = {}): Promise<BoardColumn[]> {
+  await requireUser();
   const { campaignId, q } = boardParamsSchema.parse(params);
   const where: Prisma.OpportunityWhereInput = {
     ...(campaignId ? { campaignId } : {}),

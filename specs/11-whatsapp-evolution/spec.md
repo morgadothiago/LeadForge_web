@@ -14,3 +14,6 @@ Frontend: Configuracoes > WhatsApp: listar instancias, criar, exibir QR (polling
 - [ ] build/lint/typecheck OK.
 ## Riscos
 Baileys nao-oficial: risco de banimento do numero; recomendar aquecimento e limites. Cold outreach sujeito a LGPD.
+
+## Regra transversal: HTTP/429
+Aplicar as regras de HTTP de saida e rate limit de specs/README.md (client Evolution): axios com interceptor, tratamento de 429 com `Retry-After`/backoff, testes de 429/5xx/timeout.
