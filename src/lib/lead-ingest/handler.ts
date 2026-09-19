@@ -76,7 +76,25 @@ export interface IngestSummary {
   suppressed: number;
   invalid: number;
   results: ItemResult[];
+  warnings?: string[];
 }
+
+/** Reserva `processing` mais velha que isto é considerada abandonada (processo caiu) e pode ser reassumida. */
+export const IDEMPOTENCY_PROCESSING_TTL_MS = 2 * 60_000;
+let clock: () => number = () => Date.now();
+/** Só para testes: relógio injetável. Sem argumento restaura o real. */
+export const _setIngestClock = (fn?: () => number): void => {
+  clock = fn ?? (() => Date.now());
+};
+
+const canonical = (v: unknown): unknown =>
+  Array.isArray(v)
+    ? v.map(canonical)
+    : v && typeof v === "object"
+      ? Object.fromEntries(Object.keys(v).sort().map((k) => [k, canonical((v as Record<string, unknown>)[k])]))
+      : v;
+/** SHA-256 de JSON canônico (chaves ordenadas) do corpo validado; o corpo em si nunca é guardado. */
+const bodyHashOf = (campaignId: string, leads: unknown[]) => createHash("sha256").update(JSON.stringify(canonical({ campaignId, leads }))).digest("hex");
 
 const KEY_RE = /^[A-Za-z0-9._:-]{1,128}$/;
 const eventIdFor = (key: string) => `lead_ingest:${createHash("sha256").update(key).digest("hex")}`;
@@ -157,25 +175,42 @@ export async function handleIngest(req: Request, deps: IngestDeps = {}): Promise
     if (!env.success) return json({ error: "validation_error", message: "Payload inválido.", details: [...new Set(env.error.issues.map((i) => i.message))] }, 400);
     const { campaignId, leads } = env.data;
 
+    const bodyHash = bodyHashOf(campaignId, leads);
     if (idemKey !== null) {
       const eventId = eventIdFor(idemKey);
+      const processing = { state: "processing", campaignId, total: leads.length, bodyHash };
       try {
-        await prisma.webhookEvent.create({ data: { source: AUDIT_SOURCE, eventId, payload: { state: "processing", campaignId, total: leads.length } } });
+        await prisma.webhookEvent.create({ data: { source: AUDIT_SOURCE, eventId, payload: processing, createdAt: new Date(clock()) } });
         claimed = eventId;
       } catch (e) {
         if (!(e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002")) throw e;
         const prev = await prisma.webhookEvent.findUnique({ where: { eventId }, select: { payload: true, processedAt: true } });
-        const pl = prev?.payload as { campaignId?: string; total?: number } | null;
-        if (!prev || !prev.processedAt) return err(409, "in_progress", "Requisição com esta Idempotency-Key ainda em processamento.", { "Retry-After": "1" });
-        if (pl?.campaignId !== campaignId || pl?.total !== leads.length) return err(422, "idempotency_conflict", "Idempotency-Key já usada com outro corpo.");
-        return json({ ...(prev.payload as object), idempotentReplay: true }, 200);
+        const pl = prev?.payload as { campaignId?: string; total?: number; bodyHash?: string } | null;
+        const busy = () => err(409, "in_progress", "Requisição com esta Idempotency-Key ainda em processamento.", { "Retry-After": "1" });
+        if (!prev) return busy();
+        if (!prev.processedAt) {
+          // Reserva abandonada (TTL): reivindicação atômica; só uma repetição simultânea vence.
+          const now = clock();
+          const won = await prisma.webhookEvent.updateMany({
+            where: { eventId, processedAt: null, createdAt: { lte: new Date(now - IDEMPOTENCY_PROCESSING_TTL_MS) } },
+            data: { createdAt: new Date(now), payload: processing },
+          });
+          if (won.count !== 1) return busy();
+          claimed = eventId;
+        } else {
+          const same = pl?.bodyHash !== undefined ? pl.bodyHash === bodyHash : pl?.campaignId === campaignId && pl?.total === leads.length;
+          if (!same) return err(422, "idempotency_conflict", "Esta chave de idempotência já foi usada com outro conteúdo.");
+          const rest = { ...((prev.payload ?? {}) as Record<string, unknown>) };
+          delete rest.bodyHash;
+          return json({ ...rest, idempotentReplay: true }, 200);
+        }
       }
     }
 
-    const camp = await prisma.campaign.findUnique({ where: { id: campaignId }, select: { id: true } });
-    if (!camp) {
+    const camp = await prisma.campaign.findUnique({ where: { id: campaignId }, select: { id: true, status: true } });
+    if (!camp || camp.status === "archived") {
       if (claimed) await prisma.webhookEvent.delete({ where: { eventId: claimed } }).catch(() => undefined);
-      return err(404, "campaign_not_found", "Campanha não encontrada.");
+      return camp ? err(409, "campaign_archived", "Campanha arquivada: não aceita novos leads.") : err(404, "campaign_not_found", "Campanha não encontrada.");
     }
 
     const results: ItemResult[] = [];
@@ -183,10 +218,21 @@ export async function handleIngest(req: Request, deps: IngestDeps = {}): Promise
     const count = (s: ItemStatus) => results.filter((r) => r.status === s).length;
     const summary: IngestSummary = { campaignId, total: results.length, created: count("created"), duplicate: count("duplicate"), suppressed: count("suppressed"), invalid: count("invalid"), results };
 
-    if (claimed) await prisma.webhookEvent.update({ where: { eventId: claimed }, data: { payload: toJson(summary), processedAt: new Date() } });
-    else await prisma.webhookEvent.create({ data: { source: AUDIT_SOURCE, payload: toJson(summary), processedAt: new Date() } });
+    // Leads já criados: falha ao gravar a auditoria NÃO vira 500 (esconderia a criação parcial).
+    // Devolve 200 com o resultado por item + warnings; a chave é liberada (retry cai em `duplicate` com leadId, sem recriar).
+    let warnings: string[] | undefined;
+    try {
+      const stored = { ...summary, ...(claimed ? { bodyHash } : {}) };
+      if (claimed) await prisma.webhookEvent.update({ where: { eventId: claimed }, data: { payload: toJson(stored as IngestSummary), processedAt: new Date() } });
+      else await prisma.webhookEvent.create({ data: { source: AUDIT_SOURCE, payload: toJson(summary), processedAt: new Date() } });
+    } catch (auditErr) {
+      console.error("[integrations/leads] auditoria não gravada:", safeErrorForLog(auditErr));
+      warnings = ["auditoria_nao_gravada"];
+      if (claimed) await prisma.webhookEvent.delete({ where: { eventId: claimed } }).catch(() => undefined);
+      claimed = null;
+    }
     console.info(`[integrations/leads] total=${summary.total} criados=${summary.created} duplicados=${summary.duplicate} suprimidos=${summary.suppressed} invalidos=${summary.invalid}`);
-    return json(summary, 200);
+    return json(warnings ? { ...summary, warnings } : summary, 200);
   } catch (e) {
     if (claimed) await prisma.webhookEvent.delete({ where: { eventId: claimed } }).catch(() => undefined);
     console.error("[integrations/leads] erro:", safeErrorForLog(e));

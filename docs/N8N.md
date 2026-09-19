@@ -30,6 +30,15 @@ n8n > Workflows > Import from File: `n8n/workflows/tick.json` e/ou `ingest-leads
 ## Endpoint de ingestao (resumo)
 Ligar: `INTEGRATION_LEADS_ENABLED=true` + `INGEST_SECRET` (32+ chars) no `.env` e reiniciar o app. Desligado = 503. Contrato completo em `specs/14-n8n-integracao/spec.md`.
 
+### Comportamento e riscos conhecidos
+- Idempotency-Key: a chave guarda um hash SHA-256 do corpo (canonico, ordem de chaves irrelevante). Mesmo corpo = replay (`idempotentReplay: true`); corpo diferente = 422 "Esta chave de idempotencia ja foi usada com outro conteudo.". Reserva `processing` com mais de 2 min (processo caiu) e reassumida na repeticao; dentro de 2 min = 409 + `Retry-After: 1`.
+- Campanha ARQUIVADA = 409 ("Campanha arquivada: nao aceita novos leads."). Campanha PAUSADA aceita o lead (entra `not_started`, nada e enviado).
+- `name`, `company`, `source`, `externalId` (e URLs) rejeitam caracteres de controle e separadores U+2028/2029: o item vira `invalid`.
+- E-mails com `+tag` NAO sao normalizados (mesma semantica de `suppression.ts`): um contato suprimido pode voltar como `x+1@dominio`. Decisao registrada.
+- Se a auditoria (`WebhookEvent`) falhar depois de criar leads, a resposta e 200 com o resultado por item e `warnings: ["auditoria_nao_gravada"]` (nao ha 500 escondendo criacao parcial); a chave e liberada e reenviar o lote devolve `duplicate` com o `leadId`, sem recriar.
+- RISCO (produto): com `Campaign.autoStart=true`, um lead vindo do endpoint e iniciado e enviado automaticamente, sem revisao humana, no proximo tick. Mantenha `autoStart` DESLIGADO em campanhas alimentadas por n8n e inicie manualmente apos revisar (o endpoint ja cria `not_started`).
+- Rate limit e por processo (memoria) e nao ha teto de concorrencia: uso interno apenas.
+
 ## Frequencia do tick
 1 minuto e o recomendado (cada rodada tem orcamento de ~25 s e max. 20 envios; ver `.env.example`). 2 minutos e aceitavel; menos que 1 min nao ajuda (ha lock contra rodadas concorrentes).
 

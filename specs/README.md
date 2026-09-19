@@ -18,7 +18,7 @@ Fullstack = executa dev-backend primeiro, depois dev-frontend.
 | 011 | WhatsApp Evolution | backend+frontend | 2 | IMPLEMENTED | 001,005 |
 | 012 | Webhook receiver | dev-backend | 2 | IMPLEMENTED | 011 |
 | 013 | Scheduler follow-up | dev-backend | 2 | IMPLEMENTED | 006,010,011,012 |
-| 014 | Integracao n8n | dev-backend | 2/posterior | APPROVED (padrao) | 013 |
+| 014 | Integracao n8n | dev-backend | 2/posterior | IMPLEMENTED | 013 |
 | 017 | Politica de envio gentil + anti-banimento + supressao global | backend+frontend | 2 | IMPLEMENTED | 010,011,012 |
 | 020 | Banco de dados separado para testes | infra/backend | 2 | IMPLEMENTED | 000,001 |
 | 019 | Agentes de IA (SDR, Follow-up, Closer) configuraveis | backend+frontend | 3 (depois de 013 e 018) | APPROVED (padrao) | 013,017,012,018 |

@@ -16,11 +16,15 @@ export const envelopeSchema = z.object(
   { error: "Corpo inválido: envie um objeto JSON com campaignId e leads." },
 );
 
+const BAD_CHARS = /[\x00-\x1f\x7f\u2028\u2029]/;
+const noControl = (label: string) => `${label} contém caracteres de controle inválidos.`;
+
 const text = (label: string, max: number) =>
   z
     .string({ error: `${label} inválido.` })
     .trim()
     .max(max, `${label} deve ter no máximo ${max} caracteres.`)
+    .refine((v) => !BAD_CHARS.test(v), noControl(label))
     .nullish()
     .transform((v) => (v ? v : null));
 
@@ -32,7 +36,7 @@ export const MIN_CONTACT = "Informe ao menos um contato válido: e-mail ou telef
 export const itemSchema = z
   .object(
     {
-      name: z.string({ error: "Nome é obrigatório." }).trim().min(1, "Nome é obrigatório.").max(200, "Nome deve ter no máximo 200 caracteres."),
+      name: z.string({ error: "Nome é obrigatório." }).trim().min(1, "Nome é obrigatório.").max(200, "Nome deve ter no máximo 200 caracteres.").refine((v) => !BAD_CHARS.test(v), noControl("Nome")),
       company: text("Empresa", 200),
       email: z
         .string({ error: "E-mail inválido." })

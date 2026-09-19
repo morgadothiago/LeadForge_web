@@ -4,7 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { seed } from "../../../prisma/seed";
 import { purgeTestCampaigns } from "@/lib/test-utils/purge";
 import * as route from "@/app/api/integrations/leads/route";
-import { _resetIngestRateLimit, AUDIT_SOURCE, readBodyLimited } from "./handler";
+import { _resetIngestRateLimit, _setIngestClock, AUDIT_SOURCE, IDEMPOTENCY_PROCESSING_TTL_MS, readBodyLimited } from "./handler";
 import { getIngestSecret, isIngestEnabled } from "./config";
 import { runTick } from "@/lib/scheduler/run-tick";
 
@@ -294,5 +294,85 @@ describe("integração com o scheduler", () => {
     expect(await prisma.touch.count({ where: { leadId: id } })).toBe(0);
     await prisma.schedulerRun.deleteMany({ where: { startedAt: { gte: new Date(Date.now() - 60_000) } } });
     expect(seqId).toBeTruthy();
+  });
+});
+
+const evId = async (key: string) => `lead_ingest:${(await import("node:crypto")).createHash("sha256").update(key).digest("hex")}`;
+
+describe("SPEC-014 QA: idempotência, arquivada, caracteres, auditoria", () => {
+  afterEach(() => _setIngestClock());
+
+  it("F1: mesma chave, mesmo tamanho, contatos diferentes => 422 e nada criado", async () => {
+    const key = `${TAG}-f1`;
+    expect((await post({ campaignId, leads: [lead()] }, { key })).status).toBe(200);
+    const count = await prisma.lead.count({ where: { campaignId } });
+    const r = await post({ campaignId, leads: [lead()] }, { key });
+    expect(r.status).toBe(422);
+    expect((await r.json()).message).toBe("Esta chave de idempotência já foi usada com outro conteúdo.");
+    expect(await prisma.lead.count({ where: { campaignId } })).toBe(count);
+  });
+  it("F1: corpo idêntico com ordem de chaves diferente => replay; hash guardado, corpo não", async () => {
+    const key = `${TAG}-f1b`;
+    const l = lead();
+    await post({ campaignId, leads: [{ name: l.name, email: l.email }] }, { key });
+    const r = await post({ leads: [{ email: l.email, name: l.name }], campaignId }, { key });
+    const j = await r.json();
+    expect(r.status).toBe(200);
+    expect(j.idempotentReplay).toBe(true);
+    expect(j.bodyHash).toBeUndefined();
+    const ev = await prisma.webhookEvent.findUniqueOrThrow({ where: { eventId: await evId(key) } });
+    expect(JSON.stringify(ev.payload)).toMatch(/"bodyHash":"[0-9a-f]{64}"/);
+    expect(JSON.stringify(ev.payload)).not.toContain(l.email);
+  });
+  it("F2: processing recente => 409; velho => reassume e conclui uma única vez sob Promise.all", async () => {
+    const key = `${TAG}-f2`;
+    await prisma.webhookEvent.create({ data: { source: AUDIT_SOURCE, eventId: await evId(key), payload: { state: "processing" } } });
+    const body = { campaignId, leads: [lead()] };
+    expect((await post(body, { key })).status).toBe(409);
+    const before = await prisma.lead.count({ where: { campaignId } });
+    _setIngestClock(() => Date.now() + IDEMPOTENCY_PROCESSING_TTL_MS + 1000);
+    const rs = await Promise.all([post(body, { key }), post(body, { key })]);
+    const codes = rs.map((r) => r.status);
+    expect(codes).toContain(200);
+    expect(codes.every((c) => c === 200 || c === 409)).toBe(true);
+    expect(await prisma.lead.count({ where: { campaignId } })).toBe(before + 1);
+    const ev = await prisma.webhookEvent.findUniqueOrThrow({ where: { eventId: await evId(key) } });
+    expect(ev.processedAt).not.toBeNull();
+  });
+  it("F3: arquivada => 409 PT-BR sem criar (chave liberada); pausada aceita sem envio", async () => {
+    const userId = (await prisma.user.findFirstOrThrow({ where: { email: "admin@leadforge.local" } })).id;
+    const icpId = (await prisma.icpProfile.findFirstOrThrow()).id;
+    const c = await prisma.campaign.create({ data: { name: `${TAG}-arq`, userId, icpId, sequenceId: seqId, status: "archived" } });
+    const key = `${TAG}-f3`;
+    const r = await post({ campaignId: c.id, leads: [lead()] }, { key });
+    expect(r.status).toBe(409);
+    expect((await r.json()).message).toBe("Campanha arquivada: não aceita novos leads.");
+    expect(await prisma.lead.count({ where: { campaignId: c.id } })).toBe(0);
+    expect(await prisma.webhookEvent.count({ where: { eventId: await evId(key) } })).toBe(0);
+    await prisma.campaign.update({ where: { id: c.id }, data: { status: "paused" } });
+    const ok = await (await post({ campaignId: c.id, leads: [lead()] })).json();
+    expect(ok.created).toBe(1);
+    const l = await prisma.lead.findFirstOrThrow({ where: { campaignId: c.id } });
+    expect(l.sequenceStatus).toBe("not_started");
+  });
+  it("F5: caracteres de controle e separadores unicode => item invalid", async () => {
+    const r = await (await post({ campaignId, leads: [lead({ name: "A\u0000na" }), lead({ company: "X\u2028Y" }), lead({ source: "a\tb" }), lead({ externalId: "e\u007f" }), lead({ name: "An\u2029a" })] })).json();
+    expect(r.invalid).toBe(5);
+    expect(r.results[0].reason).toContain("caracteres de controle");
+  });
+  it("F7: falha ao gravar auditoria após criar => 200 com warnings e chave liberada", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    vi.spyOn(prisma.webhookEvent, "update").mockRejectedValueOnce(new Error("db caiu"));
+    const key = `${TAG}-f7`;
+    const l = lead();
+    const r = await post({ campaignId, leads: [l] }, { key });
+    const j = await r.json();
+    expect(r.status).toBe(200);
+    expect(j.created).toBe(1);
+    expect(j.warnings).toEqual(["auditoria_nao_gravada"]);
+    expect(await prisma.webhookEvent.count({ where: { eventId: await evId(key) } })).toBe(0);
+    const again = await (await post({ campaignId, leads: [l] }, { key })).json();
+    expect(again.duplicate).toBe(1);
+    expect(again.results[0].leadId).toBe(j.results[0].leadId);
   });
 });

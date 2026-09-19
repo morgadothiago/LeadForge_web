@@ -1,5 +1,5 @@
 # SPEC-014 — Integracao n8n
-- status: DRAFT | domain: backend | sessao: 2 (fase posterior, opcional) | ordem: 15 | depende de: SPEC-013
+- status: IMPLEMENTED (QA achou NEEDS_FIX; correcoes verificadas por testes 801/801, sem segundo QA; importacao/execucao em n8n real, HTTP real e docker compose PENDENTES)
 ## Contexto
 PROMPT lista n8n (passo 14) sem dizer o que ele faz. [NEEDS_DECISION D20] Papel do n8n:
 1. Apenas disparar o tick do scheduler (cron) — minimo.
@@ -23,8 +23,10 @@ Contrato de `POST /api/integrations/leads` (somente POST; demais metodos 405 com
 - Headers: `Authorization: Bearer <INGEST_SECRET>` (SHA-256 + timingSafeEqual; 401 identico sem/errado), `Content-Type: application/json`, `Idempotency-Key` opcional (1-128 de `[A-Za-z0-9._:-]`).
 - Rate limit: tentativas invalidas 20/min (chave global unica) -> 429 + Retry-After; credencial valida 600/min -> 429 + Retry-After.
 - Corpo (max 1 MB lido do stream; 413): `{ campaignId: uuid, leads: [{ name, company?, email?, phone?, website?, linkedin?, source?, tags?[], externalId? }] }`, 1 a 100 itens. Cada item exige e-mail OU celular BR valido (E.164); `source` livre exceto "seed" (item invalido); default `integration`; `externalId` guardado em `Lead.rawData`.
-- Respostas: 200 `{ campaignId, total, created, duplicate, suppressed, invalid, results: [{ index, status: created|duplicate|suppressed|invalid, leadId?, reason? }] }` (repeticao de Idempotency-Key devolve o mesmo resultado + `idempotentReplay: true`); 400 payload/JSON/chave invalidos; 401; 404 campanha inexistente; 409 chave em processamento; 413; 422 chave reutilizada com outro corpo; 429; 500 generico; 503.
+- Respostas: 200 `{ campaignId, total, created, duplicate, suppressed, invalid, results: [{ index, status: created|duplicate|suppressed|invalid, leadId?, reason? }] }` (repeticao de Idempotency-Key devolve o mesmo resultado + `idempotentReplay: true`); 400 payload/JSON/chave invalidos; 401; 404 campanha inexistente; 409 chave em processamento (Retry-After 1; reserva > 2 min e reassumida via updateMany condicional) ou campanha arquivada ("Campanha arquivada: nao aceita novos leads."; pausada aceita); 413; 422 chave reutilizada com outro conteudo (hash SHA-256 do JSON canonico do corpo, guardado em WebhookEvent.payload; corpo nunca guardado); 200 pode trazer `warnings: ["auditoria_nao_gravada"]` se a auditoria falhar apos criar leads (chave liberada; reenvio => duplicate); 429; 500 generico; 503.
 - Regras: dedupe por (campaignId,email) e (campaignId,phone) -> `duplicate`; contato em `Suppression` -> `suppressed` (nao cria); lead nasce `not_started` (Campaign.autoStart decide o inicio) com Opportunity `novo_lead` + StageHistory numa transacao Serializable (`createLeadCore` em `src/lib/domain/lead-create.ts`, compartilhado com `createLead`).
+- Validacao: name/company/source/externalId rejeitam controles e U+2028/2029 (item invalid). E-mail `+tag` nao normalizado (decisao). Riscos autoStart/rate limit/concorrencia em docs/N8N.md.
+- QA-014 (A) corrigido: F1,F2,F3,F5,F7; F3b/F4/F6 documentados.
 - Auditoria: `WebhookEvent` source `lead_ingest` com contadores e ids apenas (sem PII/segredo); logs so com contagens.
 - Como agendar o tick: workflow `n8n/workflows/tick.json` (credencial Header Auth "LeadForge CRON_SECRET"), cron do host ou `npm run tick`; ver `docs/N8N.md`.
 - PENDENTE: importacao/execucao dos workflows em n8n real (so validacao estatica em `src/lib/lead-ingest/n8n-workflows.test.ts`).
