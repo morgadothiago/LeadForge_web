@@ -1,5 +1,7 @@
 import type { WhatsAppProviderKind } from "@prisma/client";
 import { AppError } from "@/lib/errors";
+import { getIntegrationConfig } from "@/lib/integrations/config";
+import { assertAllowedHost, parseIntegrationUrl, pinnedAgents } from "@/lib/integrations/url-guard";
 import { EvolutionProvider } from "./providers/evolution";
 
 /** Tipos neutros: nenhum formato de provider específico (Evolution etc.) vaza daqui. */
@@ -71,6 +73,8 @@ export interface WhatsAppProvider {
    * Evolution: PENDENTE de verificação contra a v2.1.1 real.
    */
   checkNumbers(instanceName: string, numbers: string[]): Promise<NumberCheck[]>;
+  /** Requisição leve autenticada para "Testar conexão" (SPEC-018). Lança AppError PT-BR (401/429/timeout...). */
+  ping?(): Promise<void>;
   deleteInstance?(instanceName: string): Promise<void>;
   logoutInstance?(instanceName: string): Promise<void>;
   /** null = evento ignorado (grupo, fromMe, tipo sem texto, evento desconhecido). Payload malformado -> AppError validation. */
@@ -84,15 +88,54 @@ export interface WhatsAppProvider {
   verifyWebhook(request: Request, instance: { webhookToken: string; apiKey?: string | null }, presentedToken: string): Promise<boolean>;
 }
 
-/** Único ponto que conhece as implementações. Trocar de provider = novo arquivo em providers/ + valor no enum + case aqui. */
-export function getWhatsAppProvider(kind: WhatsAppProviderKind): WhatsAppProvider {
+export interface ProviderFactoryOptions {
+  timeoutMs?: number;
+  /** false = sem retry automático (ex.: teste de conexão). */
+  retry?: false;
+}
+
+/** Evolution com configuração resolvida A CADA chamada (SPEC-018): trocar a chave/URL no painel vale sem reiniciar. */
+class ResolvedEvolutionProvider implements WhatsAppProvider {
+  /** parseWebhook/verifyWebhook não fazem rede: independem de configuração. */
+  private static readonly offline = new EvolutionProvider({ baseURL: "http://unused.invalid", apiKey: "unused" });
+  constructor(private readonly opts: ProviderFactoryOptions) {}
+
+  private async inner(): Promise<EvolutionProvider> {
+    const cfg = await getIntegrationConfig("evolution");
+    const baseURL = cfg.baseUrl;
+    if (!baseURL) throw new AppError({ code: "config", userMessage: "Evolution API sem URL configurada. Cadastre em Configurações > Integrações." });
+    const common = { timeout: this.opts.timeoutMs, retry: this.opts.retry };
+    if (cfg.origin === "env") return new EvolutionProvider({ baseURL, apiKey: cfg.reveal(), ...common }); // env é confiável (comportamento anterior)
+    // Origem banco: revalida SSRF ao CONECTAR, fixa no IP checado e não segue redirecionamento.
+    const u = parseIntegrationUrl(baseURL);
+    const { ip, family } = await assertAllowedHost(u.hostname, cfg.allowPrivateHost);
+    return new EvolutionProvider({ baseURL: u.url, apiKey: cfg.reveal(), maxRedirects: 0, ...pinnedAgents(ip, family), ...common });
+  }
+
+  async createInstance(i: CreateInstanceInput) { return (await this.inner()).createInstance(i); }
+  async getQr(n: string) { return (await this.inner()).getQr(n); }
+  async getStatus(n: string) { return (await this.inner()).getStatus(n); }
+  async sendText(i: SendTextInput) { return (await this.inner()).sendText(i); }
+  async checkNumbers(n: string, nums: string[]) { return (await this.inner()).checkNumbers(n, nums); }
+  async deleteInstance(n: string) { return (await this.inner()).deleteInstance(n); }
+  async logoutInstance(n: string) { return (await this.inner()).logoutInstance(n); }
+  async configureWebhook(i: ConfigureWebhookInput) { return (await this.inner()).configureWebhook(i); }
+  async ping() { return (await this.inner()).ping(); }
+  parseWebhook(request: Request) { return ResolvedEvolutionProvider.offline.parseWebhook(request); }
+  verifyWebhook(request: Request, instance: { webhookToken: string; apiKey?: string | null }, presentedToken: string) {
+    return ResolvedEvolutionProvider.offline.verifyWebhook(request, instance, presentedToken);
+  }
+}
+
+/**
+ * Único ponto que conhece as implementações. Trocar de provider = novo arquivo em providers/ + valor no enum + case aqui.
+ * A configuração (URL/chave) vem do resolvedor de integrações (banco -> fallback .env) e é lida na PRIMEIRA chamada de cada método:
+ * a falta de configuração aparece como AppError `config` na chamada, não na construção.
+ */
+export function getWhatsAppProvider(kind: WhatsAppProviderKind, opts: ProviderFactoryOptions = {}): WhatsAppProvider {
   switch (kind) {
-    case "evolution": {
-      const baseURL = process.env.EVOLUTION_API_URL?.trim();
-      const apiKey = process.env.EVOLUTION_API_KEY?.trim();
-      if (!baseURL || !apiKey) throw new AppError({ code: "config", userMessage: "Evolution API não configurada (EVOLUTION_API_URL / EVOLUTION_API_KEY)." });
-      return new EvolutionProvider({ baseURL, apiKey });
-    }
+    case "evolution":
+      return new ResolvedEvolutionProvider(opts);
     default:
       throw new AppError({ code: "config", userMessage: "Provider de WhatsApp não suportado." });
   }

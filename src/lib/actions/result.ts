@@ -1,5 +1,6 @@
 import { Prisma } from "@prisma/client";
 import type { ZodError } from "zod";
+import { ForbiddenError } from "@/lib/auth/require-admin";
 import { UnauthorizedError } from "@/lib/auth/require-user";
 import { isRetryableTxConflict, CONFLICT_MESSAGE } from "@/lib/db/tx-conflict";
 import { isAppError, safeErrorForLog } from "@/lib/errors";
@@ -37,6 +38,7 @@ export function zodErrors(error: ZodError): FieldErrors {
  */
 export function handleActionError<T = never>(e: unknown): ActionResult<T> {
   if (e instanceof UnauthorizedError) return formError("Sessão expirada. Faça login novamente.");
+  if (e instanceof ForbiddenError) return formError("Sem permissão.");
   if (isAppError(e)) {
     console.error("[action]", safeErrorForLog(e));
     return formError(e.userMessage);

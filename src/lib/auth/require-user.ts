@@ -5,6 +5,7 @@ export interface CurrentUser {
   id: string;
   name: string;
   email: string;
+  role: string;
 }
 
 export class UnauthorizedError extends Error {
@@ -20,7 +21,7 @@ export async function requireUser(): Promise<CurrentUser> {
   if (!session) throw new UnauthorizedError();
   const user = await prisma.user.findUnique({
     where: { id: session.userId },
-    select: { id: true, name: true, email: true },
+    select: { id: true, name: true, email: true, role: true },
   });
   if (!user) throw new UnauthorizedError();
   return user;

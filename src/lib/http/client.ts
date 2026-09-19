@@ -24,6 +24,10 @@ export interface HttpClientOptions {
   headers?: Record<string, string>;
   retry?: RetryOptions | false;
   adapter?: AxiosRequestConfig["adapter"];
+  /** Agents (ex.: conexão fixada no IP já checado contra SSRF) e limite de redirecionamentos (0 = nenhum). */
+  httpAgent?: AxiosRequestConfig["httpAgent"];
+  httpsAgent?: AxiosRequestConfig["httpsAgent"];
+  maxRedirects?: number;
   /** Logger sem segredos (default console.warn). */
   logger?: (msg: string, meta: Record<string, unknown>) => void;
 }
@@ -98,6 +102,9 @@ export function createHttpClient(opts: HttpClientOptions): AxiosInstance {
     timeout: opts.timeout ?? 15_000,
     headers: opts.headers,
     adapter: opts.adapter,
+    httpAgent: opts.httpAgent,
+    httpsAgent: opts.httpsAgent,
+    ...(opts.maxRedirects !== undefined ? { maxRedirects: opts.maxRedirects } : {}),
   });
 
   client.interceptors.request.use((cfg: InternalAxiosRequestConfig) => {

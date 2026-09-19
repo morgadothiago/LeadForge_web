@@ -88,6 +88,12 @@ describe("requireUser", () => {
     await signInAs(userId);
     expect((await requireUser()).email).toBe(EMAIL);
   });
+  it("expõe o role do usuário (admin por padrão, member quando definido)", async () => {
+    await signInAs(userId);
+    expect((await requireUser()).role).toBe("admin");
+    await prisma.user.update({ where: { id: userId }, data: { role: "member" } });
+    expect((await requireUser()).role).toBe("member");
+  });
   it("usuário removido -> UnauthorizedError", async () => {
     await signInAs("00000000-0000-4000-8000-00000000dead");
     await expect(requireUser()).rejects.toBeInstanceOf(UnauthorizedError);

@@ -173,6 +173,19 @@ describe("início explícito", () => {
     expect(sendMail).toHaveBeenCalledTimes(1);
   });
 
+  it("autoStart=true NÃO reinicia lead paused_manual (só not_started); início manual continua podendo", async () => {
+    const c = await mkCampaign(["email"], { autoStart: true });
+    const paused = await mkLead(c, { sequenceStatus: "paused_manual" });
+    const fresh = await mkLead(c);
+    const r = await tick(c);
+    expect(r.counters.auto_started).toBe(1);
+    expect((await getLead(paused.id)).sequenceStatus).toBe("paused_manual");
+    expect((await getLead(fresh.id)).sequenceStatus).not.toBe("not_started");
+    const res = await startSequence({ leadId: paused.id });
+    expect(res.ok).toBe(true);
+    expect((await getLead(paused.id)).sequenceStatus).not.toBe("paused_manual");
+  });
+
   it("autoStart=true em campanha pausada não inicia nada", async () => {
     const c = await mkCampaign(["email"], { autoStart: true, status: "paused" });
     const l = await mkLead(c);

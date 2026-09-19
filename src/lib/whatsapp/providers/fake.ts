@@ -19,7 +19,15 @@ export class FakeWhatsAppProvider implements WhatsAppProvider {
   /** Se definido, checkNumbers lança este erro. */
   checkError: AppError | null = null;
   checked: string[][] = [];
+  /** Se definido, ping lança este erro. */
+  pingError: AppError | null = null;
+  pings = 0;
   private seq = 0;
+
+  async ping(): Promise<void> {
+    this.pings++;
+    if (this.pingError) throw this.pingError;
+  }
 
   async createInstance(input: CreateInstanceInput): Promise<CreateInstanceResult> {
     this.created.push(input);

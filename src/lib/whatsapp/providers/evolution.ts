@@ -13,9 +13,12 @@ const NAME = "WhatsApp (Evolution)";
 const EVENTS = ["MESSAGES_UPSERT", "MESSAGES_UPDATE", "CONNECTION_UPDATE", "QRCODE_UPDATED"];
 
 export interface EvolutionOptions {
-  /** Vem SÓ de env (EVOLUTION_API_URL) via factory; nunca de input de usuário (sem SSRF). */
+  /** Vem do resolvedor de integrações (banco, validado contra SSRF, ou env) via factory. */
   baseURL: string;
   apiKey: string;
+  httpAgent?: AxiosRequestConfig["httpAgent"];
+  httpsAgent?: AxiosRequestConfig["httpsAgent"];
+  maxRedirects?: number;
   timeout?: number;
   adapter?: AxiosRequestConfig["adapter"];
   retry?: RetryOptions | false;
@@ -98,7 +101,13 @@ export class EvolutionProvider implements WhatsAppProvider {
     this.http = createHttpClient({
       name: NAME, baseURL: opts.baseURL, timeout: opts.timeout ?? 20_000, headers: { apikey: opts.apiKey },
       adapter: opts.adapter, retry: opts.retry, logger: opts.logger,
+      httpAgent: opts.httpAgent, httpsAgent: opts.httpsAgent, maxRedirects: opts.maxRedirects,
     });
+  }
+
+  /** Requisição leve AUTENTICADA (lista instâncias com a chave global): valida URL + chave. Lança AppError PT-BR. */
+  async ping(): Promise<void> {
+    await this.http.get("/instance/fetchInstances");
   }
 
   async createInstance(input: CreateInstanceInput): Promise<CreateInstanceResult> {

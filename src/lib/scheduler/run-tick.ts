@@ -227,7 +227,7 @@ async function execute(now: Date, deps: TickDeps, t0: number, inc: (k: string, n
   try {
     const autoCamps = await prisma.campaign.findMany({ where: { status: "active", autoStart: true, sequenceId: { not: null }, ...scope }, select: { id: true } });
     for (const c of autoCamps) {
-      const sum = await classifyStartable(c.id, { limit: AUTO_START_LIMIT });
+      const sum = await classifyStartable(c.id, { limit: AUTO_START_LIMIT, onlyNotStarted: true });
       if (!sum?.eligibleIds.length) continue;
       const n = await activateLeads(sum.eligibleIds, now);
       if (n) {

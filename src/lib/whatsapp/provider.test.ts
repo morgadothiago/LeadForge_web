@@ -1,8 +1,9 @@
+import "dotenv/config";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { buildWebhookUrl, getWhatsAppProvider } from "./provider";
-import { EvolutionProvider } from "./providers/evolution";
+import { _setCacheTtl } from "@/lib/integrations/config";
 
 function walk(dir: string): string[] {
   return readdirSync(dir).flatMap((f) => {
@@ -21,16 +22,18 @@ describe("provider factory", () => {
       .filter((f) => /providers\/evolution|from ["']\.\/evolution["']/.test(readFileSync(f, "utf8")));
     expect(offenders.map((f) => path.relative(root, f))).toEqual([]);
   });
-  it("evolution -> EvolutionProvider a partir do env; sem env -> AppError config", () => {
+  it("evolution -> provider resolvido (env como fallback); sem config -> AppError config na chamada; kind desconhecido -> erro síncrono", async () => {
     const old = { u: process.env.EVOLUTION_API_URL, k: process.env.EVOLUTION_API_KEY };
     try {
       process.env.EVOLUTION_API_URL = "http://evo.test";
       process.env.EVOLUTION_API_KEY = "k";
-      expect(getWhatsAppProvider("evolution")).toBeInstanceOf(EvolutionProvider);
+      expect(typeof getWhatsAppProvider("evolution").getStatus).toBe("function");
       delete process.env.EVOLUTION_API_KEY;
-      expect(() => getWhatsAppProvider("evolution")).toThrow(/não configurada/);
-      expect(() => getWhatsAppProvider("cloud_api")).toThrow(/não suportado/);
+      _setCacheTtl(0);
+      await expect(getWhatsAppProvider("evolution").getStatus("x")).rejects.toThrow(/não configurada/);
+      expect(() => getWhatsAppProvider("cloud_api" as never)).toThrow(/não suportado/);
     } finally {
+      _setCacheTtl(null);
       if (old.u === undefined) delete process.env.EVOLUTION_API_URL; else process.env.EVOLUTION_API_URL = old.u;
       if (old.k === undefined) delete process.env.EVOLUTION_API_KEY; else process.env.EVOLUTION_API_KEY = old.k;
     }

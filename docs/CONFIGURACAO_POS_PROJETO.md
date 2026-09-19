@@ -18,6 +18,10 @@ Precisam existir antes do banco funcionar. Gere com `openssl rand -base64 32` (o
 - Opcionais: `WHATSAPP_PROMO_WORDS`, `WHATSAPP_DISCONNECT_GRACE_MINUTES` (default 10), variaveis de teto do scheduler (ver `.env.example`)
 
 ## 2. Integracoes (hoje no `.env`; passam a ser cadastradas pelo painel na SPEC-018)
+> SPEC-018 pronta (backend + tela em Configuracoes > Integracoes, so admin; verificacao em navegador pendente). O `.env` segue valendo como FALLBACK da Evolution. Chaves: minimo 12 caracteres; a tela mostra so os ultimos 2-4.
+- **Vai no painel (so admin, cifrado no banco, nunca exibido de volta):** chave/URL da Evolution (global), n8n, LLM, busca de leads. O painel tem precedencia sobre o `.env`; remover do painel volta ao `.env`.
+- **Fica no ambiente:** `DATABASE_URL`, `ENCRYPTION_KEY`, `AUTH_SECRET`, `APP_BASE_URL` (bootstrap) e, se quiser, `EVOLUTION_API_URL/KEY` como fallback. NAO existe env para liberar hosts privados: so a confirmacao "instancia propria" por integracao. Metadados/link-local (169.254.x, fd00:ec2::254) sao sempre bloqueados.
+- **Rotacao da ENCRYPTION_KEY:** com o app parado, `OLD_ENCRYPTION_KEY=... NEW_ENCRYPTION_KEY=... npm run secrets:reencrypt` (dry-run, so contagens); depois `npm run secrets:reencrypt -- --apply` (tudo-ou-nada: integracoes, chaves de instancia WhatsApp e senhas de e-mail). Alternativa: `--stdin` com 2 linhas (antiga, nova). Chaves nunca por argumento. Depois troque `ENCRYPTION_KEY` para a nova e reinicie.
 - [ ] Evolution API: `EVOLUTION_API_URL` e `EVOLUTION_API_KEY` (docker compose sobe a Evolution; a URL local exige confirmar "instancia propria" no painel)
 - [ ] Conta(s) de e-mail: cadastrar em Configuracoes > E-mail (senha cifrada no banco) e clicar "Testar conexao". Gmail/Outlook exigem SENHA DE APP. SMTP real ainda NAO foi testado.
 - [ ] Instancia(s) de WhatsApp: Configuracoes > WhatsApp > criar, ler o QR com o chip dedicado, conferir status "conectada". NUNCA testado contra Evolution real.
@@ -33,7 +37,6 @@ Precisam existir antes do banco funcionar. Gere com `openssl rand -base64 32` (o
 - [ ] Proxy reverso: mascarar o path `/api/webhooks/whatsapp/*` nos logs de acesso (o token de webhook vai no caminho da URL); repassar o IP real no cabecalho configurado
 - [ ] Novos arquivos em `/public` precisam ser listados no matcher literal de `src/proxy.ts`, senao ficam atras do login
 - [ ] Backup do banco (guarde a `ENCRYPTION_KEY` em outro lugar) e rotina de restauracao testada
-- [ ] Banco SEPARADO para testes (hoje `npm test` usa o banco de dev e pode deixar linhas)
 
 ## 4. WhatsApp: praticas para nao ser banido (nao ha garantia)
 - [ ] Usar chip DEDICADO e descartavel, nunca o numero principal; perfil completo (foto, nome da empresa)
@@ -50,6 +53,13 @@ Precisam existir antes do banco funcionar. Gere com `openssl rand -base64 32` (o
 - [ ] SMTP real: envio, `List-Unsubscribe`, descadastro por link
 - [ ] `next build` de producao (nao foi rodado no fim porque o servidor de dev usa a mesma pasta `.next`); rode com o dev server desligado
 - [ ] Envio real ponta a ponta pelo scheduler (SPEC-013) com Evolution e SMTP reais
+
+## 5b. Banco de testes (SPEC-020)
+- `npm test` roda SEMPRE no banco `<nome>_test` (ex.: `leadforge_test`, mesmo Postgres), derivado do `DATABASE_URL` do `.env` (so troca o nome); `TEST_DATABASE_URL` tem precedencia. O banco de dev nunca e tocado. `TEST_DATABASE_URL` em OUTRO host:porta que o `DATABASE_URL` e recusado, a menos que `TEST_DB_ALLOW_OTHER_HOST=1`.
+- O `globalSetup` cria o banco se faltar, roda `prisma migrate deploy` e o seed idempotente so nele; nao apaga entre execucoes.
+- Trava: se o nome do banco nao terminar em `_test`, a suite aborta ("Recusando rodar testes contra banco que nao e de teste").
+- `npm run test:db:reset`: drop + create + migrate + seed do banco de teste (recusa nomes sem `_test` ou iguais ao de dev). Use se o banco de teste ficar sujo/corrompido.
+- Duas execucoes simultaneas de `npm test` ainda colidem (banco de teste unico): rode uma por vez.
 
 ## 6. Decisoes com padrao ja adotado (revise quando quiser)
 | Decisao | Padrao adotado |

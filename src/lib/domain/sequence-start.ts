@@ -89,13 +89,13 @@ export interface StartableSummary {
   ineligibleTotal: number;
 }
 
-/** Candidatos = leads da campanha em not_started/paused_manual. Separa elegíveis dos inelegíveis (contagem por motivo). */
-export async function classifyStartable(campaignId: string, opts: { limit?: number; db?: Db } = {}): Promise<StartableSummary | null> {
+/** Candidatos = leads da campanha em not_started/paused_manual (`onlyNotStarted`: só not_started; usado pelo autoStart, que nunca reinicia quem o usuário pausou). Separa elegíveis dos inelegíveis (contagem por motivo). */
+export async function classifyStartable(campaignId: string, opts: { limit?: number; db?: Db; onlyNotStarted?: boolean } = {}): Promise<StartableSummary | null> {
   const db = opts.db ?? prisma;
   const ctx = await loadCampaignCtx(campaignId, db);
   if (!ctx) return null;
   const leads = await db.lead.findMany({
-    where: { campaignId, sequenceStatus: { in: [...STARTABLE_STATUSES] } },
+    where: { campaignId, sequenceStatus: opts.onlyNotStarted ? "not_started" : { in: [...STARTABLE_STATUSES] } },
     orderBy: [{ createdAt: "asc" }, { id: "asc" }],
     ...(opts.limit ? { take: opts.limit } : {}),
     select: START_LEAD_SELECT,

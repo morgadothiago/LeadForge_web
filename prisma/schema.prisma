@@ -395,3 +395,53 @@ model SchedulerRun {
 
   @@index([startedAt])
 }
+
+/// SPEC-018: segredos de integração cadastrados no painel. `encryptedValue` = secret-box (v1:iv:tag:cipher). NUNCA devolver/logar o valor.
+enum IntegrationKind {
+  evolution
+  n8n
+  llm
+  places
+}
+
+enum IntegrationAuditAction {
+  create
+  rotate
+  delete
+  test
+  update_url
+}
+
+model IntegrationSecret {
+  id               String          @id @default(uuid())
+  integration      IntegrationKind
+  name             String          @default("default")
+  encryptedValue   String
+  /// Últimos 4 caracteres do valor (exibição).
+  hint             String
+  baseUrl          String?
+  /// "Instância própria": aceita localhost/rede privada (metadados/link-local sempre bloqueados).
+  allowPrivateHost Boolean         @default(false)
+  updatedById      String?
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+  lastTestedAt     DateTime?
+  lastTestOk       Boolean?
+  lastTestError    String?
+
+  @@unique([integration, name])
+}
+
+model IntegrationAuditLog {
+  id               String                 @id @default(uuid())
+  userId           String
+  integration      IntegrationKind
+  action           IntegrationAuditAction
+  /// Host mascarado (ex.: "ev***.example.com"); nunca o valor do segredo.
+  hostMasked       String?
+  /// Confirmação "instância própria" vigente no momento da ação (create/update_url).
+  allowPrivateHost Boolean?
+  at               DateTime               @default(now())
+
+  @@index([integration, at])
+}
