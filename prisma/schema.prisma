@@ -1,0 +1,302 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum CampaignStatus {
+  active
+  paused
+  archived
+}
+
+enum Channel {
+  email
+  whatsapp
+  linkedin
+  phone
+}
+
+enum SequenceStatus {
+  not_started
+  active
+  paused_replied
+  completed
+  opted_out
+}
+
+enum TouchStatus {
+  pending
+  scheduled
+  sent
+  delivered
+  failed
+  skipped
+  replied
+}
+
+enum TouchDirection {
+  outbound
+  inbound
+}
+
+enum Stage {
+  novo_lead
+  contactado
+  em_followup
+  interessado
+  reuniao_agendada
+  fechado
+  perdido
+}
+
+enum WaStatus {
+  disconnected
+  connecting
+  connected
+}
+
+enum WhatsAppProviderKind {
+  evolution
+  cloud_api
+}
+
+model User {
+  id            String         @id @default(uuid())
+  name          String
+  email         String         @unique
+  role          String         @default("admin")
+  avatarUrl     String?
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  campaigns     Campaign[]
+  emailAccounts EmailAccount[]
+}
+
+model IcpProfile {
+  id          String     @id @default(uuid())
+  name        String
+  niche       String
+  location    String?
+  companySize String?
+  signals     String[]
+  keywords    String[]
+  sources     String[]
+  desiredData String[]
+  createdAt   DateTime   @default(now())
+  campaigns   Campaign[]
+}
+
+model Campaign {
+  id                 String            @id @default(uuid())
+  name               String
+  description        String?
+  status             CampaignStatus    @default(active)
+  icpId              String
+  icp                IcpProfile        @relation(fields: [icpId], references: [id], onDelete: Restrict)
+  sequenceId         String?
+  sequence           Sequence?         @relation(fields: [sequenceId], references: [id], onDelete: SetNull)
+  whatsappInstanceId String?
+  whatsappInstance   WhatsAppInstance? @relation(fields: [whatsappInstanceId], references: [id], onDelete: SetNull)
+  userId             String
+  user               User              @relation(fields: [userId], references: [id], onDelete: Restrict)
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
+  leads              Lead[]
+  opportunities      Opportunity[]
+  templates          MessageTemplate[]
+
+  @@index([userId])
+  @@index([status])
+}
+
+model Lead {
+  id               String         @id @default(uuid())
+  campaignId       String
+  campaign         Campaign       @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  name             String
+  company          String?
+  email            String?
+  phone            String?
+  website          String?
+  linkedin         String?
+  source           String?
+  score            Float          @default(0)
+  tags             String[]
+  rawData          Json?
+  sequenceStatus   SequenceStatus @default(not_started)
+  currentStepOrder Int            @default(0)
+  nextTouchAt      DateTime?
+  repliedAt        DateTime?
+  optedOutAt       DateTime?
+  timezone         String         @default("America/Sao_Paulo")
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+  touches          Touch[]
+  opportunities    Opportunity[]
+  meetings         Meeting[]
+  notes            LeadNote[]
+
+  @@unique([campaignId, email])
+  @@unique([campaignId, phone])
+  @@index([campaignId, sequenceStatus, nextTouchAt])
+}
+
+model LeadNote {
+  id        String   @id @default(uuid())
+  leadId    String
+  lead      Lead     @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  body      String
+  createdAt DateTime @default(now())
+
+  @@index([leadId, createdAt])
+}
+
+model Sequence {
+  id        String         @id @default(uuid())
+  name      String
+  createdAt DateTime       @default(now())
+  steps     SequenceStep[]
+  campaigns Campaign[]
+}
+
+model SequenceStep {
+  id         String          @id @default(uuid())
+  sequenceId String
+  sequence   Sequence        @relation(fields: [sequenceId], references: [id], onDelete: Cascade)
+  day        Int
+  channel    Channel
+  templateId String
+  template   MessageTemplate @relation(fields: [templateId], references: [id], onDelete: Restrict)
+  order      Int
+  touches    Touch[]
+
+  @@unique([sequenceId, order])
+  @@index([templateId])
+}
+
+model Touch {
+  id          String         @id @default(uuid())
+  leadId      String
+  lead        Lead           @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  stepId      String?
+  step        SequenceStep?  @relation(fields: [stepId], references: [id], onDelete: SetNull)
+  channel     Channel
+  direction   TouchDirection @default(outbound)
+  status      TouchStatus    @default(pending)
+  scheduledAt DateTime?
+  sentAt      DateTime?
+  repliedAt   DateTime?
+  externalId  String?
+  error       String?
+  content     String?
+  createdAt   DateTime       @default(now())
+
+  @@unique([leadId, stepId])
+  @@index([leadId, createdAt])
+  @@index([status, scheduledAt])
+}
+
+model Opportunity {
+  id           String         @id @default(uuid())
+  leadId       String
+  lead         Lead           @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  campaignId   String
+  campaign     Campaign       @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  stage        Stage          @default(novo_lead)
+  position     Int            @default(0)
+  value        Float?
+  notes        String?
+  lostReason   String?
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+  meetings     Meeting[]
+  stageHistory StageHistory[]
+
+  @@unique([leadId, campaignId])
+  @@index([campaignId, stage, position])
+}
+
+model Meeting {
+  id              String      @id @default(uuid())
+  opportunityId   String
+  opportunity     Opportunity @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
+  leadId          String
+  lead            Lead        @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  scheduledAt     DateTime
+  duration        Int         @default(30)
+  calendarEventId String?
+  status          String      @default("scheduled")
+  createdAt       DateTime    @default(now())
+
+  @@index([opportunityId])
+  @@index([leadId])
+}
+
+model WhatsAppInstance {
+  id           String               @id @default(uuid())
+  instanceName String               @unique
+  number       String
+  provider     WhatsAppProviderKind @default(evolution)
+  status       WaStatus             @default(disconnected)
+  webhookToken String
+  apiKey       String?
+  createdAt    DateTime             @default(now())
+  updatedAt    DateTime             @updatedAt
+  campaigns    Campaign[]
+}
+
+model EmailAccount {
+  id                String   @id @default(uuid())
+  userId            String
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  provider          String
+  imapHost          String?
+  smtpHost          String
+  port              Int      @default(587)
+  email             String   @unique
+  encryptedPassword String
+  isActive          Boolean  @default(true)
+  createdAt         DateTime @default(now())
+
+  @@index([userId])
+}
+
+model MessageTemplate {
+  id         String         @id @default(uuid())
+  campaignId String
+  campaign   Campaign       @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  channel    Channel
+  name       String
+  subject    String?
+  body       String
+  createdAt  DateTime       @default(now())
+  steps      SequenceStep[]
+
+  @@index([campaignId])
+}
+
+model WebhookEvent {
+  id          String    @id @default(uuid())
+  source      String
+  eventId     String?   @unique
+  payload     Json
+  processedAt DateTime?
+  createdAt   DateTime  @default(now())
+
+  @@index([source, createdAt])
+}
+
+model StageHistory {
+  id            String      @id @default(uuid())
+  opportunityId String
+  opportunity   Opportunity @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
+  fromStage     Stage?
+  toStage       Stage
+  changedAt     DateTime    @default(now())
+
+  @@index([opportunityId, changedAt])
+  @@index([toStage, changedAt])
+}
