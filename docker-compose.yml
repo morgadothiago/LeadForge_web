@@ -63,6 +63,10 @@ services:
       - DB_POSTGRESDB_USER=leadforge
       - DB_POSTGRESDB_PASSWORD=${POSTGRES_PASSWORD}
       - N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY:?defina N8N_ENCRYPTION_KEY no .env}
+      # URL do LeadForge vista de DENTRO do container (SPEC-014); sem segredos (o Bearer fica na credencial do n8n).
+      - LEADFORGE_URL=${LEADFORGE_URL:-http://host.docker.internal:3000}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - n8n_data:/home/node/.n8n
 

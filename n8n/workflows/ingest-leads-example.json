@@ -1,0 +1,56 @@
+{
+  "name": "LeadForge - Exemplo de ingestao de leads",
+  "nodes": [
+    {
+      "parameters": {},
+      "name": "Manual",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [0, 0]
+    },
+    {
+      "parameters": {
+        "jsCode": "// EXEMPLO: substitua a lista abaixo pela sua fonte (planilha, API, etc.).\n// Defina o ID da campanha (UUID) do LeadForge e monte 1 item de saida com o corpo do POST (ate 100 leads por chamada).\nconst campaignId = '00000000-0000-4000-8000-000000000000'; // TROCAR pelo UUID da campanha\nconst fonte = [\n  { nome: 'Maria Exemplo', empresa: 'Empresa Exemplo', email: 'maria@exemplo.com', telefone: '(11) 91234-5678' },\n];\nconst leads = fonte.map((r) => ({\n  name: r.nome,\n  company: r.empresa,\n  email: r.email,\n  phone: r.telefone,\n  source: 'n8n',\n  externalId: r.id ? String(r.id) : undefined,\n}));\nreturn [{ json: { campaignId, leads: leads.slice(0, 100) } }];"
+      },
+      "name": "Normalizar leads",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [260, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.LEADFORGE_URL }}/api/integrations/leads",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [{ "name": "Idempotency-Key", "value": "={{ $execution.id }}-{{ $itemIndex }}" }]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}",
+        "options": {
+          "batching": { "batch": { "batchSize": 1, "batchInterval": 1000 } },
+          "timeout": 65000
+        }
+      },
+      "name": "POST /api/integrations/leads",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [520, 0],
+      "retryOnFail": true,
+      "maxTries": 4,
+      "waitBetweenTries": 5000,
+      "credentials": {
+        "httpHeaderAuth": { "name": "LeadForge INGEST_SECRET" }
+      }
+    }
+  ],
+  "connections": {
+    "Manual": { "main": [[{ "node": "Normalizar leads", "type": "main", "index": 0 }]] },
+    "Normalizar leads": { "main": [[{ "node": "POST /api/integrations/leads", "type": "main", "index": 0 }]] }
+  },
+  "settings": { "executionOrder": "v1" },
+  "active": false
+}

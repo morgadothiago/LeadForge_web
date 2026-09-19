@@ -7,7 +7,7 @@ import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth/require-user";
 import { runMoveOpportunity, type MoveResult } from "@/lib/domain/move-opportunity";
 import { isSuppressed } from "@/lib/domain/suppression";
-import { recordStageChange } from "@/lib/domain/stage-history";
+import { createLeadCore } from "@/lib/domain/lead-create";
 import {
   createLeadSchema,
   deleteNoteSchema,
@@ -71,29 +71,16 @@ export async function createLead(input: unknown): Promise<ActionResult<{ id: str
     if (dup) return failure(dup);
     try {
       const out = await prisma.$transaction(async (tx) => {
-        const lead = await tx.lead.create({
-          data: {
-            campaignId: d.campaignId,
-            name: d.name,
-            company: d.company ?? null,
-            email: d.email ?? null,
-            phone: d.phone ?? null,
-            website: d.website ?? null,
-            linkedin: d.linkedin ?? null,
-            source: d.source ?? "manual",
-          },
-          select: { id: true },
+        return createLeadCore(tx, {
+          campaignId: d.campaignId,
+          name: d.name,
+          company: d.company,
+          email: d.email,
+          phone: d.phone,
+          website: d.website,
+          linkedin: d.linkedin,
+          source: d.source ?? "manual",
         });
-        const last = await tx.opportunity.aggregate({
-          where: { campaignId: d.campaignId, stage: "novo_lead" },
-          _max: { position: true },
-        });
-        const opp = await tx.opportunity.create({
-          data: { leadId: lead.id, campaignId: d.campaignId, stage: "novo_lead", position: (last._max.position ?? -1) + 1 },
-          select: { id: true },
-        });
-        await recordStageChange(tx, opp.id, null, "novo_lead");
-        return { id: lead.id, opportunityId: opp.id };
       });
       revalidate(out.id);
       // SPEC-017: cria mesmo suprimido (o lead existe para histórico), mas todos os envios ficam bloqueados; aviso via `suppressed`.

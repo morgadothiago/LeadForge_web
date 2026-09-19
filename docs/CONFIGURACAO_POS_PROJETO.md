@@ -13,6 +13,7 @@ Precisam existir antes do banco funcionar. Gere com `openssl rand -base64 32` (o
 - [ ] `CRON_SECRET` (32+ chars) — autentica `/api/cron/tick`; sem ele o endpoint responde 503 (fechado, por seguranca)
 - [ ] `ADMIN_EMAIL` / `ADMIN_PASSWORD` (12+ chars) — usuario admin criado por `npm run db:seed`; TROQUE a senha de dev antes de producao
 - [ ] `N8N_ENCRYPTION_KEY` — so se usar n8n
+- [ ] `INGEST_SECRET` (32+ chars, valor DIFERENTE do `CRON_SECRET`) e `INTEGRATION_LEADS_ENABLED=true` — so se quiser ingerir leads via `POST /api/integrations/leads`; o endpoint vem DESLIGADO (503) e so liga com AMBOS
 - [ ] `TRUSTED_PROXY_IP_HEADER` — atras de proxy/CDN (ex.: `x-real-ip`, `cf-connecting-ip`), para o rate limit por IP funcionar; vazio = limita so por e-mail/token
 - [ ] `ALLOW_PRIVATE_SMTP_HOSTS` — deixe `false` em producao (so `true` para SMTP interno confiavel em dev)
 - Opcionais: `WHATSAPP_PROMO_WORDS`, `WHATSAPP_DISCONNECT_GRACE_MINUTES` (default 10), variaveis de teto do scheduler (ver `.env.example`)
@@ -25,7 +26,7 @@ Precisam existir antes do banco funcionar. Gere com `openssl rand -base64 32` (o
 - [ ] Evolution API: `EVOLUTION_API_URL` e `EVOLUTION_API_KEY` (docker compose sobe a Evolution; a URL local exige confirmar "instancia propria" no painel)
 - [ ] Conta(s) de e-mail: cadastrar em Configuracoes > E-mail (senha cifrada no banco) e clicar "Testar conexao". Gmail/Outlook exigem SENHA DE APP. SMTP real ainda NAO foi testado.
 - [ ] Instancia(s) de WhatsApp: Configuracoes > WhatsApp > criar, ler o QR com o chip dedicado, conferir status "conectada". NUNCA testado contra Evolution real.
-- [ ] n8n (opcional): so para chamar o tick ou orquestrar busca de leads (SPEC-014)
+- [ ] n8n (opcional, SPEC-014): so para chamar o tick e/ou postar leads. Guia: `docs/N8N.md`; workflows em `n8n/workflows/`. NAO testado contra um n8n real (importacao/execucao PENDENTES).
 - [ ] Chave do provedor de IA (SPEC-019) e chave de busca de leads (SPEC-015): cadastradas em Configuracoes > Integracoes (SPEC-018)
 
 ## 3. Acoes operacionais (nada disso roda sozinho)
