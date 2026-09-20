@@ -17,3 +17,7 @@ export const pushTokenSchema = z.object({
   token: z.string().trim().regex(/^Expo(nent)?PushToken\[[A-Za-z0-9_-]+\]$/).max(200).nullable(),
   prefs: z.object(Object.fromEntries(pushKinds.map((k) => [k, z.boolean().optional()]))).strict().optional(),
 });
+
+// SPEC-026
+export const killSwitchSchema = z.object({ killSwitch: z.boolean(), password: z.string().min(1).max(256).optional() }).strict();
+export const rejectDraftBodySchema = z.object({ reason: z.string().trim().min(1).max(300) }).strict();

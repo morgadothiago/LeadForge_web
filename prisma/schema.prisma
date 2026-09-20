@@ -660,3 +660,20 @@ model MobileAlert {
   @@index([createdAt, id])
   @@index([kind, resolvedAt])
 }
+
+/// SPEC-026: auditoria das acoes de gestao do app (sem PII: so ids) + idempotencia por (deviceId, Idempotency-Key).
+model MobileActionLog {
+  id             String   @id @default(uuid())
+  userId         String
+  deviceId       String
+  action         String
+  target         String?
+  outcome        String
+  idempotencyKey String?
+  respStatus     Int?
+  respBody       Json?
+  createdAt      DateTime @default(now())
+
+  @@unique([deviceId, idempotencyKey])
+  @@index([userId, createdAt])
+}

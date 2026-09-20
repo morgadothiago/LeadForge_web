@@ -32,6 +32,9 @@ const live = (tag: string, summary: string, dataSchema: object, extra: object = 
     responses: { "200": okResp("OK", env(dataSchema, paged)), "400": err("Entrada inválida"), "401": err("Não autenticado"), "404": err("Não encontrado") },
   },
 });
+const idParam = { name: "id", in: "path" as const, required: true, schema: { type: "string" as const } };
+const idemHeader = { name: "Idempotency-Key", in: "header" as const, required: false, schema: { type: "string" as const, pattern: "^[A-Za-z0-9_-]{8,100}$" } };
+const actionResp = (schema: object) => ({ "200": okResp("Novo estado", env(schema)), "400": err("Entrada invalida"), "401": err("Não autenticado"), "404": err("Não encontrado"), "409": err("Regra de negocio (mensagem PT-BR)"), "429": err("Rate limit por dispositivo (Retry-After)") });
 const errExample = { error: { code: "invalid_credentials", message: "Credenciais inválidas." } };
 
 export const spec: OpenAPIV3_1.Document = {
@@ -99,6 +102,12 @@ export const spec: OpenAPIV3_1.Document = {
       Updated: obj({ updated: int }),
       AlertRead: obj({ id: str, readAt: nullable("string") }),
       PushRegistered: obj({ registered: bool }),
+      CampaignState: obj({ id: str, status: { type: "string", enum: ["active", "paused"] } }),
+      KillSwitchState: obj({ killSwitch: bool }),
+      DraftItem: obj({ id: str, channel: str, displayName: str, preview: str, truncated: bool, createdAt: str }),
+      DraftDetail: obj({ id: str, channel: str, displayName: str, subject: nullable("string"), body: str, status: str, createdAt: str }),
+      DraftResult: obj({ id: str, status: str }),
+      HandoffTaken: obj({ leadId: str, agentStopped: bool, handoffAt: nullable("string"), sequenceStatus: str, link: nullable("string") }),
       Generic: { type: "object", additionalProperties: true },
     },
   },
@@ -137,6 +146,26 @@ export const spec: OpenAPIV3_1.Document = {
     "/alerts/unread-count": live("alerts", "Contagem de alertas nao lidos (SPEC-023)", ref("UnreadCount")),
     "/alerts/read-all": { post: { tags: ["alerts"], summary: "Marca todos como lidos, idempotente (SPEC-023)", security: secured, responses: { "200": okResp("OK", env(ref("Updated"))), "401": err("Não autenticado") } } },
     "/alerts/{id}/read": { post: { tags: ["alerts"], summary: "Marca um alerta como lido, idempotente (SPEC-023)", security: secured, parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }], responses: { "200": okResp("OK", env(ref("AlertRead"))), "401": err("Não autenticado"), "404": err("Não encontrado") } } },
+    "/campaigns/{id}/pause": { post: { tags: ["actions"], summary: "Pausa a campanha; idempotente (SPEC-026)", security: secured, parameters: [idParam, idemHeader], responses: actionResp(ref("CampaignState")) } },
+    "/campaigns/{id}/resume": { post: { tags: ["actions"], summary: "Retoma a campanha; nunca burla limites/aquecimento/janela da SPEC-017, que seguem decidindo cada envio (SPEC-026)", security: secured, parameters: [idParam, idemHeader], responses: actionResp(ref("CampaignState")) } },
+    "/agents/kill-switch": {
+      put: {
+        tags: ["actions"], summary: "killSwitch=true para os agentes; killSwitch=false (agentes voltam a rodar) exige password (reautenticacao). Somente admin (SPEC-026)", security: secured, parameters: [idemHeader],
+        requestBody: { required: true, content: json({ type: "object", required: ["killSwitch"], additionalProperties: false, properties: { killSwitch: bool, password: { type: "string" } } }) },
+        responses: { ...actionResp(ref("KillSwitchState")), "403": err("Sem permissao ou reautenticacao necessaria (code reauth_required)") },
+      },
+    },
+    "/drafts": { get: { tags: ["actions"], summary: "Fila de rascunhos pendentes: corpo truncado (280) e nome mascarado (SPEC-026)", security: secured, parameters: [{ name: "status", in: "query" as const, schema: { type: "string" as const, enum: ["pending"] } }, ...paging], responses: { "200": okResp("OK", env({ type: "array", items: ref("DraftItem") }, true)), "400": err("Entrada invalida"), "401": err("Não autenticado") } } },
+    "/drafts/{id}": { get: { tags: ["actions"], summary: "Rascunho com corpo completo, sob demanda; no-store (SPEC-026)", security: secured, parameters: [idParam], responses: { "200": okResp("OK", env(ref("DraftDetail"))), "401": err("Não autenticado"), "404": err("Não encontrado") } } },
+    "/drafts/{id}/approve": { post: { tags: ["actions"], summary: "Aprova e envia pela camada existente; supressao/opt-out/cadencia bloqueiam com 409 (SPEC-026)", security: secured, parameters: [idParam, idemHeader], responses: actionResp(ref("DraftResult")) } },
+    "/drafts/{id}/reject": {
+      post: {
+        tags: ["actions"], summary: "Rejeita o rascunho com motivo (SPEC-026)", security: secured, parameters: [idParam, idemHeader],
+        requestBody: { required: true, content: json({ type: "object", required: ["reason"], additionalProperties: false, properties: { reason: { type: "string", minLength: 1, maxLength: 300 } } }) },
+        responses: actionResp(ref("DraftResult")),
+      },
+    },
+    "/handoffs/{leadId}/take": { post: { tags: ["actions"], summary: "Assume o lead: o agente para nele; devolve o link https da call se houver, sem dados de contato (SPEC-026)", security: secured, parameters: [{ name: "leadId", in: "path", required: true, schema: { type: "string" } }, idemHeader], responses: actionResp(ref("HandoffTaken")) } },
     "/devices/push-token": {
       put: { tags: ["devices"], summary: "Registra/remove o push token do proprio dispositivo (token null remove) e preferencias por kind (SPEC-023)", security: secured, requestBody: { required: true, content: json({ type: "object", required: ["token"], properties: { token: { type: ["string", "null"] }, prefs: { type: "object", additionalProperties: { type: "boolean" } } } }) }, responses: { "200": okResp("OK", env(ref("PushRegistered"))), "400": err("Entrada inválida"), "401": err("Não autenticado") } },
       delete: { tags: ["devices"], summary: "Remove o push token do proprio dispositivo (SPEC-023)", security: secured, responses: { "200": okResp("OK", env(ref("PushRegistered"))), "401": err("Não autenticado") } },
