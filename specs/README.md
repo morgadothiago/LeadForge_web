@@ -25,6 +25,12 @@ Fullstack = executa dev-backend primeiro, depois dev-frontend.
 | 018 | Chaves de API e integracoes pelo painel (Configuracoes) | backend+frontend | 2 (depois de 017/013) | IMPLEMENTED | 009,010,011,016 |
 | 016 | Erros HTTP/axios em PT-BR (prerequisito de 011-015) | dev-backend | 2 | IMPLEMENTED | 000 |
 | 015 | Busca de leads por IA | backend+frontend | posterior | IMPLEMENTED (backend+frontend; e2e, cron e validacao em navegador pendentes) | 005,008,014 |
+| 021 | Mobile: contrato /api/mobile/v1 + auth (access/refresh/revogacao) | dev-backend | 4 | DRAFT | 009 |
+| 022 | Mobile: metricas do painel e saude (read-only) | dev-backend | 4 | DRAFT | 021 |
+| 023 | Mobile: alertas + push (polling primeiro, Expo Push opcional) | dev-backend | 4 | DRAFT | 021,022 |
+| 024 | Mobile: app Expo base + auth + biometria | rn-expo-senior-dev | 4 | DRAFT | 021 |
+| 025 | Mobile: telas de monitoramento (Resumo, Campanhas, Pipeline, Alertas, Saude) | rn-expo-senior-dev | 4 | DRAFT | 022,023,024 |
+| 026 | Mobile: acoes de gestao leves + Aprovacoes + push/Ajustes no app | backend+mobile | 4 | DRAFT | 021,023,025 |
 
 Ordem (sessao 2): 009,010,016 feitos -> 011 -> 012 -> 017 -> 013 -> 014 -> 015. Ordem sessao 1: 000 -> 001 -> 002 -> 003 -> 004 -> 005 -> 006 -> 007 -> 008 | 009 -> 010 -> 011 -> 012 -> 013 -> 014 -> 015.
 Nota: 004 (dashboard) fica antes de 005-008 por ordem do PROMPT; com poucos dados usa seed.
@@ -45,3 +51,7 @@ Docker parado: migrate, Evolution, n8n, SMTP nao verificaveis ponta a ponta; SPE
 - Endpoints proprios (Route Handlers, ex.: webhook SPEC-012) devolvem 429 + `Retry-After` ao limitar. Server Actions nao controlam status: devolver erro tipado em `ActionResult`.
 - Testes obrigatorios por cliente: 429 com e sem `Retry-After`, tentativas esgotadas, 5xx, timeout, sem vazamento de segredo no erro.
 - Onde a SPEC citar `fetch`, trocar por axios e registrar o desvio. Adicionar `axios` com `--legacy-peer-deps`.
+
+## Mobile (sessao 4) — direcao do usuario 2026-09-19
+App de MONITORAMENTO/gestao leve, nao operacional. Ordem: 021 -> 022 -> 023 -> 024 -> 025 -> 026 (021-023 backend, 024-026 app; 024 pode comecar apos 021). Todas DRAFT ate `APROVAR SPEC-XXX`.
+Decisoes pendentes: D-M1 RESOLVIDA (usuario): repo git SEPARADO, pasta irma (`~/Desktop/LeadForge/web` = leadforge atual apos mover; `~/Desktop/LeadForge/mobile` = novo repo Expo); nenhuma pasta movida ainda | D-M2 destino do codigo nao commitado (reverter Bearer no web, descartar `api/actions`, reescrever OpenAPI) | D-M3 Expo managed | D-M4 push: polling + Expo Push opcional (gratis) | D-M5 retencao: access 15 min, refresh 30 d deslizante, limpeza de dispositivos inativos | D-M6 PII no mobile: nenhuma (nomes mascarados, sem telefone/e-mail; corpo de rascunho so sob demanda) | D-M7 quais acoes de gestao permitir (pausar/retomar campanha, kill switch, aprovar/rejeitar, assumir handoff) | D-M8 como o celular alcanca a API (HTTPS publico/tunel/deploy).
