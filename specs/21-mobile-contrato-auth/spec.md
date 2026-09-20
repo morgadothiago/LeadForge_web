@@ -1,5 +1,5 @@
 # SPEC-021 — Mobile: contrato de API /api/mobile/v1 + auth mobile
-- status: APPROVED (usuario, 2026-09-19) | domain: backend | agente: dev-backend | depende de: SPEC-009 | bloqueia: 022, 023, 024
+- status: IMPLEMENTED (backend; validacao em aparelho pendente, SPEC-024) | aprovada pelo usuario em 2026-09-19 | domain: backend | agente: dev-backend | depende de: SPEC-009 | bloqueia: 022, 023, 024
 ## Objetivo
 Camada de API enxuta, versionada e read-mostly para o app de MONITORAMENTO. O mobile NAO e operacional: nada de CRUD pesado (sequencias, templates, integracoes/chaves, leads em massa) — fica no web.
 ## Diagnostico do codigo nao commitado (recomendacao de destino; nada apagado nesta etapa)
@@ -49,3 +49,10 @@ Metricas (022), alertas/push (023), app (024+), OAuth/SSO, MFA no servidor.
 ## Limitacoes de validacao
 Sem Docker/DB real: testes com prisma mockado ou banco de testes (SPEC-020); rate limit em memoria nao vale multi-instancia; teste em aparelho na SPEC-024.
 ## Decisoes pendentes: D-M2, D-M5, D-M6, D-M8 (ver README).
+
+## Implementation Notes
+- Arquivos: `prisma/schema.prisma` + migration `20260919260000_mobile_device` (MobileDevice, com `prevRefreshHash` p/ deteccao de reuso e `refreshExpiresAt` p/ janela 30d deslizante); `src/lib/mobile/{token,http,schemas,refresh-limit}.ts`; rotas `src/app/api/mobile/v1/{auth/login,auth/refresh,auth/logout,auth/me,devices,devices/[id]}`; `src/lib/openapi.ts` (reescrito, 15 paths; 9 de dados marcados `x-status: planned` para 022/023/026); `src/app/api/openapi/route.ts` (404 em producao sem sessao web); `src/scripts/export-openapi.ts` + `npm run openapi:export`; `src/proxy.ts` (matcher exclui `/api/mobile/v1`); `session.ts`/`proxy.ts` revertidos ao so-cookie; `src/app/api/actions/*` removido; teste `src/lib/mobile/mobile.test.ts`.
+- Decisoes: access JWT com segredo DERIVADO (HMAC de AUTH_SECRET, ou `MOBILE_AUTH_SECRET` opcional) + `aud: mobile`; `bearerToken` mantido e usado so no guard mobile; refresh recebe `{deviceId, refreshToken}`; `lastSeenAt` atualizado so no refresh (evita escrita por request); login mobile compartilha o rate limit do web (Retry-After fixo 60s no login); user na resposta = id, name, role (sem e-mail).
+- Testes: `npm test` 68 arquivos / 907 testes VERIFIED; tsc (sem erros no codigo; so um arquivo stale em `.next/dev/types`) e eslint no escopo VERIFIED.
+- AC1-AC9: PASS (nomes em `mobile.test.ts`; AC7/AC8 via varredura de chaves e validador de schema minimo contra o OpenAPI, apenas nas rotas implementadas).
+- Limitacoes: rate limit em memoria (1 instancia); HTTPS em producao (D-M8) e teste em aparelho NOT VERIFIED; rotas de dados/push-token (022/023/026) so documentadas no OpenAPI; validacao de contrato nao usa validador OpenAPI completo.

@@ -619,3 +619,22 @@ model SearchRun {
 
   @@index([campaignId, startedAt])
 }
+
+/// SPEC-021: dispositivo do app mobile. Refresh token NUNCA gravado em claro (só sha256). prevRefreshHash detecta reuso.
+model MobileDevice {
+  id               String    @id @default(uuid())
+  userId           String
+  name             String
+  platform         String
+  refreshHash      String    @unique
+  prevRefreshHash  String?
+  refreshExpiresAt DateTime
+  pushToken        String?
+  appVersion       String?
+  createdAt        DateTime  @default(now())
+  lastSeenAt       DateTime  @default(now())
+  revokedAt        DateTime?
+
+  @@index([userId, createdAt])
+  @@index([prevRefreshHash])
+}

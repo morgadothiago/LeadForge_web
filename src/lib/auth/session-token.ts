@@ -32,3 +32,9 @@ export async function verifySessionToken(token: string | undefined, secret?: str
     return null;
   }
 }
+
+/** Extrai o token de "Authorization: Bearer <token>" (clientes mobile). null se ausente/malformado. */
+export function bearerToken(header: string | null | undefined): string | undefined {
+  const m = header?.match(/^Bearer\s+(\S+)$/i);
+  return m?.[1];
+}

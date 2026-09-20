@@ -14,6 +14,7 @@
     "test": "vitest run",
     "test:db:reset": "tsx src/scripts/test-db-reset.ts",
     "tick": "tsx src/scripts/tick.ts",
+    "openapi:export": "tsx src/scripts/export-openapi.ts",
     "secrets:reencrypt": "tsx src/scripts/reencrypt-secrets.ts"
   },
   "dependencies": {
