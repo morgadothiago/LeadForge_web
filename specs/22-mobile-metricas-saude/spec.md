@@ -1,5 +1,5 @@
 # SPEC-022 — Mobile: metricas do painel e saude (API read-only)
-- status: DRAFT | domain: backend | agente: dev-backend | depende de: SPEC-021 (e leitura de 004, 011, 013, 015, 017, 019) | bloqueia: 025
+- status: APPROVED (usuario, 2026-09-19) | domain: backend | agente: dev-backend | depende de: SPEC-021 (e leitura de 004, 011, 013, 015, 017, 019) | bloqueia: 025
 ## Objetivo
 Endpoints GET agregados (calculo no servidor, payload pequeno) que respondem "como esta indo": funil, atividade, saude dos canais/scheduler/agentes/busca. Reaproveitar `src/lib/queries/*` (dashboard.ts, pipeline.ts, campaigns.ts, whatsapp-health.ts, agent.ts, lead-search.ts) extraindo a logica pura para funcoes sem `requireUser`/cookie, chamadas pelo guard mobile. NAO duplicar regras (limite efetivo, saude, orcamento).
 ## Endpoints e dados

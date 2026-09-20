@@ -25,9 +25,9 @@ Fullstack = executa dev-backend primeiro, depois dev-frontend.
 | 018 | Chaves de API e integracoes pelo painel (Configuracoes) | backend+frontend | 2 (depois de 017/013) | IMPLEMENTED | 009,010,011,016 |
 | 016 | Erros HTTP/axios em PT-BR (prerequisito de 011-015) | dev-backend | 2 | IMPLEMENTED | 000 |
 | 015 | Busca de leads por IA | backend+frontend | posterior | IMPLEMENTED (backend+frontend; e2e, cron e validacao em navegador pendentes) | 005,008,014 |
-| 021 | Mobile: contrato /api/mobile/v1 + auth (access/refresh/revogacao) | dev-backend | 4 | DRAFT | 009 |
-| 022 | Mobile: metricas do painel e saude (read-only) | dev-backend | 4 | DRAFT | 021 |
-| 023 | Mobile: alertas + push (polling primeiro, Expo Push opcional) | dev-backend | 4 | DRAFT | 021,022 |
+| 021 | Mobile: contrato /api/mobile/v1 + auth (access/refresh/revogacao) | dev-backend | 4 | APPROVED | 009 |
+| 022 | Mobile: metricas do painel e saude (read-only) | dev-backend | 4 | APPROVED | 021 |
+| 023 | Mobile: alertas + push (polling primeiro, Expo Push opcional) | dev-backend | 4 | APPROVED | 021,022 |
 
 Ordem (sessao 2): 009,010,016 feitos -> 011 -> 012 -> 017 -> 013 -> 014 -> 015. Ordem sessao 1: 000 -> 001 -> 002 -> 003 -> 004 -> 005 -> 006 -> 007 -> 008 | 009 -> 010 -> 011 -> 012 -> 013 -> 014 -> 015.
 Nota: 004 (dashboard) fica antes de 005-008 por ordem do PROMPT; com poucos dados usa seed.

@@ -1,5 +1,5 @@
 # SPEC-023 — Mobile: alertas e notificacoes push (backend)
-- status: DRAFT | domain: backend | agente: dev-backend | depende de: SPEC-021, SPEC-022 (e 011, 013, 017, 019) | bloqueia: 026 (push no app)
+- status: APPROVED (usuario, 2026-09-19) | domain: backend | agente: dev-backend | depende de: SPEC-021, SPEC-022 (e 011, 013, 017, 019) | bloqueia: 026 (push no app)
 ## Objetivo
 Gerar alertas de monitoramento deduplicados, expo-los por API (polling) e entregar push opcional, sem PII no corpo.
 ## Eventos (fonte existente)
