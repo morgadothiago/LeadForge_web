@@ -4,12 +4,12 @@
 Backend: query de oportunidades agrupadas por stage (filtro campanha); Server Action `moveOpportunity(id, stage, position?)` com validacao de transicao [D11: livre ou regras]; mover para `perdido` pede motivo opcional; `reuniao_agendada` cria Meeting opcional (fora: calendario). Ordenacao intra-coluna: `Opportunity.position` (adicionar em SPEC-001 se aprovado) ou por updatedAt [D12].
 Frontend: 7 colunas (Fechado e Perdido separados) com cor e contagem, dnd-kit, update otimista com rollback em erro, estilo drag (opacity-50, scale-105, drop zone tracejada primary), card com nome/empresa/canal/score, click abre detalhe (SPEC-008).
 ## Criterios de aceite
-- [ ] Arrastar card muda stage no banco (teste de action) e persiste apos reload.
-- [ ] Falha na action reverte UI e mostra toast.
-- [ ] Contagens por coluna corretas; filtro por campanha funciona.
-- [ ] Acessivel por teclado (mover card com setas/space).
-- [ ] 1 query agrupada, sem N+1.
-- [ ] build/lint/typecheck OK.
+- [x] Arrastar card muda stage no banco (teste de action) e persiste apos reload. (QA 2026-09-19: pipeline.test.ts)
+- [ ] Falha na action reverte UI e mostra toast. (PENDENTE: rollback/toast sem teste de UI; validar no navegador)
+- [x] Contagens por coluna corretas; filtro por campanha funciona. (QA: board-state.test.ts)
+- [ ] Acessivel por teclado (mover card com setas/space). (PENDENTE: NOT VERIFIED sem navegador)
+- [x] 1 query agrupada, sem N+1. (QA)
+- [x] build/lint/typecheck OK. (QA 2026-09-19: tsc, eslint, 888 testes)
 ## Decisoes pendentes
 D11, D12.
 

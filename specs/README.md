@@ -4,17 +4,17 @@ Fullstack = executa dev-backend primeiro, depois dev-frontend.
 
 | SPEC | Feature | Agente | Sessao | Status | Depende de |
 |---|---|---|---|---|---|
-| 000 | Setup, versoes, deps, docker, env, prisma.ts | dev-backend | 1 | APPROVED | - |
+| 000 | Setup, versoes, deps, docker, env, prisma.ts | dev-backend | 1 | IMPLEMENTED | - |
 | 001 | Schema Prisma corrigido + seed | dev-backend | 1 | IMPLEMENTED | 000 |
-| 002 | Design system | dev-frontend | 1 | APPROVED | 000 |
-| 003 | Layout base | dev-frontend | 1 | APPROVED | 002 |
-| 004 | Dashboard | backend+frontend | 1 | APPROVED | 001,003 |
-| 005 | Campanhas + ICP | backend+frontend | 1 | APPROVED | 001,003 |
-| 006 | Sequences + Templates | backend+frontend | 1 | APPROVED | 001,003,005 |
-| 007 | Pipeline Kanban | backend+frontend | 1 | APPROVED | 001,003 |
-| 008 | Leads (lista/detalhe) | backend+frontend | 1 | APPROVED | 001,003,007 |
-| 009 | Autenticacao | backend+frontend | 2 (antecipar?) | APPROVED | 001,003 |
-| 010 | Email Nodemailer | backend (+cfg UI) | 2 | APPROVED | 001,006,008 |
+| 002 | Design system | dev-frontend | 1 | IMPLEMENTED (validacao visual pendente) | 000 |
+| 003 | Layout base | dev-frontend | 1 | IMPLEMENTED (validacao visual pendente) | 002 |
+| 004 | Dashboard | backend+frontend | 1 | IMPLEMENTED (validacao visual pendente) | 001,003 |
+| 005 | Campanhas + ICP | backend+frontend | 1 | IMPLEMENTED (validacao visual pendente) | 001,003 |
+| 006 | Sequences + Templates | backend+frontend | 1 | IMPLEMENTED (E2E/visual pendentes) | 001,003,005 |
+| 007 | Pipeline Kanban | backend+frontend | 1 | IMPLEMENTED (teclado/rollback em navegador pendentes) | 001,003 |
+| 008 | Leads (lista/detalhe) | backend+frontend | 1 | IMPLEMENTED (validacao visual pendente) | 001,003,007 |
+| 009 | Autenticacao | backend+frontend | 2 (antecipar?) | IMPLEMENTED | 001,003 |
+| 010 | Email Nodemailer | backend (+cfg UI) | 2 | IMPLEMENTED (SMTP real e visual pendentes) | 001,006,008 |
 | 011 | WhatsApp Evolution | backend+frontend | 2 | IMPLEMENTED | 001,005 |
 | 012 | Webhook receiver | dev-backend | 2 | IMPLEMENTED | 011 |
 | 013 | Scheduler follow-up | dev-backend | 2 | IMPLEMENTED | 006,010,011,012 |
@@ -23,7 +23,7 @@ Fullstack = executa dev-backend primeiro, depois dev-frontend.
 | 020 | Banco de dados separado para testes | infra/backend | 2 | IMPLEMENTED | 000,001 |
 | 019 | Agentes de IA (SDR, Follow-up, Closer) configuraveis | backend+frontend | 3 (depois de 013 e 018) | IMPLEMENTED (backend+frontend; pendente QA e validacao em navegador) | 013,017,012,018 |
 | 018 | Chaves de API e integracoes pelo painel (Configuracoes) | backend+frontend | 2 (depois de 017/013) | IMPLEMENTED | 009,010,011,016 |
-| 016 | Erros HTTP/axios em PT-BR (prerequisito de 011-015) | dev-backend | 2 | APPROVED | 000 |
+| 016 | Erros HTTP/axios em PT-BR (prerequisito de 011-015) | dev-backend | 2 | IMPLEMENTED | 000 |
 | 015 | Busca de leads por IA | backend+frontend | posterior | IMPLEMENTED (backend+frontend; e2e, cron e validacao em navegador pendentes) | 005,008,014 |
 
 Ordem (sessao 2): 009,010,016 feitos -> 011 -> 012 -> 017 -> 013 -> 014 -> 015. Ordem sessao 1: 000 -> 001 -> 002 -> 003 -> 004 -> 005 -> 006 -> 007 -> 008 | 009 -> 010 -> 011 -> 012 -> 013 -> 014 -> 015.
