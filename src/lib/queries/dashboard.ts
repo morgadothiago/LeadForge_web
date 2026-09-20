@@ -3,6 +3,7 @@ import { addDays, startOfDay, subDays } from "date-fns";
 import type { Prisma, Stage, Channel, TouchDirection } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth/require-user";
+import { getMetrics } from "@/lib/dashboard/metrics";
 
 /* ---------- Input (Zod) ---------- */
 
@@ -132,39 +133,6 @@ export function mergeActivities(
 }
 
 /* ---------- Queries ---------- */
-
-type Range = { from: Date; to: Date };
-
-async function getMetrics(ranges: PeriodRanges, campaignId?: string): Promise<DashboardMetrics> {
-  const leadWhere = campaignId ? { campaignId } : {};
-  const inLead = campaignId ? { lead: { campaignId } } : {};
-  const count = (r: Range) =>
-    Promise.all([
-      prisma.lead.count({ where: { ...leadWhere, createdAt: { gte: r.from, lt: r.to } } }),
-      // "Em follow-up" = transições para em_followup registradas em StageHistory no período.
-      prisma.stageHistory.count({
-        where: {
-          toStage: "em_followup",
-          changedAt: { gte: r.from, lt: r.to },
-          ...(campaignId ? { opportunity: { campaignId } } : {}),
-        },
-      }),
-      // D8 (INFERRED): resposta = Touch inbound.
-      prisma.touch.count({
-        where: { ...inLead, direction: "inbound", createdAt: { gte: r.from, lt: r.to } },
-      }),
-      prisma.meeting.count({
-        where: { ...inLead, createdAt: { gte: r.from, lt: r.to } },
-      }),
-    ]);
-  const [cur, prev] = await Promise.all([count(ranges.current), count(ranges.previous)]);
-  return {
-    newLeads: buildMetric(cur[0], prev[0]),
-    followUp: buildMetric(cur[1], prev[1]),
-    replies: buildMetric(cur[2], prev[2]),
-    meetings: buildMetric(cur[3], prev[3]),
-  };
-}
 
 async function getWeekly(now: Date, campaignId?: string): Promise<WeeklyPoint[]> {
   const from = startOfDay(subDays(now, 6));

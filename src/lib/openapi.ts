@@ -13,6 +13,13 @@ const env = (schema: object, meta = false) => ({
 const json = (schema: object, example?: unknown) => ({ "application/json": { schema, ...(example ? { example } : {}) } });
 const okResp = (description: string, schema: object, example?: unknown) => ({ description, content: json(schema, example) });
 const err = (description: string) => ({ description, content: json(ref("Error")) });
+const str = { type: "string" as const };
+const int = { type: "integer" as const };
+const bool = { type: "boolean" as const };
+const nullable = (t: string) => ({ type: [t, "null"] });
+/** Objeto fechado (additionalProperties:false) com todas as propriedades obrigatorias (SPEC-022). */
+const obj = (properties: Record<string, object>) => ({ type: "object" as const, additionalProperties: false, required: Object.keys(properties), properties });
+const campaignProps = { id: str, name: str, status: str, sent: int, replies: int, replyRate: nullable("number"), activeLeads: int, nextSendAt: nullable("string") };
 const secured = [{ bearerAuth: [] }];
 const paging = [
   { name: "limit", in: "query" as const, schema: { type: "integer" as const, minimum: 1, maximum: 50, default: 20 } },
@@ -23,6 +30,13 @@ const planned = (tag: string, summary: string, dataSchema: object, extra: object
     tags: [tag], summary, security: secured, "x-status": "planned",
     ...extra,
     responses: { "200": okResp("OK", env(dataSchema)), "401": err("Não autenticado") },
+  },
+});
+const live = (tag: string, summary: string, dataSchema: object, extra: object = {}, paged = false) => ({
+  get: {
+    tags: [tag], summary, security: secured,
+    ...extra,
+    responses: { "200": okResp("OK", env(dataSchema, paged)), "400": err("Entrada inválida"), "401": err("Não autenticado"), "404": err("Não encontrado") },
   },
 });
 const errExample = { error: { code: "invalid_credentials", message: "Credenciais inválidas." } };
@@ -57,6 +71,36 @@ export const spec: OpenAPIV3_1.Document = {
         },
       },
       Revoked: { type: "object", required: ["revoked"], properties: { revoked: { type: "boolean" } } },
+      Trend: obj({ percent: nullable("number"), direction: { type: "string", enum: ["up", "down", "flat"] } }),
+      Metric: obj({ value: int, previous: int, trend: ref("Trend") }),
+      SummaryLimit: obj({ sent: int, limit: int }),
+      Summary: obj({
+        period: { type: "string", enum: ["7d", "30d"] },
+        newLeads: ref("Metric"), contacted: ref("Metric"), replied: ref("Metric"), meetings: ref("Metric"), optOut: ref("Metric"),
+        responseRate: obj({ responded: int, contacted: int, rate: nullable("number") }),
+        sentToday: obj({ whatsapp: ref("SummaryLimit"), email: ref("SummaryLimit") }),
+        failures24h: int,
+        attention: obj({ unreadAlerts: int, handoffs: int, pendingDrafts: int }),
+      }),
+      PipelineStage: obj({ stage: str, label: str, count: int, totalValue: { type: "number" } }),
+      CampaignMetrics: obj(campaignProps),
+      CampaignDetailMetrics: obj({ ...campaignProps, daily: { type: "array", items: obj({ date: str, sent: int, replies: int }) } }),
+      WaAlert: obj({ id: str, kind: str, message: str, createdAt: str, readAt: nullable("string") }),
+      WaInstance: obj({
+        id: str, instanceName: str, numberMasked: nullable("string"), status: str, health: str, pausedUntil: nullable("string"), pausedReason: nullable("string"),
+        warmupDay: nullable("integer"), sentToday: int, effectiveLimitToday: int, warnings: { type: "array", items: str }, alerts: { type: "array", items: ref("WaAlert") },
+      }),
+      SchedulerState: obj({
+        lastRun: { type: ["object", "null"], additionalProperties: false, required: ["id", "startedAt", "finishedAt", "status", "counters", "error"], properties: { id: str, startedAt: str, finishedAt: nullable("string"), status: str, counters: { type: "object", additionalProperties: { type: "number" } }, error: nullable("string") } },
+        lastSuccessAt: nullable("string"), stale: bool, lockStuck: bool,
+        recentErrors: { type: "array", items: obj({ id: str, startedAt: str, error: nullable("string") }) },
+      }),
+      Budget: obj({ spentCents: { type: "number" }, budgetCents: nullable("integer"), budgetState: { type: "string", enum: ["ok", "alert", "exhausted", "no_budget"] }, percent: nullable("number") }),
+      AgentQueue: obj({
+        drafts: obj({ pending: int, oldestAt: nullable("string") }), handoffs: int, killSwitch: bool, budget: ref("Budget"),
+        agents: { type: "array", items: { type: "object", additionalProperties: false, required: ["id", "name", "role", "active", "spentCents", "budgetCents", "budgetState", "percent"], properties: { id: str, name: str, role: str, active: bool, spentCents: { type: "number" }, budgetCents: nullable("integer"), budgetState: { type: "string", enum: ["ok", "alert", "exhausted", "no_budget"] }, percent: nullable("number") } } },
+      }),
+      SearchRunItem: obj({ id: str, campaignId: str, source: str, trigger: str, status: str, found: int, created: int, duplicate: int, suppressed: int, invalid: int, error: nullable("string"), startedAt: str, finishedAt: nullable("string") }),
       Generic: { type: "object", additionalProperties: true },
     },
   },
@@ -83,14 +127,14 @@ export const spec: OpenAPIV3_1.Document = {
     "/devices/{id}": {
       delete: { tags: ["devices"], summary: "Revoga remotamente um dispositivo", security: secured, parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }], responses: { "200": okResp("OK", env(ref("Revoked"))), "401": err("Não autenticado"), "404": err("Não encontrado") } },
     },
-    "/summary": planned("dashboard", "Resumo do painel (SPEC-022)", ref("Generic")),
-    "/pipeline": planned("dashboard", "Funil por etapa (SPEC-022)", ref("Generic")),
-    "/campaigns": planned("campaigns", "Campanhas (SPEC-022)", { type: "array", items: ref("Generic") }, { parameters: paging }),
-    "/campaigns/{id}": planned("campaigns", "Campanha (SPEC-022)", ref("Generic"), { parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }] }),
-    "/whatsapp/instances": planned("health", "Instâncias WhatsApp (SPEC-022)", { type: "array", items: ref("Generic") }),
-    "/scheduler": planned("health", "Estado do scheduler (SPEC-022)", ref("Generic")),
-    "/agents/queue": planned("agents", "Fila de agentes (SPEC-022)", ref("Generic")),
-    "/lead-search/runs": planned("lead-search", "Execuções de busca (SPEC-022)", { type: "array", items: ref("Generic") }, { parameters: paging }),
+    "/summary": live("dashboard", "Resumo do painel (SPEC-022)", ref("Summary"), { parameters: [{ name: "period", in: "query" as const, schema: { type: "string" as const, enum: ["7d", "30d"], default: "7d" } }] }),
+    "/pipeline": live("dashboard", "Funil por etapa (SPEC-022)", { type: "array", items: ref("PipelineStage") }),
+    "/campaigns": live("campaigns", "Campanhas com metricas (SPEC-022)", { type: "array", items: ref("CampaignMetrics") }, { parameters: [{ name: "status", in: "query" as const, schema: { type: "string" as const, enum: ["active", "paused", "archived"], default: "active" } }, ...paging] }, true),
+    "/campaigns/{id}": live("campaigns", "Campanha com serie diaria 7d (SPEC-022)", ref("CampaignDetailMetrics"), { parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }] }),
+    "/whatsapp/instances": live("health", "Instancias WhatsApp (numero mascarado; SPEC-022)", { type: "array", items: ref("WaInstance") }),
+    "/scheduler": live("health", "Estado do scheduler (SPEC-022)", ref("SchedulerState")),
+    "/agents/queue": live("agents", "Fila de agentes e orcamento (SPEC-022)", ref("AgentQueue")),
+    "/lead-search/runs": live("lead-search", "Execucoes de busca (SPEC-022)", { type: "array", items: ref("SearchRunItem") }, { parameters: paging }, true),
     "/alerts": planned("alerts", "Alertas (SPEC-023)", { type: "array", items: ref("Generic") }, { parameters: paging }),
   },
 };

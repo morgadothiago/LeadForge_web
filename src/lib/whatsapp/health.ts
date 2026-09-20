@@ -64,6 +64,27 @@ export function decideHealth(m: HealthMetrics): HealthDecision {
   return { state: warnings.length ? "warning" : "good", warnings };
 }
 
+export interface SendRow { status: string; leadId: string; sentAt: Date; lead: { optedOutAt: Date | null; possibleOptOut: boolean } }
+
+/** Calculo PURO das metricas (compartilhado entre computeHealthMetrics e o lote do mobile, SPEC-022). `sends`: mais recentes primeiro; `recentStatuses`: 5 ultimos por updatedAt desc. */
+export function buildHealthMetrics(sends: SendRow[], recentStatuses: string[], inbound: number, now: Date): HealthMetrics {
+  const mature = sends.filter((s) => s.sentAt.getTime() <= now.getTime() - HEALTH.DELIVERY_GRACE_MS).slice(0, HEALTH.DELIVERY_WINDOW);
+  const delivered = mature.filter((s) => s.status === "delivered").length;
+  const deliveryRate = mature.length >= HEALTH.MIN_SAMPLE_DELIVERY ? delivered / mature.length : null;
+  let consecutiveFailures = 0;
+  for (const st of recentStatuses) { if (st === "failed") consecutiveFailures++; else break; }
+  const leads = new Map(sends.map((s) => [s.leadId, s.lead]));
+  const opted = [...leads.values()].filter((l) => l.optedOutAt || l.possibleOptOut).length;
+  const optOutRate = leads.size ? opted / leads.size : null;
+  return {
+    sends: sends.length,
+    deliveryRate, deliverySample: mature.length,
+    consecutiveFailures,
+    replyRate: sends.length ? Math.min(1, inbound / sends.length) : null,
+    optOutRate, optOutSample: leads.size,
+  };
+}
+
 export async function computeHealthMetrics(instanceId: string, now: Date, db: Db = prisma): Promise<HealthMetrics> {
   const inst = await db.whatsAppInstance.findUnique({ where: { id: instanceId }, select: { healthResetAt: true } });
   const weekAgo = now.getTime() - HEALTH.WINDOW_DAYS * 24 * 3600_000;
@@ -75,31 +96,14 @@ export async function computeHealthMetrics(instanceId: string, now: Date, db: Db
     orderBy: { sentAt: "desc" }, take: HEALTH.WINDOW_SENDS,
     select: { status: true, leadId: true, sentAt: true, lead: { select: { optedOutAt: true, possibleOptOut: true } } },
   });
-  const mature = sends.filter((s) => s.sentAt!.getTime() <= now.getTime() - HEALTH.DELIVERY_GRACE_MS).slice(0, HEALTH.DELIVERY_WINDOW);
-  const delivered = mature.filter((s) => s.status === "delivered").length;
-  const deliveryRate = mature.length >= HEALTH.MIN_SAMPLE_DELIVERY ? delivered / mature.length : null;
-
   const recent = await db.touch.findMany({
     where: { ...base, status: { in: ["sent", "delivered", "failed"] }, updatedAt: { gte: since } },
     orderBy: { updatedAt: "desc" }, take: 5, select: { status: true },
   });
-  let consecutiveFailures = 0;
-  for (const r of recent) { if (r.status === "failed") consecutiveFailures++; else break; }
-
-  const leads = new Map(sends.map((s) => [s.leadId, s.lead]));
-  const opted = [...leads.values()].filter((l) => l.optedOutAt || l.possibleOptOut).length;
-  const optOutRate = leads.size ? opted / leads.size : null;
-
   const inbound = sends.length
     ? await db.touch.count({ where: { whatsappInstanceId: instanceId, channel: "whatsapp", direction: "inbound", createdAt: { gte: since } } })
     : 0;
-  return {
-    sends: sends.length,
-    deliveryRate, deliverySample: mature.length,
-    consecutiveFailures,
-    replyRate: sends.length ? Math.min(1, inbound / sends.length) : null,
-    optOutRate, optOutSample: leads.size,
-  };
+  return buildHealthMetrics(sends.map((s) => ({ ...s, sentAt: s.sentAt! })), recent.map((r) => r.status), inbound, now);
 }
 
 async function alert(db: Db, instanceId: string, kind: string, message: string): Promise<void> {

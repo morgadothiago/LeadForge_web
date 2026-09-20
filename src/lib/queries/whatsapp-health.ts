@@ -1,9 +1,8 @@
 import type { InstanceHealth } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth/require-user";
-import { computeHealthMetrics, decideHealth, type HealthMetrics } from "@/lib/whatsapp/health";
-import { effectiveDailyLimit, warmupDay } from "@/lib/whatsapp/warmup";
-import { startOfDaySP } from "@/lib/channels/email";
+import type { HealthMetrics } from "@/lib/whatsapp/health";
+import { buildInstanceHealthView } from "@/lib/whatsapp/health-view";
 
 export interface InstanceAlertView {
   id: string;
@@ -33,25 +32,7 @@ export async function getInstanceHealth(instanceId: string, now: Date = new Date
   await requireUser();
   const inst = await prisma.whatsAppInstance.findUnique({ where: { id: instanceId } });
   if (!inst) return null;
-  const since = startOfDaySP(now);
-  const [metrics, sentToday, alerts] = await Promise.all([
-    computeHealthMetrics(inst.id, now),
-    prisma.touch.count({ where: { whatsappInstanceId: inst.id, channel: "whatsapp", direction: "outbound", sentAt: { gte: since, lt: new Date(since.getTime() + 24 * 3600_000) } } }),
-    prisma.instanceAlert.findMany({ where: { instanceId: inst.id }, orderBy: { createdAt: "desc" }, take: 10 }),
-  ]);
-  return {
-    instanceId: inst.id,
-    state: inst.health,
-    pausedUntil: inst.pausedUntil,
-    pausedReason: inst.pausedReason,
-    warmupDay: inst.warmupStartedAt ? warmupDay(inst.warmupStartedAt, now) : null,
-    dailyLimitCeiling: inst.dailyLimit,
-    effectiveLimitToday: effectiveDailyLimit(inst.dailyLimit, inst.warmupStartedAt, now, inst.health),
-    sentToday,
-    metrics,
-    warnings: decideHealth(metrics).warnings,
-    alerts: alerts.map(({ id, kind, message, createdAt, readAt }) => ({ id, kind, message, createdAt, readAt })),
-  };
+  return buildInstanceHealthView(inst, now);
 }
 
 /** Alertas não lidos de todas as instâncias (badge/toast do painel). */

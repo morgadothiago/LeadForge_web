@@ -8,6 +8,8 @@ export const SEND_WORST_CASE_MS = 30_000;
 export const BUDGET_MARGIN_MS = 5_000;
 /** Teto do orçamento efetivo: nenhum envio INICIA se puder terminar além de maxDuration. */
 export const MAX_EFFECTIVE_BUDGET_MS = ROUTE_MAX_DURATION_S * 1000 - SEND_WORST_CASE_MS - BUDGET_MARGIN_MS;
+/** Intervalo MAXIMO esperado entre ticks (docs: cron a cada 1-2 min). SPEC-022: stale = sem rodada ok ha > 2x este valor. */
+export const SCHEDULER_EXPECTED_INTERVAL_MS = 2 * 60_000;
 export const DEFAULT_TIME_BUDGET_MS = 25_000;
 export const DEFAULT_MAX_SENDS = 20;
 
