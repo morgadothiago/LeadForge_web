@@ -20,7 +20,7 @@ export async function POST(req: Request): Promise<Response> {
   const d = await prisma.mobileDevice.findUnique({ where: { id: deviceId }, select: { userId: true, refreshHash: true, prevRefreshHash: true, refreshExpiresAt: true, revokedAt: true } });
   if (!d || d.revokedAt) return invalid();
   if (d.prevRefreshHash === hash) {
-    await prisma.mobileDevice.update({ where: { id: deviceId }, data: { revokedAt: new Date() } });
+    await prisma.mobileDevice.update({ where: { id: deviceId }, data: { revokedAt: new Date(), pushToken: null } });
     return invalid();
   }
   if (d.refreshHash !== hash || d.refreshExpiresAt <= new Date()) return invalid();

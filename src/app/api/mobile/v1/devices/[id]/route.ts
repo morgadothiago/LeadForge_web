@@ -8,6 +8,6 @@ export async function DELETE(req: Request, ctx: { params: Promise<{ id: string }
   const a = await requireMobile(req);
   if (a instanceof Response) return a;
   const { id } = await ctx.params;
-  const r = await prisma.mobileDevice.updateMany({ where: { id, userId: a.userId, revokedAt: null }, data: { revokedAt: new Date() } });
+  const r = await prisma.mobileDevice.updateMany({ where: { id, userId: a.userId, revokedAt: null }, data: { revokedAt: new Date(), pushToken: null } });
   return r.count === 1 ? ok({ revoked: true }) : fail(404, "not_found", "Dispositivo não encontrado.");
 }

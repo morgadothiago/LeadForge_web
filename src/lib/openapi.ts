@@ -2,7 +2,7 @@ import type { OpenAPIV3_1 } from "openapi-types";
 
 /**
  * SPEC-021: contrato ÚNICO da API mobile (/api/mobile/v1). Sem campos internos (hash, chaves, telefone/e-mail de lead).
- * Rotas com `x-status: "planned"` são implementadas nas SPECs 022/023/026 (contrato reservado aqui).
+ * Rotas com `x-status: "planned"` (se houver) sao implementadas na SPEC-026 (contrato reservado aqui).
  */
 const ref = (n: string) => ({ $ref: `#/components/schemas/${n}` });
 const env = (schema: object, meta = false) => ({
@@ -25,13 +25,6 @@ const paging = [
   { name: "limit", in: "query" as const, schema: { type: "integer" as const, minimum: 1, maximum: 50, default: 20 } },
   { name: "cursor", in: "query" as const, schema: { type: "string" as const } },
 ];
-const planned = (tag: string, summary: string, dataSchema: object, extra: object = {}) => ({
-  get: {
-    tags: [tag], summary, security: secured, "x-status": "planned",
-    ...extra,
-    responses: { "200": okResp("OK", env(dataSchema)), "401": err("Não autenticado") },
-  },
-});
 const live = (tag: string, summary: string, dataSchema: object, extra: object = {}, paged = false) => ({
   get: {
     tags: [tag], summary, security: secured,
@@ -101,6 +94,11 @@ export const spec: OpenAPIV3_1.Document = {
         agents: { type: "array", items: { type: "object", additionalProperties: false, required: ["id", "name", "role", "active", "spentCents", "budgetCents", "budgetState", "percent"], properties: { id: str, name: str, role: str, active: bool, spentCents: { type: "number" }, budgetCents: nullable("integer"), budgetState: { type: "string", enum: ["ok", "alert", "exhausted", "no_budget"] }, percent: nullable("number") } } },
       }),
       SearchRunItem: obj({ id: str, campaignId: str, source: str, trigger: str, status: str, found: int, created: int, duplicate: int, suppressed: int, invalid: int, error: nullable("string"), startedAt: str, finishedAt: nullable("string") }),
+      MobileAlert: obj({ id: str, kind: str, severity: { type: "string", enum: ["critica", "alta", "media", "baixa"] }, title: str, body: str, refType: str, refId: nullable("string"), link: nullable("string"), createdAt: str, readAt: nullable("string"), resolvedAt: nullable("string") }),
+      UnreadCount: obj({ count: int }),
+      Updated: obj({ updated: int }),
+      AlertRead: obj({ id: str, readAt: nullable("string") }),
+      PushRegistered: obj({ registered: bool }),
       Generic: { type: "object", additionalProperties: true },
     },
   },
@@ -135,6 +133,13 @@ export const spec: OpenAPIV3_1.Document = {
     "/scheduler": live("health", "Estado do scheduler (SPEC-022)", ref("SchedulerState")),
     "/agents/queue": live("agents", "Fila de agentes e orcamento (SPEC-022)", ref("AgentQueue")),
     "/lead-search/runs": live("lead-search", "Execucoes de busca (SPEC-022)", { type: "array", items: ref("SearchRunItem") }, { parameters: paging }, true),
-    "/alerts": planned("alerts", "Alertas (SPEC-023)", { type: "array", items: ref("Generic") }, { parameters: paging }),
+    "/alerts": live("alerts", "Alertas de monitoramento, paginado por cursor (SPEC-023)", { type: "array", items: ref("MobileAlert") }, { parameters: [{ name: "unread", in: "query" as const, schema: { type: "boolean" as const } }, ...paging] }, true),
+    "/alerts/unread-count": live("alerts", "Contagem de alertas nao lidos (SPEC-023)", ref("UnreadCount")),
+    "/alerts/read-all": { post: { tags: ["alerts"], summary: "Marca todos como lidos, idempotente (SPEC-023)", security: secured, responses: { "200": okResp("OK", env(ref("Updated"))), "401": err("Não autenticado") } } },
+    "/alerts/{id}/read": { post: { tags: ["alerts"], summary: "Marca um alerta como lido, idempotente (SPEC-023)", security: secured, parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }], responses: { "200": okResp("OK", env(ref("AlertRead"))), "401": err("Não autenticado"), "404": err("Não encontrado") } } },
+    "/devices/push-token": {
+      put: { tags: ["devices"], summary: "Registra/remove o push token do proprio dispositivo (token null remove) e preferencias por kind (SPEC-023)", security: secured, requestBody: { required: true, content: json({ type: "object", required: ["token"], properties: { token: { type: ["string", "null"] }, prefs: { type: "object", additionalProperties: { type: "boolean" } } } }) }, responses: { "200": okResp("OK", env(ref("PushRegistered"))), "400": err("Entrada inválida"), "401": err("Não autenticado") } },
+      delete: { tags: ["devices"], summary: "Remove o push token do proprio dispositivo (SPEC-023)", security: secured, responses: { "200": okResp("OK", env(ref("PushRegistered"))), "401": err("Não autenticado") } },
+    },
   },
 };

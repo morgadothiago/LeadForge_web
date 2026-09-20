@@ -630,6 +630,8 @@ model MobileDevice {
   prevRefreshHash  String?
   refreshExpiresAt DateTime
   pushToken        String?
+  /// SPEC-023: preferencias de push por kind ({kind: boolean}); ausente = padrao (tudo ligado, exceto lead_replied).
+  pushPrefs        Json?
   appVersion       String?
   createdAt        DateTime  @default(now())
   lastSeenAt       DateTime  @default(now())
@@ -637,4 +639,24 @@ model MobileDevice {
 
   @@index([userId, createdAt])
   @@index([prevRefreshHash])
+}
+
+/// SPEC-023: alerta de monitoramento deduplicado (dedupeKey unico por episodio). Sem PII em title/body.
+model MobileAlert {
+  id         String    @id @default(uuid())
+  kind       String
+  severity   String
+  dedupeKey  String    @unique
+  title      String
+  body       String
+  refType    String
+  refId      String?
+  /// Link https da call (handoff do Closer); so trafega na API autenticada, nunca no push.
+  link       String?
+  createdAt  DateTime  @default(now())
+  readAt     DateTime?
+  resolvedAt DateTime?
+
+  @@index([createdAt, id])
+  @@index([kind, resolvedAt])
 }

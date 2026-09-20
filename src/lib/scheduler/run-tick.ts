@@ -12,6 +12,7 @@ import { findSuppression } from "@/lib/domain/suppression";
 import { allowSeedSends } from "@/lib/domain/seed-guard";
 import { activateLeads, classifyStartable, writeSequenceAudit } from "@/lib/domain/sequence-start";
 import { runMoveOpportunity } from "@/lib/domain/move-opportunity";
+import { sweepThrottled } from "@/lib/mobile/alerts";
 import { getSchedulerConfig, type SchedulerConfig } from "./config";
 import { acquirePgAdvisoryLock, type AcquireLock } from "./lock";
 import { computeNextTouchAt, decideAfterSend, decideStage, pickDueLeads, type ChannelResult, type EndStatus } from "./decide";
@@ -99,6 +100,8 @@ export async function runTick(now: Date, overrides: Partial<TickDeps> = {}): Pro
       .update({ where: { id: runId }, data: { finishedAt: new Date(), status: error ? "error" : "ok", counters: { ...counters, ...(budget ? { budget } : {}) }, error: error ?? null } })
       .catch(() => {});
   }
+  // SPEC-023: alertas mobile (isolado; falha nunca derruba o tick)
+  await sweepThrottled(new Date()).catch(() => {});
   return summary({ status: error ? "error" : "ok", runId, budget, ...(error ? { error } : {}) });
 }
 

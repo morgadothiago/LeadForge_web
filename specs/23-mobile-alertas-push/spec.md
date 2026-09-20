@@ -1,5 +1,5 @@
 # SPEC-023 — Mobile: alertas e notificacoes push (backend)
-- status: APPROVED (usuario, 2026-09-19) | domain: backend | agente: dev-backend | depende de: SPEC-021, SPEC-022 (e 011, 013, 017, 019) | bloqueia: 026 (push no app)
+- status: IMPLEMENTED (backend; push real em aparelho PENDENTE) (aprovada pelo usuario, 2026-09-19) | domain: backend | agente: dev-backend | depende de: SPEC-021, SPEC-022 (e 011, 013, 017, 019) | bloqueia: 026 (push no app)
 ## Objetivo
 Gerar alertas de monitoramento deduplicados, expo-los por API (polling) e entregar push opcional, sem PII no corpo.
 ## Eventos (fonte existente)
@@ -44,3 +44,10 @@ Sem PII em push (passa por servidores Expo/Apple/Google); `pushToken` e dado do 
 UI do app (024-026); e-mail/SMS como canal de alerta.
 ## Limitacoes de validacao
 Push real exige aparelho fisico + build (nao Expo Go em alguns casos) e, no iOS, conta Apple: marcar PENDENTE ate haver hardware/contas; validar com Expo push tool e fake HTTP.
+
+## Implementation Notes
+- Arquivos: `prisma/migrations/20260920100000_mobile_alert` (+ `MobileAlert`, `MobileDevice.pushPrefs`), `src/lib/mobile/{alerts,expo-push}.ts`, `schemas.ts` (pushTokenSchema), rotas `src/app/api/mobile/v1/alerts/{route,unread-count,read-all,[id]/read}` e `devices/push-token` (PUT/DELETE), `openapi.ts` (5 paths novos, sem planned), `scheduler/run-tick.ts` (1 chamada isolada `sweepThrottled`), logout/refresh-reuso/revogacao remota agora apagam `pushToken`.
+- Testes: `src/lib/mobile/alerts.test.ts` (21). `npm test` 947/947 VERIFIED; tsc e eslint limpos.
+- Criterios: AC1 dedupe/novo episodio PASS; AC2 cada evento com severidade PASS (fixtures); AC3 resolucao automatica PASS; AC4 payload sem PII PASS; AC5 DeviceNotRegistered limpa token e falha do Expo nao derruba PASS; AC6 flag off = zero chamadas PASS; AC7 read/read-all idempotentes, contagem, retencao 30d PASS; AC8 revogado = 401 e nao recebe push PASS. 429 com/sem Retry-After e retry limitado PASS (adapter falso).
+- Decisoes: geracao por VARREDURA idempotente (`sweepAlerts`) no fim do tick (throttle 60 s) e lazily em GET /alerts e /unread-count (cobre "scheduler parado", quando o tick nao roda); nenhum arquivo de agentes/webhook/health alterado. Alertas sao GLOBAIS (web single-tenant; readAt unico, nao por dispositivo). Titulo/corpo sao texto fixo por kind. Campo `link` (https, do `Agent.callLink` do Closer) foi adicionado ao modelo para o handoff; so trafega na API autenticada, nunca no push. Opt-out em massa = >= 5 supressoes por opt-out em 24h (o kind `possible_opt_out` de InstanceAlert nao existe no codigo). "Instancia pausada" usa `health=paused`. Orcamento por agente e global (`alert`=80%, `exhausted`=100%). "Lead respondeu" agrupado em janelas de 5 min; push desse kind so com opt-in em `pushPrefs`. Retencao: alertas > 30 dias e dispositivos revogados ou com refresh expirado ha > 30 dias sao apagados (limpeza no maximo 1x/h, dentro da varredura). `MOBILE_PUSH_ENABLED=true` liga o push; cliente axios unico (`createHttpClient`, retry 3, 429/Retry-After); logs passam por `redactText`.
+- Limitacoes: recibos do Expo (2a etapa) nao consultados, so tickets imediatos; silencio noturno (opcional) nao implementado; deteccao do evento tem latencia de ate ~1-2 min (tick) e nao ha gancho no webhook; push real (FCM/APNs) e validacao em aparelho PENDENTES; sem escopo por usuario (single-tenant).
