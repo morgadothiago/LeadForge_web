@@ -72,3 +72,8 @@ Token nunca em log/erro/`WebhookEvent`: `redactWebhookToken`; `WebhookEvent.payl
 - M3: `connection.update` com `loggedOut` repassado a `onConnectionChange` (ver SPEC 17).
 - B5 (documentado): o 2o fator `apikey` no corpo so vale se o Evolution realmente o enviar (NAO verificado; ausente nao reprova).
 - B11 (documentado): o token no caminho da URL aparece em logs de acesso de proxies/servidor; mascarar o path `/api/webhooks/whatsapp/*` no proxy reverso. Logs da aplicacao ja redigem o token.
+
+### Verificacao E2E 2026-09-19 (Evolution v2.1.1 real + app dev)
+- Evolution real entregou webhooks `connection.update` (state connecting/close, statusReason 405/200) no receiver via `host.docker.internal`; app respondeu 200 com o `apikey` da instancia no corpo aceito como 2o fator. Webhook configurado com `webhook/set` OK.
+- Simulado com token da instancia: token malformado/inexistente -> 401 identico; GET -> 405; JSON invalido/sem envelope -> 400; `apikey` errada -> 401; evento de outra instancia -> 401; mensagem inbound -> `reply` (Touch inbound `replied`, lead `paused_replied`); mesmo `key.id` 2x -> `duplicate`; "PARAR" e "Nao quero" -> `opt_out` (lead `opted_out` + Suppression `opt_out_reply`); telefone desconhecido -> `lead_not_found`; grupo -> `ignored`; latencia 6-60 ms. Rate limit: tokens invalidos 429 com `Retry-After` apos ~120/min; token valido 429 apos ~300/min. PASS.
+- Nao verificavel: `messages.upsert`/`messages.update` com formato REAL da v2.1.1 (exige WhatsApp pareado, ver SPEC-011).

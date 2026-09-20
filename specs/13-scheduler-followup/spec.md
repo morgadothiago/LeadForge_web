@@ -131,3 +131,8 @@ Implementation Notes (frontend): arquivos novos src/components/sequences/{sequen
 - B7: `DAY_MS` e fixo de 24 h (sem tratamento de DST; irrelevante no Brasil, sem horario de verao).
 - Verificacao: pipeline concurrent 10/10 (isolado) e `pipeline.test.ts` inteiro 10/10; `npm test` 2x = 50 arquivos / 614 testes OK; prisma validate, migrate status (em dia), tsc e eslint limpos. Build/tick/dev nao executados (regra).
 - CORRIGIDO (pre-requisito da SPEC-018): `classifyStartable(..., {onlyNotStarted: true})` e usado pela fase 0 `autoStart` (run-tick): so `not_started` e ativado automaticamente; `paused_manual` so reinicia por acao humana (`startSequence`/`startCampaignSequences`). Teste em `scheduler/sequence-start.test.ts`.
+
+### Verificacao E2E 2026-09-19 (banco dev, Evolution real desconectada; nenhum envio real)
+- `npm run tick` OK (status ok; auto_started=2 com `autoStart=true`; template com `{{nome}}` -> Touch `scheduled` com erro de validacao e retry agendado). Fora da janela (sabado 22h) -> reagenda para segunda 09:00 (12:00Z). Em janela simulada (segunda 10:30) com instancia desconectada -> `deferred_not_connected`, nenhum envio, Touch reagendado com erro PT-BR. Pausado/optado nao disparam.
+- Endpoint: 401 sem/errado, 405 PUT/HEAD, 200 com resumo + `Cache-Control: no-store`, sem redirect para /login; duas chamadas simultaneas -> uma `ok`, outra `locked`; segredo ausente dos logs do dev server. 503 sem CRON_SECRET nao exercitado (so testes unitarios).
+- PENDENTE (continua): envio real via Evolution/SMTP (exige numero pareado; QR nao gerado, ver SPEC-011).

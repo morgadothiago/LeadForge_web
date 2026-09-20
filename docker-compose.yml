@@ -17,7 +17,7 @@ services:
       - "6379:6379"
 
   evolution:
-    image: atendai/evolution-api:v2.1.1
+    image: evoapicloud/evolution-api:v2.1.1
     depends_on:
       - postgres
       - redis
@@ -44,6 +44,9 @@ services:
       # (/instance/create e /webhook/set). O webhook GLOBAL fica desligado: nao carrega token por instancia.
       - WEBHOOK_GLOBAL_ENABLED=false
       - AUTHENTICATION_EXPOSE_IN_FETCH_INSTANCES=true
+      # Versao do WhatsApp Web usada no pareamento. Sem ela a Evolution v2.1.x recebe statusReason 405 (QR nunca e gerado).
+      # Atualize se voltar a falhar: https://raw.githubusercontent.com/wppconnect-team/wa-version/main/versions.json
+      - CONFIG_SESSION_PHONE_VERSION=${CONFIG_SESSION_PHONE_VERSION:-2.3000.1047967752}
       - DELAY_MESSAGE=1200
       - DELAY_MESSAGE_TYPING=1000
     volumes:

@@ -20,10 +20,12 @@ No n8n: Credentials > New > "Header Auth". Crie DUAS credenciais, com estes NOME
 |---|---|---|
 | `LeadForge CRON_SECRET` | `Authorization` | `Bearer <valor do CRON_SECRET>` |
 | `LeadForge INGEST_SECRET` | `Authorization` | `Bearer <valor do INGEST_SECRET>` |
-Os JSON nunca contem segredo. Apos importar, abra cada no HTTP Request e confirme que a credencial correta esta selecionada.
+Os JSON nunca contem segredo. Apos importar, abra cada no HTTP Request e RESELECIONE a credencial: os JSON a referenciam so pelo nome (sem id, que so existe depois de criada), e o n8n 1.82.1 falha a execucao com "Found credential with no ID" ate ela ser selecionada de novo no no.
 
 ## Importar os workflows
 n8n > Workflows > Import from File: `n8n/workflows/tick.json` e/ou `ingest-leads-example.json`. Ambos entram INATIVOS; ative o do tick depois de conferir a credencial.
+
+Pela CLI (`docker compose exec n8n ...`): `n8n import:workflow --input=arquivo.json` FALHA ("workflows.map is not a function"), pois o CLI espera um array. Use um diretorio: `n8n import:workflow --separate --input=<diretorio com os .json>/`.
 - Tick: Schedule Trigger (1 min) -> HTTP Request POST `{{ $env.LEADFORGE_URL }}/api/cron/tick`. Se `$env` nao estiver acessivel nos nos (`N8N_BLOCK_ENV_ACCESS_IN_NODE`), troque a URL por um valor fixo.
 - Ingestao: Manual -> Code (troque `campaignId` e a fonte de dados) -> HTTP Request em lotes de ate 100 leads. O no tem retry (4 tentativas, 5 s); em 429 o `Retry-After` indica quanto esperar (o retry fixo do n8n nao le esse header: para volumes altos, mantenha lotes pequenos ou aumente `waitBetweenTries`). O cabecalho `Idempotency-Key` evita duplicar lote reenviado.
 

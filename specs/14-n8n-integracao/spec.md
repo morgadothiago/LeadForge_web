@@ -9,7 +9,7 @@ PROMPT lista n8n (passo 14) sem dizer o que ele faz. [NEEDS_DECISION D20] Papel 
 Endpoint autenticado por segredo para ingestao de leads (Zod, dedupe, atribui campanha), workflow exportado em `n8n/workflows/*.json` versionado, doc de setup. n8n usa DB separado (SPEC-000 D2).
 ## Criterios de aceite
 - [ ] Endpoint de ingestao: 401 sem segredo, 400 invalido, dedupe correto (testes).
-- [ ] Workflow JSON importavel (validacao de schema JSON); execucao real PENDENTE (docker parado).
+- [x] Workflow JSON importavel (validacao de schema JSON); importado e executado no n8n 1.82.1 real (verificado E2E 2026-09-19: `n8n import:workflow --separate` OK; ingest executado com credencial Header Auth -> HTTP 200 no endpoint). Ressalvas: `tick.json` (Schedule Trigger) nao e executavel via `n8n execute` (limite do CLI; so ativacao pela UI); credencial referenciada so por nome (sem id) -> execucao exige reselecionar a credencial no no.
 
 ## Regra transversal: HTTP/429
 Aplicar as regras de HTTP de saida e rate limit de specs/README.md (client n8n): axios com interceptor, tratamento de 429 com `Retry-After`/backoff, testes de 429/5xx/timeout.
@@ -30,3 +30,9 @@ Contrato de `POST /api/integrations/leads` (somente POST; demais metodos 405 com
 - Auditoria: `WebhookEvent` source `lead_ingest` com contadores e ids apenas (sem PII/segredo); logs so com contagens.
 - Como agendar o tick: workflow `n8n/workflows/tick.json` (credencial Header Auth "LeadForge CRON_SECRET"), cron do host ou `npm run tick`; ver `docs/N8N.md`.
 - PENDENTE: importacao/execucao dos workflows em n8n real (so validacao estatica em `src/lib/lead-ingest/n8n-workflows.test.ts`).
+
+### Verificacao E2E 2026-09-19 (n8n 1.82.1, app dev em :3000, INGEST_SECRET/CRON_SECRET temporarios via env)
+- Endpoint real: 401 sem/errado, 405 GET, 400 JSON/envelope invalido, 404 campanha inexistente, 200 lote misto (2 created + 1 invalid), replay com mesma Idempotency-Key -> `idempotentReplay:true`, mesma chave com corpo diferente -> 422, mesmo corpo sem chave -> `duplicate` (dedupe por lead), e-mail com caixa diferente -> `duplicate`. PASS.
+- n8n: container alcanca o app (`host.docker.internal:3000`); ingest exemplo executado no n8n com `Idempotency-Key` por execucao -> 200 (1a `created`, 2a `duplicate`).
+- Import: `n8n import:workflow --input=arquivo.json` FALHA ("workflows.map is not a function") porque o CLI espera ARRAY; use `--separate --input=<dir>/` ou a UI (Import from File, aceita objeto). Vale registrar em docs/N8N.md.
+- PENDENTE: 503 com endpoint desligado e execucao agendada do tick.json pelo n8n (Schedule Trigger) nao exercitados; execucao do 100-leads em lote e 429 real do endpoint nao exercitados.
