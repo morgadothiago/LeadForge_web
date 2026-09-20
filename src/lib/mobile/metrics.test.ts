@@ -238,6 +238,12 @@ describe("sanitize adversarial (QA)", () => {
     expect(errorCategory("")).toBeNull();
     expect(errorCategory(null)).toBeNull();
   });
+  it("redactText L2: cookie, set-cookie e 'secret is X' / 'senha e X'", () => {
+    for (const [i, leak] of [["cookie: a=b; c=d", /a=b|c=d/], ["Set-Cookie: sid=abc123; Path=/", /sid=abc123/], ["the secret is hunter2hunter2", /hunter2/], ["senha e Abc12345xyz", /Abc12345/], ["password is: hunter2", /hunter2/], ["token = zzz999", /zzz999/]] as [string, RegExp][]) {
+      expect(redactText(i)).not.toMatch(leak);
+    }
+  });
+
   it("redactText: defesa em profundidade remove segredos, hosts, esquemas, caminhos, e-mail e numeros", () => {
     for (const i of inputs) {
       const r = redactText(i)!;

@@ -8,7 +8,7 @@ import { signSessionToken } from "@/lib/auth/session-token";
 import { createHttpClient } from "@/lib/http/client";
 import { spec } from "@/lib/openapi";
 import { signAccessToken } from "./token";
-import { ALERT_RETENTION_MS, cleanupMobile, raiseAlert, sweepAlerts, sweepThrottled, _resetSweepThrottle, type Candidate } from "./alerts";
+import { ALERT_RETENTION_MS, BASELINE_KEY, PUSH_WAIT_CAP_MS, cleanupMobile, raiseAlert, sweepAlerts, sweepThrottled, _resetSweepThrottle, type Candidate } from "./alerts";
 import { _setExpoClient, prefAllows } from "./expo-push";
 import { runTick } from "@/lib/scheduler/run-tick";
 import { GET as listAlerts } from "@/app/api/mobile/v1/alerts/route";
@@ -38,6 +38,7 @@ const send = (method: string, t: string | null, body?: unknown, url = "http://x/
   new Request(url, { method, ...(body !== undefined ? { body: JSON.stringify(body), headers: { "content-type": "application/json", ...(t ? { authorization: `Bearer ${t}` } : {}) } as Record<string, string> } : hdr(t)) });
 const ctx = (id: string) => ({ params: Promise.resolve({ id }) });
 const cleanAlerts = () => prisma.mobileAlert.deleteMany({});
+const seedBaseline = () => prisma.mobileAlert.create({ data: { kind: "baseline", severity: "baixa", dedupeKey: BASELINE_KEY, title: "baseline", body: "baseline", refType: "scheduler", readAt: new Date(), resolvedAt: new Date() } });
 
 async function mkDevice(name: string, extra: object = {}) {
   return (await prisma.mobileDevice.create({ data: { userId, name, platform: "android", refreshHash: `h-${crypto.randomUUID()}`, refreshExpiresAt: new Date(Date.now() + 1e9), ...extra } })).id;
@@ -57,6 +58,7 @@ beforeAll(async () => {
 });
 beforeEach(async () => {
   await cleanAlerts();
+  await seedBaseline();
   _resetSweepThrottle();
   delete process.env.MOBILE_PUSH_ENABLED;
   _setExpoClient(undefined);
@@ -429,7 +431,7 @@ describe("retencao (AC7)", () => {
     const now = new Date();
     const old = new Date(now.getTime() - ALERT_RETENTION_MS - 1000);
     const base = { kind: "scheduler_stale", severity: "alta", title: "t", body: "b", refType: "scheduler" };
-    await prisma.mobileAlert.createMany({ data: [{ ...base, dedupeKey: "zz-old", createdAt: old }, { ...base, dedupeKey: "zz-new", createdAt: new Date(now.getTime() - 29 * 24 * 3600_000) }] });
+    await prisma.mobileAlert.createMany({ data: [{ ...base, dedupeKey: "zz-old", createdAt: old, resolvedAt: new Date() }, { ...base, dedupeKey: "zz-old-active", createdAt: old }, { ...base, dedupeKey: "zz-new", createdAt: new Date(now.getTime() - 29 * 24 * 3600_000) }] });
     const dOld = await mkDevice("old", { revokedAt: old });
     const dExp = await mkDevice("exp", { refreshExpiresAt: old });
     const dRecent = await mkDevice("rec", { revokedAt: new Date() });
@@ -437,9 +439,67 @@ describe("retencao (AC7)", () => {
     const keys = (await prisma.mobileAlert.findMany({ select: { dedupeKey: true } })).map((a) => a.dedupeKey);
     expect(keys).toContain("zz-new");
     expect(keys).not.toContain("zz-old");
+    expect(keys).toContain("zz-old-active"); // L1: episodio continuo nao e apagado (evita recriar com novo push)
+    expect(keys).toContain(BASELINE_KEY);
     const ids = (await prisma.mobileDevice.findMany({ where: { userId }, select: { id: true } })).map((d) => d.id);
     expect(ids).toEqual(expect.arrayContaining([devA, devB, dRecent]));
     expect(ids).not.toContain(dOld);
     expect(ids).not.toContain(dExp);
   });
+});
+
+describe("baseline e push fora do caminho critico (M1)", () => {
+  const okAdapter = (calls: { n: number }): AxiosAdapter => async (config: InternalAxiosRequestConfig) => {
+    calls.n++;
+    return { data: { data: [{ status: "ok" }, { status: "ok" }] }, status: 200, statusText: "OK", headers: {}, config };
+  };
+  const fakeClient = (adapter: AxiosAdapter) => createHttpClient({ name: "t", baseURL: "https://exp.test", adapter, retry: { maxAttempts: 1 } });
+
+  it("primeira varredura: 50+ handoffs e instancia desconectada => 0 pushes, alertas nascem lidos; depois novo evento => push", async () => {
+    await cleanAlerts(); // sem linha de baseline = primeira varredura
+    process.env.MOBILE_PUSH_ENABLED = "true";
+    const calls = { n: 0 };
+    _setExpoClient(fakeClient(okAdapter(calls)));
+    const leads = await prisma.lead.createManyAndReturn({ data: Array.from({ length: 55 }, (_, i) => ({ campaignId: campId, name: `zz-bl-${i}`, needsHuman: true, handoffAt: new Date(Date.now() - 86400_000 - i) })), select: { id: true } });
+    await prisma.whatsAppInstance.update({ where: { id: instId }, data: { status: "disconnected", disconnectedAt: new Date(Date.now() - 86400_000) } });
+    try {
+      await sweepAlerts();
+      expect(calls.n).toBe(0);
+      expect(await prisma.mobileAlert.count({ where: { readAt: null } })).toBe(0);
+      expect(await prisma.mobileAlert.count({ where: { kind: "handoff" } })).toBe(50);
+      _resetSweepThrottle();
+      await prisma.lead.update({ where: { id: leads[0].id }, data: { handoffAt: new Date() } }); // novo episodio
+      await sweepAlerts();
+      expect(calls.n).toBe(1);
+    } finally {
+      await prisma.lead.deleteMany({ where: { id: { in: leads.map((l) => l.id) } } });
+      await prisma.whatsAppInstance.update({ where: { id: instId }, data: { status: "connected", disconnectedAt: null } });
+    }
+  });
+
+  it("no maximo 10 pushes por varredura", async () => {
+    process.env.MOBILE_PUSH_ENABLED = "true";
+    const calls = { n: 0 };
+    _setExpoClient(fakeClient(okAdapter(calls)));
+    const leads = await prisma.lead.createManyAndReturn({ data: Array.from({ length: 15 }, (_, i) => ({ campaignId: campId, name: `zz-mx-${i}`, needsHuman: true, handoffAt: new Date(Date.now() - i) })), select: { id: true } });
+    try {
+      await sweepAlerts();
+      expect(calls.n).toBe(10);
+    } finally {
+      await prisma.lead.deleteMany({ where: { id: { in: leads.map((l) => l.id) } } });
+    }
+  });
+
+  it("Expo lento nao atrasa a varredura alem do teto", async () => {
+    process.env.MOBILE_PUSH_ENABLED = "true";
+    _setExpoClient(fakeClient(() => new Promise(() => {}))); // nunca responde
+    await prisma.lead.update({ where: { id: leadId }, data: { needsHuman: true, handoffAt: new Date() } });
+    const t0 = Date.now();
+    try {
+      await sweepAlerts();
+      expect(Date.now() - t0).toBeLessThan(PUSH_WAIT_CAP_MS + 1500);
+    } finally {
+      await prisma.lead.update({ where: { id: leadId }, data: { needsHuman: false, handoffAt: null } });
+    }
+  }, 15_000);
 });

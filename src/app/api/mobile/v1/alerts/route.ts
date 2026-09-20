@@ -14,7 +14,7 @@ export async function GET(req: Request): Promise<Response> {
   if (u !== null && u !== "true" && u !== "false") return invalidInput("unread inválido.");
   await sweepThrottled().catch(() => {});
   const rows = await prisma.mobileAlert.findMany({
-    where: u === "true" ? { readAt: null } : u === "false" ? { readAt: { not: null } } : {},
+    where: { kind: { not: "baseline" }, ...(u === "true" ? { readAt: null } : u === "false" ? { readAt: { not: null } } : {}) },
     orderBy: [{ createdAt: "desc" }, { id: "desc" }],
     take: page.limit + 1,
     ...(page.cursor ? { cursor: { id: page.cursor }, skip: 1 } : {}),

@@ -4,13 +4,16 @@ import { safeErrorForLog } from "@/lib/errors";
 import { budgetState, monthStart } from "@/lib/agents/budget";
 import { SCHEDULER_EXPECTED_INTERVAL_MS } from "@/lib/scheduler/config";
 import { redactText } from "./sanitize";
-import { sendPushForAlert } from "./expo-push";
+import { sendPushForAlert, type PushAlert } from "./expo-push";
 
 /**
  * SPEC-023: emissor isolado de alertas. Varredura idempotente sobre o estado existente (instancias, leads, orcamento, scheduler, toques).
  * Titulo/corpo sao TEXTO FIXO por kind (nunca texto livre de erro, nome, telefone ou mensagem). Falha aqui so loga.
  */
 export const ALERT_RETENTION_MS = 30 * 24 * 3600_000;
+export const MAX_PUSHES_PER_SWEEP = 10;
+export const PUSH_WAIT_CAP_MS = 3_000; // teto que a varredura espera pelos pushes (o resto segue em background)
+export const BASELINE_KEY = "baseline:init";
 export const OPT_OUT_BURST = 5; // supressoes por opt-out em 24h
 const DAY = 24 * 3600_000;
 const REPLY_BUCKET_MS = 5 * 60_000;
@@ -38,20 +41,25 @@ const cand = (kind: Kind, key: string, refType: Candidate["refType"], refId: str
 });
 
 /** Cria o alerta se o episodio (dedupeKey) ainda nao existe. Devolve true se criou. Concorrencia: unique + P2002. Push so na criacao. */
-export async function raiseAlert(c: Candidate): Promise<boolean> {
+export interface RaiseOpts { silent?: boolean; deferred?: PushAlert[] }
+export async function raiseAlert(c: Candidate, opts: RaiseOpts = {}): Promise<boolean> {
   let created;
   try {
     created = await prisma.mobileAlert.create({
       data: {
         kind: c.kind, severity: c.severity, dedupeKey: c.dedupeKey, title: redactText(c.title) ?? c.title, body: redactText(c.body) ?? c.body,
         refType: c.refType, refId: c.refId, link: c.link && /^https:\/\/\S+$/.test(c.link) ? c.link.slice(0, 500) : null,
+        ...(opts.silent ? { readAt: new Date() } : {}), // baseline: estado historico nasce lido e sem push
       },
     });
   } catch (e) {
     if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") return false;
     throw e;
   }
-  await sendPushForAlert({ id: created.id, kind: created.kind, title: created.title, body: created.body }); // nunca lanca
+  if (opts.silent) return true;
+  const pa = { id: created.id, kind: created.kind, title: created.title, body: created.body };
+  if (opts.deferred) opts.deferred.push(pa);
+  else await sendPushForAlert(pa); // nunca lanca
   return true;
 }
 
@@ -105,29 +113,62 @@ async function collect(now: Date): Promise<Map<Kind, Candidate[]>> {
   return out;
 }
 
-/** Apaga alertas > 30 dias e dispositivos inativos (revogados ou sem uso/refresh expirado ha > 30 dias). */
+/**
+ * Apaga alertas RESOLVIDOS > 30 dias e dispositivos inativos (revogados ou sem uso/refresh expirado ha > 30 dias).
+ * L1: alerta de episodio ainda ativo (nao resolvido) nunca e apagado, senao a varredura o recriaria com novo push; o dedupe do episodio e mantido.
+ * A linha de baseline tambem e preservada. */
 export async function cleanupMobile(now: Date): Promise<{ alerts: number; devices: number }> {
   const cut = new Date(now.getTime() - ALERT_RETENTION_MS);
-  const a = await prisma.mobileAlert.deleteMany({ where: { createdAt: { lt: cut } } });
+  const a = await prisma.mobileAlert.deleteMany({ where: { createdAt: { lt: cut }, resolvedAt: { not: null }, kind: { not: "baseline" } } });
   const d = await prisma.mobileDevice.deleteMany({ where: { OR: [{ revokedAt: { lt: cut } }, { refreshExpiresAt: { lt: cut } }] } });
   return { alerts: a.count, devices: d.count };
 }
 
-/** Varredura: gera novos episodios, resolve os que terminaram, agrupa "lead respondeu". Nunca lanca. */
+/** Linha de controle: existe = a primeira varredura (baseline) ja rodou. Nao aparece na API (lida+resolvida e filtrada por kind). */
+async function ensureBaseline(now: Date): Promise<boolean> {
+  if (await prisma.mobileAlert.findUnique({ where: { dedupeKey: BASELINE_KEY }, select: { id: true } })) return false;
+  try {
+    await prisma.mobileAlert.create({ data: { kind: "baseline", severity: "baixa", dedupeKey: BASELINE_KEY, title: "baseline", body: "baseline", refType: "scheduler", readAt: now, resolvedAt: now } });
+    return true;
+  } catch (e) {
+    if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") return false;
+    throw e;
+  }
+}
+
+/** Push fora do caminho critico: no maximo MAX_PUSHES_PER_SWEEP por varredura, em background com catch; espera no maximo PUSH_WAIT_CAP_MS. */
+async function dispatchPushes(list: PushAlert[]): Promise<void> {
+  if (!list.length) return;
+  const work = (async () => {
+    for (const a of list.slice(0, MAX_PUSHES_PER_SWEEP)) await sendPushForAlert(a);
+  })().catch((e) => console.warn("[mobile-alerts] push falhou:", redactText(safeErrorForLog(e))));
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  await Promise.race([work, new Promise<void>((r) => { timer = setTimeout(r, PUSH_WAIT_CAP_MS); })]);
+  clearTimeout(timer);
+}
+
+/**
+ * Varredura: gera novos episodios, resolve os que terminaram, agrupa "lead respondeu". Nunca lanca.
+ * Baseline: na PRIMEIRA varredura (linha de controle ausente) todo estado ja existente vira alerta lido e SEM push.
+ */
 export async function sweepAlerts(now: Date = new Date()): Promise<{ raised: number }> {
   let raised = 0;
+  const deferred: PushAlert[] = [];
   try {
+    const silent = await ensureBaseline(now);
+    const opts: RaiseOpts = { silent, deferred };
     const cands = await collect(now);
     for (const [kind, list] of cands) {
-      for (const c of list) if (await raiseAlert(c)) raised++;
+      for (const c of list) if (await raiseAlert(c, opts)) raised++;
       await resolveInactive(kind, list.map((c) => c.dedupeKey), now);
     }
     const bucket = Math.floor(now.getTime() / REPLY_BUCKET_MS);
     const replies = await prisma.touch.count({ where: { direction: "inbound", createdAt: { gte: new Date(bucket * REPLY_BUCKET_MS), lte: now } } });
-    if (replies > 0 && (await raiseAlert(cand("lead_replied", String(bucket), "lead", null)))) raised++;
+    if (replies > 0 && (await raiseAlert(cand("lead_replied", String(bucket), "lead", null), opts))) raised++;
   } catch (e) {
     console.warn("[mobile-alerts] varredura falhou:", redactText(safeErrorForLog(e)));
   }
+  await dispatchPushes(deferred);
   return { raised };
 }
 

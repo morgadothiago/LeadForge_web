@@ -26,7 +26,7 @@ const rangeCount = (table: string, col: string, from: Date, to: Date, extra: Pri
   Prisma.sql`(SELECT COUNT(*) FROM ${Prisma.raw(`"${table}"`)} x WHERE x.${Prisma.raw(`"${col}"`)} >= ${from} AND x.${Prisma.raw(`"${col}"`)} < ${to} ${extra})`;
 
 /**
- * AC7: /summary faz 2 queries (1 SELECT com todos os contadores como subselects escalares + 1 findMany de instancias para o limite efetivo).
+ * AC7: /summary faz 3 queries (1 SELECT com todos os contadores como subselects escalares + 1 findMany de instancias para o limite efetivo).
  * Mesmas regras de getMetrics (lead novo, follow-up via StageHistory, resposta = Touch inbound, reuniao) e dos demais contadores.
  */
 export async function getMobileSummary(period: "7d" | "30d", now: Date) {

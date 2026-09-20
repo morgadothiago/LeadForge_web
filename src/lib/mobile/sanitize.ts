@@ -45,6 +45,8 @@ export function redactText(input: string | null | undefined): string | null {
       const q = v.startsWith('"') ? '"' : v.startsWith("'") ? "'" : "";
       return `${q1}${k}${q2}${sep}${q}[redacted]${q}`;
     })
+    .replace(/\b(set-cookie|cookie)\b\s*[:=]\s*[^\r\n]+/gi, "$1: [redacted]")
+    .replace(/\b(secret|senha|password|passwd|token)\s+(?:is|e|é|eh)\s*[:=]?\s*(?!\[)[^\s,;]+/gi, "$1 [redacted]")
     .replace(/\b(?:bearer|api[-_ ]?key|apikey|token|secret|senha|password)\s+(?!\[)[^\s,;]+/gi, (m) => `${m.split(/\s/)[0]} [redacted]`)
     .replace(/[\w.+-]+@[\w-]+\.[\w.-]+/g, "[email]")
     // erro de rede seguido do alvo, IPs, host:porta
