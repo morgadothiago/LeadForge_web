@@ -1,14 +1,15 @@
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth/require-user";
+import { requireAdmin } from "@/lib/auth/require-admin";
 
 /** Leituras para a UI de agentes/aprovações (o frontend consome; sem segredos, sem telefone/e-mail). */
 export async function listAgents() {
-  await requireUser();
+  await requireAdmin();
   return prisma.agent.findMany({ orderBy: [{ role: "asc" }, { createdAt: "asc" }], include: { knowledge: { select: { id: true, title: true, version: true } } } });
 }
 
 export async function getAgentSettings() {
-  await requireUser();
+  await requireAdmin();
   return (await prisma.agentSettings.findUnique({ where: { id: "global" } })) ?? { id: "global", killSwitch: true, monthlyBudgetCents: null };
 }
 
@@ -23,7 +24,7 @@ export async function listDrafts(status: "pending" | "all" = "pending", take = 1
 }
 
 export async function listAgentRuns(agentId?: string, take = 100) {
-  await requireUser();
+  await requireAdmin();
   return prisma.agentRun.findMany({
     where: agentId ? { agentId } : {}, orderBy: { createdAt: "desc" }, take,
     select: { id: true, agentId: true, leadId: true, trigger: true, status: true, model: true, tokensIn: true, tokensOut: true, costMicros: true, latencyMs: true, guardrailsViolated: true, error: true, createdAt: true },

@@ -8,6 +8,7 @@ import { DEFAULT_DISCLOSURE } from "@/lib/agents/types";
 import { simulateAgent, type SimulationResult } from "@/lib/agents/simulate";
 import { dispatchDraft, rejectDraft } from "@/lib/agents/drafts";
 import { stopAgentOnManualReply } from "@/lib/agents/lead-state";
+import { listAgentRuns } from "@/lib/queries/agent";
 import { monthlySpend } from "@/lib/agents/run-agent";
 import { budgetState, type BudgetState } from "@/lib/agents/budget";
 import {
@@ -165,6 +166,19 @@ export async function getAgentUsage(input: unknown): Promise<ActionResult<AgentU
     if (!a) return formError("Agente não encontrado.");
     const spent = await monthlySpend(parsed.data.id, new Date());
     return success({ agentId: parsed.data.id, spentCents: Math.round(spent / 10_000), budgetCents: a.monthlyBudgetCents, state: budgetState(spent, a.monthlyBudgetCents) });
+  });
+}
+
+export interface AgentRunView { id: string; status: string; trigger: string; model: string | null; costMicros: number; latencyMs: number | null; guardrailsViolated: string[]; error: string | null; createdAt: string }
+/** Histórico de execuções (admin): custo e guardrails/motivo por execução. Limitado a 50. */
+export async function getAgentRuns(input: unknown): Promise<ActionResult<AgentRunView[]>> {
+  return safeAction(async () => {
+    await requireUser();
+    await requireAdmin();
+    const parsed = idSchema.safeParse(input);
+    if (!parsed.success) return failure(zodErrors(parsed.error));
+    const rows = await listAgentRuns(parsed.data.id, 50);
+    return success(rows.map((r) => ({ id: r.id, status: r.status, trigger: String(r.trigger), model: r.model, costMicros: Number(r.costMicros), latencyMs: r.latencyMs, guardrailsViolated: r.guardrailsViolated, error: r.error, createdAt: r.createdAt.toISOString() })));
   });
 }
 

@@ -252,7 +252,7 @@ describe("queries chamam requireUser antes do prisma", () => {
       const name = /function (\w+)/.exec(c)![1];
       const body = c.slice(c.indexOf("\n"));
       const iPrisma = body.search(/\bprisma\b|\bget\w+\(/);
-      const iReq = body.indexOf("requireUser()");
+      const iReq = Math.max(body.indexOf("requireUser()"), body.indexOf("requireAdmin()")); // requireAdmin chama requireUser
       if (iPrisma === -1 && !/\bprisma\b/.test(c)) continue;
       expect(iReq, `${f}:${name} sem requireUser`).toBeGreaterThan(-1);
       expect(iReq, `${f}:${name} requireUser depois do acesso`).toBeLessThan(iPrisma === -1 ? Infinity : iPrisma);

@@ -207,9 +207,9 @@ describe("estático: envio só via sendEmail/sendWhatsApp", () => {
     starts.forEach((s, i) => {
       const body = src.slice(s.at, starts[i + 1]?.at ?? src.length);
       expect(body, `${s.name} requireUser`).toMatch(/await requireUser\(\)/);
-      expect(body.indexOf("await requireUser()"), s.name).toBeLessThan(body.search(/prisma\.|\b(dispatchDraft|rejectDraft|simulateAgent|stopAgentOnManualReply|monthlySpend)\(/));
+      expect(body.indexOf("await requireUser()"), s.name).toBeLessThan(body.search(/prisma\.|\b(listAgentRuns|dispatchDraft|rejectDraft|simulateAgent|stopAgentOnManualReply|monthlySpend)\(/));
     });
-    for (const n of ["createAgent", "updateAgent", "setAgentActive", "setAgentAutonomy", "updateAgentSettings", "saveKnowledge", "deleteKnowledge", "simulateAgentAction"]) {
+    for (const n of ["createAgent", "updateAgent", "setAgentActive", "setAgentAutonomy", "updateAgentSettings", "saveKnowledge", "deleteKnowledge", "simulateAgentAction", "getAgentRuns"]) {
       const s = starts.find((x) => x.name === n)!;
       const body = src.slice(s.at, starts[starts.indexOf(s) + 1]?.at ?? src.length);
       expect(body, n).toMatch(/await requireAdmin\(\)/);
@@ -218,6 +218,12 @@ describe("estático: envio só via sendEmail/sendWhatsApp", () => {
   it("queries de agentes exigem requireUser", () => {
     const src = readFileSync(path.resolve(process.cwd(), "src/lib/queries/agent.ts"), "utf8");
     const n = (src.match(/export async function/g) ?? []).length;
-    expect((src.match(/await requireUser\(\)/g) ?? []).length).toBe(n);
+    const admin = ["listAgents", "getAgentSettings", "listAgentRuns"];
+    const parts = src.split(/export async function /).slice(1);
+    expect(parts.length).toBe(n);
+    for (const p of parts) {
+      const name = p.slice(0, p.indexOf("("));
+      expect(p, name).toMatch(admin.includes(name) ? /await requireAdmin\(\)/ : /await requireUser\(\)/);
+    }
   });
 });

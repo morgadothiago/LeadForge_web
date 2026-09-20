@@ -111,3 +111,13 @@ D24-D28 adotados com as recomendacoes: SDR e Follow-up primeiro (rascunho), Clos
 - F9: `callLink` rejeita credenciais (user:pass@); `stripCallLink` remove so o link exato como token (nao prefixo de URL maior).
 - F10: limite diario passa a contar rascunhos (mensagens propostas) criados no dia local de `America/Sao_Paulo` (mesmo criterio de dia da 017); handoff/skip/deferido nao contam.
 - Testes: tsc e eslint VERIFIED; vitest sem banco (agents.test.ts, qa-fixes.test.ts, components) 109/109 VERIFIED. NOT VERIFIED: testes com banco (Closer+paused_manual ponta a ponta, Fila A marcando draft sent, kill switch em fila, limite diario, simulate com custo).
+
+## Correcoes de QA (frontend, 2026-09-19)
+- F1: `getAgentRuns` (action admin) + `RunHistory` no card do agente: ultimas 50 execucoes com status, custo, guardrails violados e motivo; estados loading/vazio/erro (com retry).
+- F3/F4/F7/F8: `ConfirmDialog` em remover documento, liberar agentes (ligar o kill switch segue sem confirmacao), aprovar em lote e assumir conversa. Botoes dos cards ficam desabilitados durante o lote e o lote durante acao de card. `dispatchDraft` e idempotente (reserva atomica `updateMany` em `pending`; 2o chamador recebe "ja tratado") - sem mudanca no backend.
+- F5: `resolveBudgetInput`: texto invalido gera erro de campo e nao envia; vazio so limpa com "Remover teto" explicito (checkbox no agente, ConfirmDialog no teto global).
+- F6: logica pura extraida para `agent-format.ts` com testes. `@testing-library` nao esta instalada: sem teste de componente (NOT VERIFIED).
+- F10: `listAgents`, `getAgentSettings`, `listAgentRuns` exigem `requireAdmin`; testes de cobertura de auth (`agents.test.ts`, `auth.test.ts`) atualizados.
+- F11: `GlobalBudget` remonta por `key` apos refresh (input sincronizado). F12: aviso na UI ao desligar aviso de IA em Closer autonomo (volta a rascunho).
+- F2 (indicador "Precisa de voce" no Kanban) NAO implementado: aguarda decisao.
+- Evidencia: tsc VERIFIED; eslint no escopo VERIFIED; `npm test` 891/891 VERIFIED (67 arquivos).

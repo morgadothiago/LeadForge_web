@@ -10,10 +10,11 @@ import { Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, Di
 import { Input } from "@/components/ui/input";
 import { Field } from "@/components/campaigns/Field";
 import { fieldError, getFormError } from "@/components/campaigns/form-utils";
-import { createAgent, deleteKnowledge, saveKnowledge, setAgentActive, setAgentAutonomy, simulateAgentAction, updateAgent, updateAgentSettings } from "@/lib/actions/agent";
+import { ConfirmDialog } from "@/components/campaigns/ConfirmDialog";
+import { createAgent, getAgentRuns, type AgentRunView, deleteKnowledge, saveKnowledge, setAgentActive, setAgentAutonomy, simulateAgentAction, updateAgent, updateAgentSettings } from "@/lib/actions/agent";
 import type { FieldErrors } from "@/lib/actions/result";
 import type { SimulationResult } from "@/lib/agents/simulate";
-import { AUTONOMY_LABELS, ROLE_LABELS, formatBRLCents, formatMicroUsd, parseBudgetToCents, parseLines, usageLevel, usagePercent } from "./agent-format";
+import { AUTONOMY_LABELS, ROLE_LABELS, formatBRLCents, RUN_STATUS_LABELS, budgetToInput, canConfirmAuto, disclosureOffDowngrades, formatMicroUsd, guardrailsLabel, needsAutoConfirm, parseLines, resolveBudgetInput, usageLevel, usagePercent } from "./agent-format";
 
 type Role = keyof typeof ROLE_LABELS;
 type Autonomy = keyof typeof AUTONOMY_LABELS;
@@ -44,6 +45,7 @@ function useRun() {
 export function AgentsPanel({ agents, settings }: { agents: AgentView[]; settings: SettingsView }) {
   const [editing, setEditing] = React.useState<AgentView | "new" | null>(null);
   const { run, pending } = useRun();
+  const [confirmRelease, setConfirmRelease] = React.useState(false);
   const missing = (["sdr", "followup", "closer"] as Role[]).filter((r) => !agents.some((a) => a.role === r));
   return (
     <div className="space-y-6">
@@ -56,12 +58,22 @@ export function AgentsPanel({ agents, settings }: { agents: AgentView[]; setting
           </div>
         </div>
         <div className="flex flex-wrap gap-2">
-          <GlobalBudget current={settings.monthlyBudgetCents} />
-          <Button variant={settings.killSwitch ? "default" : "destructive"} disabled={pending} onClick={() => run(() => updateAgentSettings({ killSwitch: !settings.killSwitch }), settings.killSwitch ? "Agentes liberados." : "Todos os agentes foram parados.")}>
+          <GlobalBudget key={settings.monthlyBudgetCents ?? "none"} current={settings.monthlyBudgetCents} />
+          <Button variant={settings.killSwitch ? "default" : "destructive"} disabled={pending} onClick={() => (settings.killSwitch ? setConfirmRelease(true) : run(() => updateAgentSettings({ killSwitch: true }), "Todos os agentes foram parados."))}>
             {settings.killSwitch ? "Liberar agentes" : "Parar todos"}
           </Button>
         </div>
       </Card>
+
+      <ConfirmDialog
+        open={confirmRelease}
+        onOpenChange={setConfirmRelease}
+        title="Liberar agentes?"
+        description="Os agentes ativos voltam a rodar e podem gerar rascunhos (e enviar, conforme a autonomia). Confirme apenas se o motivo da parada foi resolvido."
+        confirmLabel="Liberar agentes"
+        pending={pending}
+        onConfirm={() => run(() => updateAgentSettings({ killSwitch: false }), "Agentes liberados.", undefined, () => setConfirmRelease(false))}
+      />
 
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="text-sm text-muted-foreground">O agente propõe; supressão, cadência, janela e saúde do chip continuam decidindo se a mensagem sai.</p>
@@ -83,12 +95,26 @@ export function AgentsPanel({ agents, settings }: { agents: AgentView[]; setting
 }
 
 function GlobalBudget({ current }: { current: number | null }) {
-  const [v, setV] = React.useState(current ? String(current / 100) : "");
+  const [v, setV] = React.useState(budgetToInput(current));
+  const [err, setErr] = React.useState<string>();
+  const [confirmClear, setConfirmClear] = React.useState(false);
   const { run, pending } = useRun();
+  function save() {
+    if (!v.trim()) { if (current) setConfirmClear(true); else setErr("Informe um valor em reais maior que zero."); return; }
+    const r = resolveBudgetInput(v);
+    if (!r.ok) return setErr(r.error);
+    setErr(undefined);
+    run(() => updateAgentSettings({ monthlyBudgetCents: r.cents }), "Teto global salvo.");
+  }
   return (
-    <form className="flex gap-2" onSubmit={(e) => { e.preventDefault(); run(() => updateAgentSettings({ monthlyBudgetCents: parseBudgetToCents(v) }), "Teto global salvo."); }}>
-      <Input aria-label="Teto global mensal em reais" inputMode="decimal" className="w-28" placeholder="R$ teto" value={v} onChange={(e) => setV(e.target.value)} />
-      <Button type="submit" variant="outline" disabled={pending}>Salvar teto</Button>
+    <form className="flex flex-col gap-1" onSubmit={(e) => { e.preventDefault(); save(); }} noValidate>
+      <div className="flex gap-2">
+        <Input aria-label="Teto global mensal em reais" aria-invalid={!!err} inputMode="decimal" className="w-28" placeholder="R$ teto" value={v} onChange={(e) => { setV(e.target.value); setErr(undefined); }} />
+        <Button type="submit" variant="outline" disabled={pending}>Salvar teto</Button>
+      </div>
+      {err && <p role="alert" className="text-xs text-destructive">{err}</p>}
+      <ConfirmDialog open={confirmClear} onOpenChange={setConfirmClear} title="Remover teto global?" description="Sem teto global, o gasto mensal dos agentes deixa de ter limite conjunto." confirmLabel="Remover teto" destructive pending={pending}
+        onConfirm={() => run(() => updateAgentSettings({ monthlyBudgetCents: null }), "Teto global removido.", undefined, () => setConfirmClear(false))} />
     </form>
   );
 }
@@ -122,7 +148,7 @@ function AgentCard({ agent: a, killSwitch, onEdit }: { agent: AgentView; killSwi
         {(f) => (
           <select {...f} className={selectCls} value={a.autonomy} disabled={pending} onChange={(e) => {
             const v = e.target.value as Autonomy;
-            if (a.role === "closer" && v !== "draft") setAuto(v);
+            if (needsAutoConfirm(a.role, v)) setAuto(v);
             else run(() => setAgentAutonomy({ id: a.id, autonomy: v }), "Autonomia atualizada.");
           }}>
             {(Object.keys(AUTONOMY_LABELS) as Autonomy[]).map((k) => <option key={k} value={k}>{AUTONOMY_LABELS[k]}{k === "sampled" ? ` (${a.samplePercent}% revisados)` : ""}</option>)}
@@ -138,9 +164,52 @@ function AgentCard({ agent: a, killSwitch, onEdit }: { agent: AgentView; killSwi
           {a.active ? "Desligar" : "Ativar"}
         </Button>
       </div>
+      <RunHistory agentId={a.id} />
       {auto && <CloserAutoDialog agent={a} autonomy={auto} onClose={() => setAuto(null)} />}
       {sim && <SimulateDialog agent={a} onClose={() => setSim(false)} />}
     </Card>
+  );
+}
+
+function RunHistory({ agentId }: { agentId: string }) {
+  const [open, setOpen] = React.useState(false);
+  const [state, setState] = React.useState<"idle" | "loading" | "error" | "ready">("idle");
+  const [runs, setRuns] = React.useState<AgentRunView[]>([]);
+  const [msg, setMsg] = React.useState("");
+  async function load() {
+    setState("loading");
+    const r = await getAgentRuns({ id: agentId }).catch(() => null);
+    if (r?.ok) { setRuns(r.data); setState("ready"); } else { setMsg(r ? getFormError(r.errors) : "Falha ao carregar."); setState("error"); }
+  }
+  return (
+    <div className="border-t border-border pt-3">
+      <Button size="sm" variant="ghost" aria-expanded={open} onClick={() => { const n = !open; setOpen(n); if (n) void load(); }}>{open ? "Ocultar execuções" : "Ver execuções"}</Button>
+      {open && (
+        <div className="mt-2 text-xs" aria-live="polite">
+          {state === "loading" && <p className="text-muted-foreground">Carregando execuções…</p>}
+          {state === "error" && <p role="alert" className="text-destructive">{msg} <button type="button" className="underline" onClick={() => void load()}>Tentar de novo</button></p>}
+          {state === "ready" && runs.length === 0 && <p className="text-muted-foreground">Nenhuma execução ainda.</p>}
+          {state === "ready" && runs.length > 0 && (
+            <>
+              <ul className="divide-y divide-border">
+                {runs.map((r) => (
+                  <li key={r.id} className="space-y-0.5 py-2">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Badge variant={r.status === "done" ? "default" : "muted"}>{RUN_STATUS_LABELS[r.status] ?? r.status}</Badge>
+                      <span>{new Date(r.createdAt).toLocaleString("pt-BR")}</span>
+                      <span className="ml-auto text-muted-foreground">custo {formatMicroUsd(r.costMicros)}</span>
+                    </div>
+                    {guardrailsLabel(r.guardrailsViolated) && <p className="text-destructive">Guardrails: {guardrailsLabel(r.guardrailsViolated)}</p>}
+                    {r.error && <p className="text-muted-foreground">Motivo: {r.error}</p>}
+                  </li>
+                ))}
+              </ul>
+              {runs.length >= 50 && <p className="pt-1 text-muted-foreground">Mostrando as 50 mais recentes.</p>}
+            </>
+          )}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -159,7 +228,7 @@ function CloserAutoDialog({ agent, autonomy, onClose }: { agent: AgentView; auto
         <label className="flex gap-2 text-sm"><input type="checkbox" checked={c2} onChange={(e) => setC2(e.target.checked)} className="mt-1" /> Estou ciente do risco de banimento do número e das obrigações da LGPD.</label>
         <DialogFooter>
           <DialogClose render={<Button variant="outline" />}>Cancelar</DialogClose>
-          <Button disabled={pending || !c1 || !c2 || !agent.disclosureEnabled} onClick={() => run(() => setAgentAutonomy({ id: agent.id, autonomy, confirmAuto: c1, acknowledgeRisk: c2 }), "Autonomia atualizada.", undefined, onClose)}>Confirmar</Button>
+          <Button disabled={!canConfirmAuto(c1, c2, agent.disclosureEnabled, pending)} onClick={() => run(() => setAgentAutonomy({ id: agent.id, autonomy, confirmAuto: c1, acknowledgeRisk: c2 }), "Autonomia atualizada.", undefined, onClose)}>Confirmar</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -209,7 +278,8 @@ function AgentForm({ agent, availableRoles, onDone }: { agent: AgentView | null;
   const [objective, setObjective] = React.useState(agent?.objective ?? "");
   const [tone, setTone] = React.useState(agent?.tone ?? "");
   const [model, setModel] = React.useState(agent?.model ?? "claude-haiku-4-5");
-  const [budget, setBudget] = React.useState(agent?.monthlyBudgetCents ? String(agent.monthlyBudgetCents / 100) : "");
+  const [budget, setBudget] = React.useState(budgetToInput(agent?.monthlyBudgetCents ?? null));
+  const [clearBudget, setClearBudget] = React.useState(false);
   const [daily, setDaily] = React.useState(String(agent?.dailyMessageLimit ?? 20));
   const [turns, setTurns] = React.useState(String(agent?.maxTurnsPerLead ?? 5));
   const [sample, setSample] = React.useState(String(agent?.samplePercent ?? 20));
@@ -226,9 +296,12 @@ function AgentForm({ agent, availableRoles, onDone }: { agent: AgentView | null;
 
   function submit(e: React.FormEvent) {
     e.preventDefault();
+    const hadBudget = !!agent?.monthlyBudgetCents;
+    const b = !budget.trim() && !hadBudget ? ({ ok: true, cents: null } as const) : resolveBudgetInput(budget, clearBudget);
+    if (!b.ok) return setErrors({ monthlyBudgetCents: [b.error] });
     const body = {
       name, persona, objective, tone, model,
-      monthlyBudgetCents: parseBudgetToCents(budget),
+      monthlyBudgetCents: b.cents,
       dailyMessageLimit: Number(daily), maxTurnsPerLead: Number(turns), samplePercent: Number(sample),
       allowedTools: [...(link ? ["link"] : []), ...(tag ? ["tag"] : [])],
       escalationRules: { keywords: parseLines(keywords), forbiddenPhrases: parseLines(forbidden), handoffOnHumanRequest: humanReq },
@@ -264,7 +337,8 @@ function AgentForm({ agent, availableRoles, onDone }: { agent: AgentView | null;
       {area("tone", "Tom de voz", tone, setTone)}
       <div className="grid gap-4 sm:grid-cols-2">
         <Field id={`${uid}-model`} label="Modelo" error={fieldError(errors, "model")}>{(f) => <Input {...f} value={model} onChange={(e) => setModel(e.target.value)} />}</Field>
-        <Field id={`${uid}-budget`} label="Teto mensal (R$)" hint="Obrigatório para ativar." error={fieldError(errors, "monthlyBudgetCents")}>{(f) => <Input {...f} inputMode="decimal" value={budget} onChange={(e) => setBudget(e.target.value)} />}</Field>
+        <Field id={`${uid}-budget`} label="Teto mensal (R$)" hint="Obrigatório para ativar." error={fieldError(errors, "monthlyBudgetCents")}>{(f) => <div className="space-y-1"><Input {...f} inputMode="decimal" value={budget} disabled={clearBudget} onChange={(e) => setBudget(e.target.value)} />
+          {agent?.monthlyBudgetCents ? <label className="flex gap-2 text-xs"><input type="checkbox" checked={clearBudget} onChange={(e) => { setClearBudget(e.target.checked); if (e.target.checked) setBudget(""); else setBudget(budgetToInput(agent.monthlyBudgetCents)); }} /> Remover teto (o agente não poderá ficar ativo)</label> : null}</div>}</Field>
         {num("dailyMessageLimit", "Limite diário de mensagens", daily, setDaily)}
         {num("maxTurnsPerLead", "Turnos máximos por lead", turns, setTurns)}
         {num("samplePercent", "% revisado na amostragem", sample, setSample)}
@@ -288,6 +362,7 @@ function AgentForm({ agent, availableRoles, onDone }: { agent: AgentView | null;
       <fieldset className="grid gap-3 rounded-md border border-border p-3">
         <legend className="px-1 text-sm font-medium">Transparência</legend>
         <label className="flex gap-2 text-sm"><input type="checkbox" checked={disclosure} onChange={(e) => setDisclosure(e.target.checked)} /> Avisar que é um assistente de IA{role === "closer" ? " (recomendado no Closer)" : ""}</label>
+        {agent && !disclosure && disclosureOffDowngrades(agent.role, agent.autonomy, disclosure) && <p role="alert" className="text-sm text-warning">Ao desligar o aviso, este Closer autônomo volta para o modo rascunho (você aprova tudo).</p>}
         {disclosure && <Field id={`${uid}-dt`} label="Texto do aviso" hint="Vazio usa o texto padrão.">{(f) => <Input {...f} maxLength={300} value={disclosureText} onChange={(e) => setDisclosureText(e.target.value)} />}</Field>}
       </fieldset>
       {agent && <KnowledgeSection agent={agent} />}
@@ -303,14 +378,17 @@ function KnowledgeSection({ agent }: { agent: AgentView }) {
   const [title, setTitle] = React.useState("");
   const [content, setContent] = React.useState("");
   const { run, pending } = useRun();
+  const [removing, setRemoving] = React.useState<{ id: string; title: string } | null>(null);
   return (
     <fieldset className="grid gap-3 rounded-md border border-border p-3">
+      <ConfirmDialog open={removing !== null} onOpenChange={(o) => !o && setRemoving(null)} title="Remover documento?" description={`"${removing?.title ?? ""}" deixará de ser usado pelo agente. Esta ação não pode ser desfeita.`} confirmLabel="Remover" destructive pending={pending}
+        onConfirm={() => removing && run(() => deleteKnowledge({ id: removing.id }), "Documento removido.", undefined, () => setRemoving(null))} />
       <legend className="px-1 text-sm font-medium">Base de conhecimento</legend>
       <p className="text-xs text-muted-foreground">O agente só pode citar preços, prazos e condições que estiverem aqui.</p>
       <ul className="space-y-1">
         {agent.knowledge.map((k) => (
           <li key={k.id} className="flex items-center justify-between gap-2 text-sm"><span className="truncate">{k.title} <span className="text-xs text-muted-foreground">v{k.version}</span></span>
-            <Button type="button" size="sm" variant="ghost" disabled={pending} onClick={() => run(() => deleteKnowledge({ id: k.id }), "Documento removido.")}>Remover</Button></li>
+            <Button type="button" size="sm" variant="ghost" disabled={pending} onClick={() => setRemoving({ id: k.id, title: k.title })}>Remover</Button></li>
         ))}
       </ul>
       <Input aria-label="Título do documento" placeholder="Título" value={title} maxLength={120} onChange={(e) => setTitle(e.target.value)} />
