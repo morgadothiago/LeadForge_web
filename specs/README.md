@@ -21,10 +21,10 @@ Fullstack = executa dev-backend primeiro, depois dev-frontend.
 | 014 | Integracao n8n | dev-backend | 2/posterior | IMPLEMENTED | 013 |
 | 017 | Politica de envio gentil + anti-banimento + supressao global | backend+frontend | 2 | IMPLEMENTED | 010,011,012 |
 | 020 | Banco de dados separado para testes | infra/backend | 2 | IMPLEMENTED | 000,001 |
-| 019 | Agentes de IA (SDR, Follow-up, Closer) configuraveis | backend+frontend | 3 (depois de 013 e 018) | APPROVED (padrao) | 013,017,012,018 |
+| 019 | Agentes de IA (SDR, Follow-up, Closer) configuraveis | backend+frontend | 3 (depois de 013 e 018) | IMPLEMENTED (backend+frontend; pendente QA e validacao em navegador) | 013,017,012,018 |
 | 018 | Chaves de API e integracoes pelo painel (Configuracoes) | backend+frontend | 2 (depois de 017/013) | IMPLEMENTED | 009,010,011,016 |
 | 016 | Erros HTTP/axios em PT-BR (prerequisito de 011-015) | dev-backend | 2 | APPROVED | 000 |
-| 015 | Busca de leads por IA | dev-backend | posterior | APPROVED (padrao) | 005,008,014 |
+| 015 | Busca de leads por IA | backend+frontend | posterior | IMPLEMENTED (backend+frontend; e2e, cron e validacao em navegador pendentes) | 005,008,014 |
 
 Ordem (sessao 2): 009,010,016 feitos -> 011 -> 012 -> 017 -> 013 -> 014 -> 015. Ordem sessao 1: 000 -> 001 -> 002 -> 003 -> 004 -> 005 -> 006 -> 007 -> 008 | 009 -> 010 -> 011 -> 012 -> 013 -> 014 -> 015.
 Nota: 004 (dashboard) fica antes de 005-008 por ordem do PROMPT; com poucos dados usa seed.

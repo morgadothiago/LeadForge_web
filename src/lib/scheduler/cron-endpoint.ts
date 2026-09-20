@@ -2,6 +2,8 @@ import { createHash, timingSafeEqual } from "node:crypto";
 import { tooManyRequests } from "@/lib/http";
 import { safeErrorForLog } from "@/lib/errors";
 import { getCronSecret } from "./config";
+import { processAgentQueue } from "@/lib/agents/queue";
+import { runDailySearch } from "@/lib/lead-search/run";
 import { runTick, type TickSummary } from "./run-tick";
 
 /**
@@ -54,7 +56,13 @@ export async function handleCronTick(req: Request, deps: CronDeps = {}): Promise
   }
   try {
     const s = await (deps.run ?? ((now: Date) => runTick(now)))(new Date());
-    return json(s, 200);
+    // SPEC-019 Fila C: tarefas de agentes (falha isolada: nunca derruba a resposta do tick). Só com o `run` padrão.
+    let agents: unknown = undefined;
+    if (!deps.run) agents = await processAgentQueue().catch((e) => (console.error("[cron/tick] agentes:", safeErrorForLog(e)), { error: "falha" }));
+    // SPEC-015: busca diária de leads (desligada por padrão; 1 execução agendada/campanha/dia; falha isolada).
+    let search: unknown = undefined;
+    if (!deps.run) search = await runDailySearch().then((r) => (r.length ? r : undefined)).catch((e) => (console.error("[cron/tick] busca:", safeErrorForLog(e)), { error: "falha" }));
+    return json({ ...s, ...(agents ? { agents } : {}), ...(search ? { search } : {}) }, 200);
   } catch (e) {
     console.error("[cron/tick] erro:", safeErrorForLog(e));
     return json({ error: "internal", message: "Falha ao executar a rodada." }, 500);

@@ -2,6 +2,8 @@ import { notFound } from "next/navigation";
 import { CampaignActions } from "@/components/campaigns/CampaignActions";
 import { CampaignForm } from "@/components/campaigns/CampaignForm";
 import { CampaignStatusBadge } from "@/components/campaigns/CampaignStatusBadge";
+import { CampaignLeadSearch } from "@/components/campaigns/CampaignLeadSearch";
+import { getLeadSearchPanel } from "@/lib/queries/lead-search";
 import { CampaignStartSequence } from "@/components/campaigns/CampaignStartSequence";
 import { Badge } from "@/components/ui/badge";
 import { NO_CHANNELS_TEXT, autoStartLabel, hasNoChannels } from "@/components/sequences/sequence-start-format";
@@ -15,12 +17,13 @@ export const dynamic = "force-dynamic";
 export default async function Page({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   if (!idSchema.safeParse(id).success) notFound();
-  const [waInstances, emailAccounts, campaign, icps, { sequences }] = await Promise.all([
+  const [waInstances, emailAccounts, campaign, icps, { sequences }, searchPanel] = await Promise.all([
     listWhatsAppInstances(),
     listEmailAccounts(),
     getCampaign(id),
     listIcps(),
     listCampaignFormOptions(),
+    getLeadSearchPanel(id),
   ]);
   if (!campaign) notFound();
 
@@ -43,6 +46,7 @@ export default async function Page({ params }: { params: Promise<{ id: string }>
         />
       </div>
       <CampaignStartSequence campaignId={campaign.id} campaignName={campaign.name} />
+      <CampaignLeadSearch campaignId={campaign.id} campaignName={campaign.name} campaignActive={campaign.status === "active"} panel={searchPanel} />
       <CampaignForm
         key={campaign.updatedAt.toISOString()}
         mode="edit"

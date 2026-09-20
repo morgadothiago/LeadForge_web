@@ -99,7 +99,7 @@ const bodyHashOf = (campaignId: string, leads: unknown[]) => createHash("sha256"
 const KEY_RE = /^[A-Za-z0-9._:-]{1,128}$/;
 const eventIdFor = (key: string) => `lead_ingest:${createHash("sha256").update(key).digest("hex")}`;
 
-async function processItem(campaignId: string, raw: unknown, index: number): Promise<ItemResult> {
+export async function processItem(campaignId: string, raw: unknown, index: number): Promise<ItemResult> {
   const p = itemSchema.safeParse(raw);
   if (!p.success) return { index, status: "invalid", reason: reasonFrom(p.error) };
   const d = p.data;
