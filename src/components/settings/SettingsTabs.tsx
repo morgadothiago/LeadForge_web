@@ -7,6 +7,7 @@ const TABS = [
   { href: "/configuracoes/email", label: "E-mail" },
   { href: "/configuracoes/whatsapp", label: "WhatsApp" },
   { href: "/configuracoes/supressao", label: "Supressão" },
+  { href: "/configuracoes/agentes", label: "Agentes", adminOnly: true },
   { href: "/configuracoes/integracoes", label: "Integrações", adminOnly: true },
 ] as const;
 

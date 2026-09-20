@@ -1,6 +1,8 @@
 import { Prisma, type Channel } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { safeErrorForLog } from "@/lib/errors";
+import { enqueueAgentRun, isAgentAvailable } from "@/lib/agents/queue";
+import { advanceAfterAgentStep } from "@/lib/agents/advance";
 import { sendEmail } from "@/lib/channels/email";
 import { sendWhatsApp } from "@/lib/channels/whatsapp";
 import { NEEDS_REVIEW_PREFIX } from "@/lib/channels/reserve";
@@ -58,7 +60,7 @@ const AUTO_START_LIMIT = 500;
 const RUN_RETENTION_MS = 30 * 24 * 3600_000;
 const sanitize = (s: string) => s.replace(/\s+/g, " ").slice(0, 300);
 
-type StepRow = { id: string; day: number; channel: Channel; order: number };
+type StepRow = { id: string; day: number; channel: Channel; order: number; agentId: string | null; agentFallbackTemplate: boolean };
 
 export async function runTick(now: Date, overrides: Partial<TickDeps> = {}): Promise<TickSummary> {
   const deps: TickDeps = { ...defaultDeps(), ...overrides };
@@ -119,7 +121,7 @@ async function execute(now: Date, deps: TickDeps, t0: number, inc: (k: string, n
   const getSteps = async (sequenceId: string): Promise<StepRow[]> => {
     let s = stepsCache.get(sequenceId);
     if (!s) {
-      s = await prisma.sequenceStep.findMany({ where: { sequenceId }, orderBy: { order: "asc" }, select: { id: true, day: true, channel: true, order: true } });
+      s = await prisma.sequenceStep.findMany({ where: { sequenceId }, orderBy: { order: "asc" }, select: { id: true, day: true, channel: true, order: true, agentId: true, agentFallbackTemplate: true } });
       stepsCache.set(sequenceId, s);
     }
     return s;
@@ -294,6 +296,14 @@ async function execute(now: Date, deps: TickDeps, t0: number, inc: (k: string, n
     if (!r) continue;
     processedLeads.add(t.leadId);
     inc("processed_a");
+    // SPEC-019: envio de agente que foi adiado e saiu agora => draft vira "sent" e o lead avanca (estava estacionado).
+    if (r.status === "sent") {
+      const dr = await prisma.draft.findFirst({ where: { touchId: t.id, status: { in: ["approved", "edited"] } }, select: { id: true } });
+      if (dr) {
+        await prisma.draft.update({ where: { id: dr.id }, data: { status: "sent" } });
+        await advanceAfterAgentStep(t.leadId, t.stepId, now);
+      }
+    }
     const steps = t.step ? await getSteps(t.step.sequenceId) : [];
     try {
       await applyResult({ touchId: t.id, leadId: t.leadId, campaignId: t.lead.campaignId, stepIdx: steps.findIndex((s) => s.id === t.stepId), steps }, r);
@@ -345,6 +355,18 @@ async function execute(now: Date, deps: TickDeps, t0: number, inc: (k: string, n
           await advanceLead(lead.id, idx, steps);
           if ((SENT_LIKE as readonly string[]).includes(existing.status)) await moveStage(lead.id, lead.campaignId);
           continue;
+        }
+        // SPEC-019: passo de agente. Agente disponível => enfileira a tarefa (sem LLM aqui) e estaciona o lead até o rascunho ser tratado.
+        // Indisponível (desligado/kill switch/sem teto): usa o template só se o passo tem fallback; senão aguarda (nada é enviado).
+        if (step.agentId) {
+          if (await isAgentAvailable(step.agentId)) {
+            const start = lead.sequenceStartedAt ?? now;
+            await prisma.lead.updateMany({ where: { id: lead.id, sequenceStatus: { in: ["active", "not_started"] } }, data: { sequenceStatus: "active", sequenceStartedAt: start, nextTouchAt: null } });
+            inc((await enqueueAgentRun({ agentId: step.agentId, leadId: lead.id, stepId: step.id, trigger: "step" })) ? "agent_enqueued" : "agent_already_enqueued");
+            continue;
+          }
+          if (!step.agentFallbackTemplate) { inc("agent_unavailable"); continue; }
+          inc("agent_fallback_template");
         }
         const instanceId = lead.campaign.whatsappInstanceId;
         if (step.channel === "whatsapp" && instanceId && usedInstances.has(instanceId)) { inc("instance_busy"); continue; }

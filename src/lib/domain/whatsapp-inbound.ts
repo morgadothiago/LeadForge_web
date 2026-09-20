@@ -114,6 +114,12 @@ export async function processInbound(tx: Prisma.TransactionClient, instance: { i
     data: { repliedAt: at, ...(kind === "possible_opt_out" ? { possibleOptOut: true } : {}), ...(pause ? { sequenceStatus: "paused_replied", nextTouchAt: null } : {}) },
   });
   await tx.touch.updateMany({ where: { leadId: lead.id, status: { in: ["pending", "scheduled"] } }, data: { status: "skipped" } });
+  // SPEC-019: resposta comum enfileira tarefa do Closer (só INSERT; o LLM roda depois, fora do webhook). Opt-out/recusa nunca chegam aqui.
+  if (kind === "reply") {
+    const s = await tx.agentSettings.findUnique({ where: { id: "global" } });
+    const closer = s?.killSwitch === false ? await tx.agent.findFirst({ where: { role: "closer", active: true }, select: { id: true }, orderBy: { createdAt: "asc" } }) : null;
+    if (closer) await tx.agentRun.create({ data: { agentId: closer.id, leadId: lead.id, trigger: `inbound:${msg.externalId}`.slice(0, 120), status: "queued" } });
+  }
   let stageChanged = false;
   // possible_opt_out é recusa: pausa, mas NÃO avança o estágio.
   if (kind === "reply" && opp && ADVANCE_FROM.includes(opp.stage)) {

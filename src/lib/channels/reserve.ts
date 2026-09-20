@@ -33,17 +33,28 @@ export async function skipSuppressedBeforeReserve(touchId: string, where: Prisma
 }
 
 /** Lead respondeu depois da criação do Touch ou sequência encerrada/pausada por resposta/opt-out -> não enviar. */
-export function repliedOrEnded(lead: { repliedAt: Date | null; sequenceStatus: string }, touchCreatedAt: Date): boolean {
+export function repliedOrEnded(lead: { repliedAt: Date | null; sequenceStatus: string }, touchCreatedAt: Date, closerBypass = false): boolean {
+  // Closer: ignora SOMENTE repliedAt e paused_replied; paused_manual (handoff/Assumir/pausa manual) continua bloqueando.
   return (
-    (lead.repliedAt !== null && lead.repliedAt.getTime() > touchCreatedAt.getTime()) ||
-    lead.sequenceStatus === "paused_replied" || lead.sequenceStatus === "opted_out" || lead.sequenceStatus === "completed" || lead.sequenceStatus === "paused_manual"
+    (!closerBypass && lead.repliedAt !== null && lead.repliedAt.getTime() > touchCreatedAt.getTime()) ||
+    (!closerBypass && lead.sequenceStatus === "paused_replied") || lead.sequenceStatus === "opted_out" || lead.sequenceStatus === "completed" || lead.sequenceStatus === "paused_manual"
   );
 }
 
+/**
+ * Desvio da SPEC-017 (SPEC-019): SOMENTE Touch gerado pelo agente Closer ignora `repliedOrEnded` (o Closer existe para responder a quem já respondeu).
+ * Opt-out, supressão, limites, janela, kill switch e cotas continuam valendo.
+ */
+export async function isCloserTouch(touch: { id: string; agentGenerated: boolean }): Promise<boolean> {
+  if (!touch.agentGenerated) return false;
+  const run = await prisma.agentRun.findFirst({ where: { touchId: touch.id, agent: { role: "closer" } }, select: { id: true } });
+  return run !== null;
+}
+
 /** Relê o lead do banco (não confia no snapshot do início do envio). */
-export async function leadStopped(leadId: string, touchCreatedAt: Date): Promise<boolean> {
+export async function leadStopped(leadId: string, touchCreatedAt: Date, ignoreReplied = false): Promise<boolean> {
   const lead = await prisma.lead.findUnique({ where: { id: leadId }, select: { repliedAt: true, sequenceStatus: true, optedOutAt: true } });
-  return !lead || lead.optedOutAt !== null || repliedOrEnded(lead, touchCreatedAt);
+  return !lead || lead.optedOutAt !== null || lead.sequenceStatus === "opted_out" || lead.sequenceStatus === "completed" || repliedOrEnded(lead, touchCreatedAt, ignoreReplied);
 }
 
 /** SPEC-013: lead de seed (`source="seed"`) nunca é enviado (defesa em profundidade; ALLOW_SEED_SENDS=true libera, só dev). Antes de reservar/chamar provider. */

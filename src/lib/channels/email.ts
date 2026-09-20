@@ -8,7 +8,7 @@ import { normalizeSmtpError } from "./smtp-errors";
 import { buildUnsubscribeUrl } from "./unsubscribe";
 import { findSuppression, SUPPRESSED_MESSAGE } from "@/lib/domain/suppression";
 import { startOfLocalDay, startOfNextLocalDay } from "@/lib/whatsapp/send-window";
-import { leadStopped, reservableWhere, repliedOrEnded, skipSuppressedBeforeReserve, skipSeedBeforeReserve, REPLIED_MESSAGE } from "./reserve";
+import { isCloserTouch, leadStopped, reservableWhere, repliedOrEnded, skipSuppressedBeforeReserve, skipSeedBeforeReserve, REPLIED_MESSAGE } from "./reserve";
 import { resolvePublicHost, allowPrivateSmtpHosts, type HostResolver } from "./ssrf";
 
 export { normalizeSmtpError };
@@ -150,17 +150,25 @@ async function doSend(touchId: string, now: Date, opts: SendEmailOptions): Promi
   };
   if (lead.optedOutAt || lead.sequenceStatus === "opted_out") return skip("opted_out");
   if (lead.sequenceStatus === "completed") return skip("sequence_completed");
-  if (repliedOrEnded(lead, touch.createdAt)) return skip("replied");
+  const closerBypass = await isCloserTouch(touch);
+  if (repliedOrEnded(lead, touch.createdAt, closerBypass)) return skip("replied");
   // SPEC-017: supressão global (e-mail ou telefone) antes de reservar conta/transport.
   if (await findSuppression({ email: lead.email, phone: lead.phone })) return skip("suppressed");
 
   if (!lead.email) return fail(touchId, new AppError({ code: "validation", userMessage: "O lead não possui e-mail." }));
   const template = touch.step?.template;
-  if (!template) return fail(touchId, new AppError({ code: "not_found", userMessage: "Template do passo não encontrado." }));
-
-  const vars = { name: lead.name, firstName: lead.name.trim().split(/\s+/)[0], company: lead.company, email: lead.email, phone: lead.phone, website: lead.website };
-  const subject = renderTemplate(template.subject ?? "", vars, { channel: "email", field: "subject" });
-  const body = renderTemplate(template.body, vars, { channel: "email", field: "body" });
+  let subject: { ok: true; text: string } | { ok: false; unknown: string[] };
+  let body: { ok: true; text: string } | { ok: false; unknown: string[] };
+  if (touch.agentGenerated && touch.content) {
+    // SPEC-019: texto do agente (rascunho aprovado/autorizado); toda a política abaixo continua valendo.
+    subject = { ok: true, text: touch.subject ?? "Contato" };
+    body = { ok: true, text: touch.content };
+  } else {
+    if (!template) return fail(touchId, new AppError({ code: "not_found", userMessage: "Template do passo não encontrado." }));
+    const vars = { name: lead.name, firstName: lead.name.trim().split(/\s+/)[0], company: lead.company, email: lead.email, phone: lead.phone, website: lead.website };
+    subject = renderTemplate(template.subject ?? "", vars, { channel: "email", field: "subject" });
+    body = renderTemplate(template.body, vars, { channel: "email", field: "body" });
+  }
   if (!subject.ok || !body.ok) {
     const unk = [...(!subject.ok ? subject.unknown : []), ...(!body.ok ? body.unknown : [])];
     return fail(touchId, new AppError({ code: "validation", userMessage: `Template com variável desconhecida: ${unk.map((u) => `{{${u}}}`).join(", ")}.` }));
@@ -187,7 +195,7 @@ async function doSend(touchId: string, now: Date, opts: SendEmailOptions): Promi
   const url = buildUnsubscribeUrl(lead.id, now);
   const text = `${body.text}\n\n--\nPara não receber mais e-mails, descadastre-se: ${url}`;
   // Última checagem: o lead pode ter respondido entre a reserva e o envio (relê do banco; SMTP NÃO é chamado).
-  if (await leadStopped(lead.id, touch.createdAt)) return skip("replied");
+  if (await leadStopped(lead.id, touch.createdAt, closerBypass)) return skip("replied");
   try {
     const transport = opts.transport ?? (await buildTransport(account, opts));
     const info = (await transport.sendMail({

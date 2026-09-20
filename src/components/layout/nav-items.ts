@@ -1,4 +1,4 @@
-import { Kanban, LayoutDashboard, Megaphone, Settings, Users, Workflow, type LucideIcon } from "lucide-react";
+import { Kanban, ClipboardCheck, LayoutDashboard, Megaphone, Settings, Users, Workflow, type LucideIcon } from "lucide-react";
 
 export interface NavItem {
   href: string;
@@ -13,6 +13,7 @@ export const NAV_ITEMS: readonly NavItem[] = [
   { href: "/leads", label: "Leads", description: "Lista e detalhes dos seus leads.", icon: Users },
   { href: "/campanhas", label: "Campanhas", description: "Gerencie campanhas e ICPs.", icon: Megaphone },
   { href: "/sequences", label: "Sequences", description: "Monte cadências de contato.", icon: Workflow },
+  { href: "/aprovacoes", label: "Aprovações", description: "Revise rascunhos dos agentes de IA.", icon: ClipboardCheck },
   { href: "/configuracoes", label: "Configurações", description: "Contas de envio e integrações.", icon: Settings },
 ];
 

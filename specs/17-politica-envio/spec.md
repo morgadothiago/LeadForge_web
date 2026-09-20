@@ -86,3 +86,10 @@ Sem garantia contra banimento; limites do WhatsApp nao sao publicos e podem muda
 - B9: migration `20260919200000_disconnected_at_backfill_fix` (idempotente) completa o backfill: telefone normalizado para E.164 e `sequenceStatus=opted_out` sem `optedOutAt`; a 180000 nao foi editada. Testada executando o SQL 2x.
 - Migrations novas: `20260919200000_disconnected_at_backfill_fix` (coluna `disconnectedAt` + backfill).
 - Validacao: prisma validate, migrate status (up to date), tsc, eslint, vitest 518/518 OK. `next build` nao executado.
+
+## Nota de desvio (SPEC-019, aprovada pelo usuario)
+- `repliedOrEnded` NAO se aplica a Touch `agentGenerated` de agente Closer (o Closer existe para responder a quem ja respondeu). Escopo minimo: `channels/reserve.ts: isCloserTouch` + `leadStopped(..., ignoreReplied)`. Todas as demais regras (opt-out, `completed`, supressao global, limites, janela, kill switch, cotas) continuam; SDR/Follow-up continuam bloqueados. Cobertura: `channels/reserve-closer.test.ts`.
+
+### Verificacao E2E 2026-09-19
+- `checkNumbers` real: NAO VERIFICAVEL (timeout com instancia nao pareada; ver SPEC-011). Formatos reais de logout/MESSAGES_UPDATE seguem PENDENTES.
+- Verificado com servicos reais: opt-out por WhatsApp grava `Suppression` (`opt_out_reply`) e encerra a sequencia; janela seg-sex fora do horario reagenda para 09:00 no fuso do lead; instancia desconectada bloqueia envio (`deferred_not_connected`) sem chamar sendText.

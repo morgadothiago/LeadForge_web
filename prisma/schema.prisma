@@ -169,6 +169,13 @@ model Lead {
   opportunities     Opportunity[]
   meetings          Meeting[]
   notes             LeadNote[]
+  /// SPEC-019: estado de agentes de IA por lead. handoffAt != null = agente parou (handoff ou humano assumiu).
+  agentTurns        Int            @default(0)
+  handoffAt         DateTime?
+  handoffReason     String?
+  needsHuman        Boolean        @default(false)
+  agentRuns         AgentRun[]
+  drafts            Draft[]
 
   @@unique([campaignId, email])
   @@unique([campaignId, phone])
@@ -194,15 +201,20 @@ model Sequence {
 }
 
 model SequenceStep {
-  id         String          @id @default(uuid())
-  sequenceId String
-  sequence   Sequence        @relation(fields: [sequenceId], references: [id], onDelete: Cascade)
-  day        Int
-  channel    Channel
-  templateId String
-  template   MessageTemplate @relation(fields: [templateId], references: [id], onDelete: Restrict)
-  order      Int
-  touches    Touch[]
+  id                    String          @id @default(uuid())
+  sequenceId            String
+  sequence              Sequence        @relation(fields: [sequenceId], references: [id], onDelete: Cascade)
+  day                   Int
+  channel               Channel
+  templateId            String
+  template              MessageTemplate @relation(fields: [templateId], references: [id], onDelete: Restrict)
+  order                 Int
+  touches               Touch[]
+  /// SPEC-019: passo gerado por agente (em vez do template fixo). Sem agente ativo: fallback para o template só se agentFallbackTemplate.
+  agentId               String?
+  agent                 Agent?          @relation(fields: [agentId], references: [id], onDelete: SetNull)
+  agentFallbackTemplate Boolean         @default(false)
+  agentRuns             AgentRun[]
 
   @@unique([sequenceId, order])
   @@index([templateId])
@@ -225,6 +237,9 @@ model Touch {
   /// SPEC-013: falhas já sofridas (retry automático limitado a 3, backoff 30 min/2 h/6 h).
   attempts           Int               @default(0)
   content            String?
+  /// SPEC-019: true = `content` (e `subject`) vêm de um Draft de agente aprovado/autorizado; canais usam em vez do template.
+  agentGenerated     Boolean           @default(false)
+  subject            String?
   emailAccountId     String?
   emailAccount       EmailAccount?     @relation(fields: [emailAccountId], references: [id], onDelete: SetNull)
   whatsappInstanceId String?
@@ -444,4 +459,163 @@ model IntegrationAuditLog {
   at               DateTime               @default(now())
 
   @@index([integration, at])
+}
+
+// ---------- SPEC-019: Agentes de IA ----------
+enum AgentRole {
+  sdr
+  followup
+  closer
+}
+
+enum AgentAutonomy {
+  draft
+  sampled
+  auto
+}
+
+enum AgentRunStatus {
+  queued
+  running
+  completed
+  skipped
+  blocked
+  handoff
+  failed
+}
+
+enum DraftStatus {
+  pending
+  approved
+  edited
+  rejected
+  sent
+  expired
+  blocked
+}
+
+/// Singleton (id = "global"): kill switch global (default LIGADO = agentes desligados) e teto mensal global.
+model AgentSettings {
+  id                 String   @id @default("global")
+  killSwitch         Boolean  @default(true)
+  monthlyBudgetCents Int?
+  updatedAt          DateTime @updatedAt
+  updatedBy          String?
+}
+
+model Agent {
+  id                 String              @id @default(uuid())
+  role               AgentRole
+  name               String
+  active             Boolean             @default(false)
+  persona            String              @default("")
+  objective          String              @default("")
+  tone               String              @default("")
+  promptVersion      Int                 @default(1)
+  model              String              @default("claude-haiku-4-5")
+  autonomy           AgentAutonomy       @default(draft)
+  samplePercent      Int                 @default(20)
+  /// null = sem teto = agente NÃO executa (padrão desligado até haver teto).
+  monthlyBudgetCents Int?
+  dailyMessageLimit  Int                 @default(20)
+  maxTurnsPerLead    Int                 @default(5)
+  allowedTools       String[]
+  escalationRules    Json?
+  minConfidence      Float               @default(0.6)
+  disclosureEnabled  Boolean             @default(false)
+  disclosureText     String?
+  /// Closer: link https da call, incluído na resposta e no aviso de handoff ao humano.
+  callLink           String?
+  /// Confirmação explícita (Closer em auto): data da confirmação + aviso de risco de banimento/LGPD.
+  autoConfirmedAt    DateTime?
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+  updatedBy          String?
+  knowledge          KnowledgeDocument[]
+  runs               AgentRun[]
+  steps              SequenceStep[]
+}
+
+model KnowledgeDocument {
+  id        String   @id @default(uuid())
+  agentId   String?
+  agent     Agent?   @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  title     String
+  content   String
+  version   Int      @default(1)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([agentId])
+}
+
+model AgentRun {
+  id                 String         @id @default(uuid())
+  agentId            String
+  agent              Agent          @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  leadId             String
+  lead               Lead           @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  stepId             String?
+  step               SequenceStep?  @relation(fields: [stepId], references: [id], onDelete: SetNull)
+  touchId            String?
+  trigger            String
+  status             AgentRunStatus @default(queued)
+  model              String?
+  tokensIn           Int            @default(0)
+  tokensOut          Int            @default(0)
+  /// Custo em micro-dólares (1 USD = 1_000_000); orçamento em centavos = 10_000 micro por centavo.
+  costMicros         Int            @default(0)
+  latencyMs          Int?
+  /// Saída estruturada validada (retenção limitada: limpo por purgeAgentData).
+  result             Json?
+  guardrailsViolated String[]
+  error              String?
+  createdAt          DateTime       @default(now())
+  processedAt        DateTime?
+  draft              Draft?
+
+  @@unique([leadId, stepId, trigger])
+  @@index([status, createdAt])
+  @@index([agentId, createdAt])
+}
+
+model Draft {
+  id           String      @id @default(uuid())
+  agentRunId   String      @unique
+  agentRun     AgentRun    @relation(fields: [agentRunId], references: [id], onDelete: Cascade)
+  leadId       String
+  lead         Lead        @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  channel      Channel
+  subject      String?
+  body         String
+  status       DraftStatus @default(pending)
+  editedBody   String?
+  reviewedBy   String?
+  reviewedAt   DateTime?
+  rejectReason String?
+  touchId      String?
+  createdAt    DateTime    @default(now())
+
+  @@index([status, createdAt])
+  @@index([leadId])
+}
+
+/// SPEC-015: log de execução da busca de leads por IA/fonte oficial. Sem PII: só contadores.
+model SearchRun {
+  id         String    @id @default(uuid())
+  campaignId String
+  source     String
+  trigger    String    @default("manual")
+  status     String    @default("running")
+  requests   Int       @default(0)
+  found      Int       @default(0)
+  created    Int       @default(0)
+  duplicate  Int       @default(0)
+  suppressed Int       @default(0)
+  invalid    Int       @default(0)
+  error      String?
+  startedAt  DateTime  @default(now())
+  finishedAt DateTime?
+
+  @@index([campaignId, startedAt])
 }

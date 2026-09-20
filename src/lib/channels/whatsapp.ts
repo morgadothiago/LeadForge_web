@@ -9,7 +9,7 @@ import { findSuppression, SUPPRESSED_MESSAGE } from "@/lib/domain/suppression";
 import { expandSpintax } from "@/lib/templates/spintax";
 import { effectiveDailyLimit } from "@/lib/whatsapp/warmup";
 import { ensureWarmupStarted, evaluateInstanceHealth, resumeInstanceNow } from "@/lib/whatsapp/health";
-import { leadStopped, reservableWhere, repliedOrEnded, skipSuppressedBeforeReserve, skipSeedBeforeReserve, REPLIED_MESSAGE, NEEDS_REVIEW_PREFIX } from "./reserve";
+import { isCloserTouch, leadStopped, reservableWhere, repliedOrEnded, skipSuppressedBeforeReserve, skipSeedBeforeReserve, REPLIED_MESSAGE, NEEDS_REVIEW_PREFIX } from "./reserve";
 import { nextSendWindow, sanitizeError, SENDING_STALE_MS, startOfDaySP } from "./email";
 
 const NOT_CONNECTED_RETRY_MS = 5 * 60_000;
@@ -101,19 +101,25 @@ async function doSend(touchId: string, now: Date, opts: SendWhatsAppOptions): Pr
   };
   if (lead.optedOutAt || lead.sequenceStatus === "opted_out") return skip("opted_out");
   if (lead.sequenceStatus === "completed") return skip("sequence_completed");
-  if (repliedOrEnded(lead, touch.createdAt)) return skip("replied");
+  const closerBypass = await isCloserTouch(touch);
+  if (repliedOrEnded(lead, touch.createdAt, closerBypass)) return skip("replied");
   // SPEC-017: supressão global ANTES de qualquer outra coisa (provider nunca é chamado).
   if (await findSuppression({ email: lead.email, phone: lead.phone })) return skip("suppressed");
 
   const phone = lead.phone ? normalizeBrPhone(lead.phone) : null;
   if (!phone || !phone.ok) return fail(touchId, new AppError({ code: "validation", userMessage: "O lead não possui telefone válido (celular brasileiro)." }));
   const template = touch.step?.template;
-  if (!template) return fail(touchId, new AppError({ code: "not_found", userMessage: "Template do passo não encontrado." }));
-
-  const vars = { name: lead.name, firstName: lead.name.trim().split(/\s+/)[0], company: lead.company, email: lead.email, phone: lead.phone, website: lead.website };
-  // Variação de texto determinística por lead+passo (spintax) antes das variáveis {{x}}.
-  const raw = expandSpintax(template.body, `${lead.id}:${touch.stepId ?? touch.id}`);
-  const body = renderTemplate(raw, vars, { channel: "whatsapp", field: "body" });
+  let body: { ok: true; text: string } | { ok: false; unknown: string[] };
+  if (touch.agentGenerated && touch.content) {
+    // SPEC-019: texto do agente (rascunho aprovado/autorizado); toda a política abaixo continua valendo.
+    body = { ok: true, text: touch.content };
+  } else {
+    if (!template) return fail(touchId, new AppError({ code: "not_found", userMessage: "Template do passo não encontrado." }));
+    const vars = { name: lead.name, firstName: lead.name.trim().split(/\s+/)[0], company: lead.company, email: lead.email, phone: lead.phone, website: lead.website };
+    // Variação de texto determinística por lead+passo (spintax) antes das variáveis {{x}}.
+    const raw = expandSpintax(template.body, `${lead.id}:${touch.stepId ?? touch.id}`);
+    body = renderTemplate(raw, vars, { channel: "whatsapp", field: "body" });
+  }
   if (!body.ok) return fail(touchId, new AppError({ code: "validation", userMessage: `Template com variável desconhecida: ${body.unknown.map((u) => `{{${u}}}`).join(", ")}.` }));
 
   // Cadência gentil: 3 toques / 14 dias, mínimo 3 dias entre toques.
@@ -189,7 +195,7 @@ async function doSend(touchId: string, now: Date, opts: SendWhatsAppOptions): Pr
   if (allowedAt.getTime() > now.getTime()) return defer(touchId, earliestInWindow(lead.timezone, allowedAt), "min_interval");
 
   // Última checagem: inbound pode ter chegado entre a reserva e o envio. Relê o lead do banco; provider NÃO é chamado.
-  if (await leadStopped(lead.id, touch.createdAt)) return skip("replied");
+  if (await leadStopped(lead.id, touch.createdAt, closerBypass)) return skip("replied");
 
   try {
     const res = await provider.sendText({ instanceName: instance.instanceName, to: phone.e164, text: body.text });
