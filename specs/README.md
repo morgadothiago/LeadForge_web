@@ -28,9 +28,6 @@ Fullstack = executa dev-backend primeiro, depois dev-frontend.
 | 021 | Mobile: contrato /api/mobile/v1 + auth (access/refresh/revogacao) | dev-backend | 4 | DRAFT | 009 |
 | 022 | Mobile: metricas do painel e saude (read-only) | dev-backend | 4 | DRAFT | 021 |
 | 023 | Mobile: alertas + push (polling primeiro, Expo Push opcional) | dev-backend | 4 | DRAFT | 021,022 |
-| 024 | Mobile: app Expo base + auth + biometria | rn-expo-senior-dev | 4 | DRAFT | 021 |
-| 025 | Mobile: telas de monitoramento (Resumo, Campanhas, Pipeline, Alertas, Saude) | rn-expo-senior-dev | 4 | DRAFT | 022,023,024 |
-| 026 | Mobile: acoes de gestao leves + Aprovacoes + push/Ajustes no app | backend+mobile | 4 | DRAFT | 021,023,025 |
 
 Ordem (sessao 2): 009,010,016 feitos -> 011 -> 012 -> 017 -> 013 -> 014 -> 015. Ordem sessao 1: 000 -> 001 -> 002 -> 003 -> 004 -> 005 -> 006 -> 007 -> 008 | 009 -> 010 -> 011 -> 012 -> 013 -> 014 -> 015.
 Nota: 004 (dashboard) fica antes de 005-008 por ordem do PROMPT; com poucos dados usa seed.
@@ -51,6 +48,8 @@ Docker parado: migrate, Evolution, n8n, SMTP nao verificaveis ponta a ponta; SPE
 - Endpoints proprios (Route Handlers, ex.: webhook SPEC-012) devolvem 429 + `Retry-After` ao limitar. Server Actions nao controlam status: devolver erro tipado em `ActionResult`.
 - Testes obrigatorios por cliente: 429 com e sem `Retry-After`, tentativas esgotadas, 5xx, timeout, sem vazamento de segredo no erro.
 - Onde a SPEC citar `fetch`, trocar por axios e registrar o desvio. Adicionar `axios` com `--legacy-peer-deps`.
+
+> SPECs 024-026 (app Expo) vivem no repo mobile: `../mobile/specs/` (indice em `../mobile/specs/README.md`). 021-023 (backend) ficam aqui.
 
 ## Mobile (sessao 4) — direcao do usuario 2026-09-19
 App de MONITORAMENTO/gestao leve, nao operacional. Ordem: 021 -> 022 -> 023 -> 024 -> 025 -> 026 (021-023 backend, 024-026 app; 024 pode comecar apos 021). Todas DRAFT ate `APROVAR SPEC-XXX`.
