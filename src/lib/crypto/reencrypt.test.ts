@@ -2,7 +2,7 @@ import "dotenv/config";
 import { randomBytes } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { prisma } from "@/lib/prisma";
-import { seed } from "../../../prisma/seed";
+import { seed, SEED_IDS } from "../../../prisma/seed";
 import { decrypt, encrypt } from "./secret-box";
 import { parseKey, reencryptAllSecrets } from "./reencrypt";
 
@@ -29,9 +29,9 @@ beforeAll(async () => {
   // Outros segredos reais do banco de dev (cifrados com a chave real) não entram no teste: isola-os temporariamente.
   snapshot = await prisma.integrationSecret.findMany({ where: { NOT: { name: { startsWith: TAG } } } });
   await prisma.integrationSecret.deleteMany({ where: { id: { in: snapshot.map((r) => r.id) } } });
-  ids.s = (await prisma.integrationSecret.create({ data: { integration: "llm", name: `${TAG}-a`, encryptedValue: encrypt(PLAIN_A, OLD), hint: "1234" } })).id;
-  ids.w = (await prisma.whatsAppInstance.create({ data: { instanceName: `${TAG}-w`, number: "+5511912345678", webhookToken: `${TAG}-tok`, apiKey: encrypt(PLAIN_B, OLD) } })).id;
-  ids.e = (await prisma.emailAccount.create({ data: { userId, provider: "smtp", smtpHost: "smtp.test", email: `${TAG}@x.test`, encryptedPassword: encrypt(PLAIN_C, OLD) } })).id;
+  ids.s = (await prisma.integrationSecret.create({ data: { orgId: SEED_IDS.org, integration: "llm", name: `${TAG}-a`, encryptedValue: encrypt(PLAIN_A, OLD), hint: "1234" } })).id;
+  ids.w = (await prisma.whatsAppInstance.create({ data: { orgId: SEED_IDS.org, instanceName: `${TAG}-w`, number: "+5511912345678", webhookToken: `${TAG}-tok`, apiKey: encrypt(PLAIN_B, OLD) } })).id;
+  ids.e = (await prisma.emailAccount.create({ data: { orgId: SEED_IDS.org, userId, provider: "smtp", smtpHost: "smtp.test", email: `${TAG}@x.test`, encryptedPassword: encrypt(PLAIN_C, OLD) } })).id;
 }, 30000);
 afterAll(async () => {
   await cleanup();

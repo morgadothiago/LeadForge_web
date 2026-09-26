@@ -4,7 +4,8 @@ import { withSerializableRetry } from "@/lib/db/tx-conflict";
 import { revalidatePath } from "next/cache";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { requireUser } from "@/lib/auth/require-user";
+import { requireProviderOrg } from "@/lib/auth/require-admin";
+import { scopedPrisma } from "@/lib/tenant/scoped-prisma";
 import { runMoveOpportunity, type MoveResult } from "@/lib/domain/move-opportunity";
 import { isSuppressed } from "@/lib/domain/suppression";
 import { createLeadCore } from "@/lib/domain/lead-create";
@@ -61,12 +62,12 @@ async function checkDuplicates(
 /** Cria lead + Opportunity `novo_lead` (fim da coluna) + StageHistory, numa transação. */
 export async function createLead(input: unknown): Promise<ActionResult<{ id: string; opportunityId: string; suppressed?: boolean }>> {
   return safeAction(async () => {
-    await requireUser();
+    const { orgId } = await requireProviderOrg();
     const parsed = createLeadSchema.safeParse(input);
     if (!parsed.success) return failure(zodErrors(parsed.error));
     const d = parsed.data;
-    const campaign = await prisma.campaign.findUnique({ where: { id: d.campaignId }, select: { id: true } });
-    if (!campaign) return failure({ campaignId: ["Campanha não encontrada."] });
+    const campaign = await prisma.campaign.findUnique({ where: { id: d.campaignId }, select: { id: true, orgId: true } });
+    if (!campaign || campaign.orgId !== orgId) return failure({ campaignId: ["Campanha não encontrada."] });
     const dup = await checkDuplicates(d.campaignId, d.email, d.phone);
     if (dup) return failure(dup);
     try {
@@ -84,7 +85,7 @@ export async function createLead(input: unknown): Promise<ActionResult<{ id: str
       });
       revalidate(out.id);
       // SPEC-017: cria mesmo suprimido (o lead existe para histórico), mas todos os envios ficam bloqueados; aviso via `suppressed`.
-      return success({ ...out, suppressed: await isSuppressed({ email: d.email, phone: d.phone }) });
+      return success({ ...out, suppressed: await isSuppressed({ email: d.email, phone: d.phone }, orgId) });
     } catch (e) {
       const dupErr = duplicateErrors(e);
       if (dupErr) return failure(dupErr);
@@ -96,12 +97,12 @@ export async function createLead(input: unknown): Promise<ActionResult<{ id: str
 /** Atualização parcial (campo ausente = inalterado; null/"" limpa). Campanha imutável (D6). */
 export async function updateLead(input: unknown): Promise<ActionResult<{ id: string; suppressed?: boolean }>> {
   return safeAction(async () => {
-    await requireUser();
+    const { orgId } = await requireProviderOrg();
     const parsed = updateLeadSchema.safeParse(input);
     if (!parsed.success) return failure(zodErrors(parsed.error));
     const { leadId, ...d } = parsed.data;
-    const current = await prisma.lead.findUnique({ where: { id: leadId }, select: { campaignId: true, email: true, phone: true } });
-    if (!current) return formError("Lead não encontrado.");
+    const current = await prisma.lead.findUnique({ where: { id: leadId }, select: { campaignId: true, email: true, phone: true, campaign: { select: { orgId: true } } } });
+    if (!current || current.campaign.orgId !== orgId) return formError("Lead não encontrado.");
     const finalEmail = d.email !== undefined ? d.email : current.email;
     const finalPhone = d.phone !== undefined ? d.phone : current.phone;
     if (!finalEmail && !finalPhone) return failure({ email: [MIN_CONTACT_MSG] });
@@ -120,19 +121,19 @@ export async function updateLead(input: unknown): Promise<ActionResult<{ id: str
       throw e;
     }
     revalidate(leadId);
-    return success({ id: leadId, suppressed: await isSuppressed({ email: finalEmail, phone: finalPhone }) });
+    return success({ id: leadId, suppressed: await isSuppressed({ email: finalEmail, phone: finalPhone }, orgId) });
   });
 }
 
 /** Normaliza (trim/minúsculas/espaços), ignora duplicata (idempotente) e limita a MAX_TAGS por lead. */
 export async function addTag(input: unknown): Promise<ActionResult<{ tags: string[] }>> {
   return safeAction(async () => {
-    await requireUser();
+    const { orgId } = await requireProviderOrg();
     const parsed = tagSchema.safeParse(input);
     if (!parsed.success) return failure(zodErrors(parsed.error));
     const { leadId, tag } = parsed.data;
     const tags = await withSerializableRetry(() => prisma.$transaction(async (tx) => {
-      const lead = await tx.lead.findUnique({ where: { id: leadId }, select: { tags: true } });
+      const lead = await tx.lead.findFirst({ where: { id: leadId, campaign: { orgId } }, select: { tags: true } });
       if (!lead) return null;
       if (lead.tags.includes(tag)) return { tags: lead.tags, error: null };
       if (lead.tags.length >= MAX_TAGS) return { tags: lead.tags, error: `Limite de ${MAX_TAGS} tags por lead atingido.` };
@@ -149,12 +150,12 @@ export async function addTag(input: unknown): Promise<ActionResult<{ tags: strin
 
 export async function removeTag(input: unknown): Promise<ActionResult<{ tags: string[] }>> {
   return safeAction(async () => {
-    await requireUser();
+    const { orgId } = await requireProviderOrg();
     const parsed = tagSchema.safeParse(input);
     if (!parsed.success) return failure(zodErrors(parsed.error));
     const { leadId, tag } = parsed.data;
     const tags = await withSerializableRetry(() => prisma.$transaction(async (tx) => {
-      const lead = await tx.lead.findUnique({ where: { id: leadId }, select: { tags: true } });
+      const lead = await tx.lead.findFirst({ where: { id: leadId, campaign: { orgId } }, select: { tags: true } });
       if (!lead) return null;
       const next = lead.tags.filter((t) => t !== tag);
       if (next.length !== lead.tags.length) await tx.lead.update({ where: { id: leadId }, data: { tags: next } });
@@ -168,10 +169,10 @@ export async function removeTag(input: unknown): Promise<ActionResult<{ tags: st
 
 export async function addNote(input: unknown): Promise<ActionResult<{ id: string }>> {
   return safeAction(async () => {
-    await requireUser();
+    const { orgId } = await requireProviderOrg();
     const parsed = noteSchema.safeParse(input);
     if (!parsed.success) return failure(zodErrors(parsed.error));
-    const lead = await prisma.lead.findUnique({ where: { id: parsed.data.leadId }, select: { id: true } });
+    const lead = await prisma.lead.findFirst({ where: { id: parsed.data.leadId, campaign: { orgId } }, select: { id: true } });
     if (!lead) return formError("Lead não encontrado.");
     const note = await prisma.leadNote.create({ data: parsed.data, select: { id: true } });
     revalidate(lead.id);
@@ -181,10 +182,13 @@ export async function addNote(input: unknown): Promise<ActionResult<{ id: string
 
 export async function deleteNote(input: unknown): Promise<ActionResult<{ id: string }>> {
   return safeAction(async () => {
-    await requireUser();
+    const { orgId } = await requireProviderOrg();
     const parsed = deleteNoteSchema.safeParse(input);
     if (!parsed.success) return failure(zodErrors(parsed.error));
-    const note = await prisma.leadNote.delete({ where: { id: parsed.data.noteId }, select: { id: true, leadId: true } });
+    // SPEC-030: LeadNote é indireto (via lead->campaign) — confere a org antes de excluir.
+    const existing = await prisma.leadNote.findFirst({ where: { id: parsed.data.noteId, lead: { campaign: { orgId } } }, select: { id: true } });
+    if (!existing) return formError("Nota não encontrada.");
+    const note = await prisma.leadNote.delete({ where: { id: existing.id }, select: { id: true, leadId: true } });
     revalidate(note.leadId);
     return success({ id: note.id });
   });
@@ -193,11 +197,12 @@ export async function deleteNote(input: unknown): Promise<ActionResult<{ id: str
 /** Reusa o núcleo transacional de moveOpportunity (StageHistory, lostReason, encerramento de sequência). Vai ao fim da coluna destino. */
 export async function moveLeadStage(input: unknown): Promise<ActionResult<MoveResult>> {
   return safeAction(async () => {
-    await requireUser();
+    const { orgId } = await requireProviderOrg();
     const parsed = moveLeadStageSchema.safeParse(input);
     if (!parsed.success) return failure(zodErrors(parsed.error));
     const { leadId, toStage, lostReason } = parsed.data;
-    const opp = await prisma.opportunity.findFirst({
+    // SPEC-030: `opportunity` é indireto (via campaign) — usa scopedPrisma para nunca mover oportunidade de outra org.
+    const opp = await scopedPrisma(orgId).opportunity.findFirst({
       where: { leadId },
       select: { id: true, campaignId: true },
     });
@@ -222,14 +227,14 @@ export async function moveLeadStage(input: unknown): Promise<ActionResult<MoveRe
  */
 export async function deleteLead(id: unknown): Promise<ActionResult<{ id: string }>> {
   return safeAction(async () => {
-    await requireUser();
+    const { orgId } = await requireProviderOrg();
     const parsed = leadIdSchema.safeParse(id);
     if (!parsed.success) return formError("Lead inválido.");
     const leadId = parsed.data;
     try {
       const outcome = await withSerializableRetry(() => prisma.$transaction(
         async (tx) => {
-          const lead = await tx.lead.findUnique({ where: { id: leadId }, select: { id: true } });
+          const lead = await tx.lead.findFirst({ where: { id: leadId, campaign: { orgId } }, select: { id: true } });
           if (!lead) return "not_found" as const;
           const [touches, meetings] = await Promise.all([
             tx.touch.count({

@@ -10,12 +10,13 @@ export function DropdownMenuContent({
   className,
   sideOffset = 6,
   align = "end",
+  side,
   children,
   ...props
-}: Menu.Popup.Props & { sideOffset?: number; align?: "start" | "center" | "end" }) {
+}: Menu.Popup.Props & { sideOffset?: number; align?: "start" | "center" | "end"; side?: "top" | "bottom" | "left" | "right" }) {
   return (
     <Menu.Portal>
-      <Menu.Positioner sideOffset={sideOffset} align={align} className="z-50">
+      <Menu.Positioner sideOffset={sideOffset} align={align} side={side} className="z-50">
         <Menu.Popup
           className={cn(
             "min-w-40 rounded-lg border border-border bg-popover p-1 text-popover-foreground shadow-xl outline-none transition-all duration-150 data-[ending-style]:scale-95 data-[ending-style]:opacity-0 data-[starting-style]:scale-95 data-[starting-style]:opacity-0",

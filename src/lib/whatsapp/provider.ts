@@ -98,10 +98,10 @@ export interface ProviderFactoryOptions {
 class ResolvedEvolutionProvider implements WhatsAppProvider {
   /** parseWebhook/verifyWebhook não fazem rede: independem de configuração. */
   private static readonly offline = new EvolutionProvider({ baseURL: "http://unused.invalid", apiKey: "unused" });
-  constructor(private readonly opts: ProviderFactoryOptions) {}
+  constructor(private readonly orgId: string, private readonly opts: ProviderFactoryOptions) {}
 
   private async inner(): Promise<EvolutionProvider> {
-    const cfg = await getIntegrationConfig("evolution");
+    const cfg = await getIntegrationConfig(this.orgId, "evolution");
     const baseURL = cfg.baseUrl;
     if (!baseURL) throw new AppError({ code: "config", userMessage: "Evolution API sem URL configurada. Cadastre em Configurações > Integrações." });
     const common = { timeout: this.opts.timeoutMs, retry: this.opts.retry };
@@ -132,10 +132,10 @@ class ResolvedEvolutionProvider implements WhatsAppProvider {
  * A configuração (URL/chave) vem do resolvedor de integrações (banco -> fallback .env) e é lida na PRIMEIRA chamada de cada método:
  * a falta de configuração aparece como AppError `config` na chamada, não na construção.
  */
-export function getWhatsAppProvider(kind: WhatsAppProviderKind, opts: ProviderFactoryOptions = {}): WhatsAppProvider {
+export function getWhatsAppProvider(orgId: string, kind: WhatsAppProviderKind, opts: ProviderFactoryOptions = {}): WhatsAppProvider {
   switch (kind) {
     case "evolution":
-      return new ResolvedEvolutionProvider(opts);
+      return new ResolvedEvolutionProvider(orgId, opts);
     default:
       throw new AppError({ code: "config", userMessage: "Provider de WhatsApp não suportado." });
   }

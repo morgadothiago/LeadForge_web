@@ -55,9 +55,9 @@ interface OppRef { id: string; stage: Stage }
  * move a Opportunity para `perdido` ("Opt-out por WhatsApp"). Estágio `fechado`/`perdido` não é movido (não sobrescreve venda nem motivo existente).
  */
 export async function applyOptOut(tx: Prisma.TransactionClient, leadId: string, opp: OppRef | null, now: Date, reason: SuppressionReason = "opt_out_reply"): Promise<boolean> {
-  // SPEC-017: supressão GLOBAL (telefone + e-mail do lead), vale para outras campanhas.
-  const contact = await tx.lead.findUnique({ where: { id: leadId }, select: { email: true, phone: true } });
-  if (contact) await addSuppression(tx, { ...contact, reason, leadId });
+  // SPEC-017/030: supressão por-org (telefone + e-mail do lead), vale para outras campanhas DA MESMA org.
+  const contact = await tx.lead.findUnique({ where: { id: leadId }, select: { email: true, phone: true, campaign: { select: { orgId: true } } } });
+  if (contact) await addSuppression(tx, contact.campaign.orgId, { email: contact.email, phone: contact.phone, reason, leadId });
   await tx.lead.updateMany({ where: { id: leadId, optedOutAt: null }, data: { optedOutAt: now } });
   await tx.lead.update({ where: { id: leadId }, data: { sequenceStatus: "opted_out", possibleOptOut: false, nextTouchAt: null } });
   await tx.touch.updateMany({ where: { leadId, status: { in: ["pending", "scheduled"] } }, data: { status: "skipped" } });
@@ -69,9 +69,10 @@ export async function applyOptOut(tx: Prisma.TransactionClient, leadId: string, 
 }
 
 /** Transacional (o chamador abre a $transaction Serializable e trata conflito via withSerializableRetry). Sem chamadas externas. */
-export async function processInbound(tx: Prisma.TransactionClient, instance: { id: string }, msg: InboundInput, now: Date): Promise<InboundOutcome> {
+export async function processInbound(tx: Prisma.TransactionClient, instance: { id: string; orgId: string }, msg: InboundInput, now: Date): Promise<InboundOutcome> {
+  // SPEC-030: o mesmo telefone pode existir em orgs diferentes — nunca cruzar (a instância pertence a 1 org só).
   const rows = await tx.lead.findMany({
-    where: { phone: msg.from },
+    where: { phone: msg.from, campaign: { orgId: instance.orgId } },
     select: {
       id: true, createdAt: true, sequenceStatus: true, optedOutAt: true,
       campaign: { select: { whatsappInstanceId: true } },
@@ -116,8 +117,8 @@ export async function processInbound(tx: Prisma.TransactionClient, instance: { i
   await tx.touch.updateMany({ where: { leadId: lead.id, status: { in: ["pending", "scheduled"] } }, data: { status: "skipped" } });
   // SPEC-019: resposta comum enfileira tarefa do Closer (só INSERT; o LLM roda depois, fora do webhook). Opt-out/recusa nunca chegam aqui.
   if (kind === "reply") {
-    const s = await tx.agentSettings.findUnique({ where: { id: "global" } });
-    const closer = s?.killSwitch === false ? await tx.agent.findFirst({ where: { role: "closer", active: true }, select: { id: true }, orderBy: { createdAt: "asc" } }) : null;
+    const s = await tx.agentSettings.findUnique({ where: { orgId: instance.orgId } });
+    const closer = s?.killSwitch === false ? await tx.agent.findFirst({ where: { orgId: instance.orgId, role: "closer", active: true }, select: { id: true }, orderBy: { createdAt: "asc" } }) : null;
     if (closer) await tx.agentRun.create({ data: { agentId: closer.id, leadId: lead.id, trigger: `inbound:${msg.externalId}`.slice(0, 120), status: "queued" } });
   }
   let stageChanged = false;

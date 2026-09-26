@@ -5,9 +5,11 @@ import { AppError, safeErrorForLog } from "@/lib/errors";
 import { INTEGRATION_LABEL, type IntegrationKindName, type IntegrationOrigin } from "./types";
 
 /**
- * Resolvedor único de configuração de integração (SPEC-018): banco (decifrado só em memória) -> fallback `.env` (só evolution).
+ * Resolvedor único de configuração de integração (SPEC-018, por-org desde SPEC-030): banco (decifrado só
+ * em memória, por Organization) -> fallback `.env` (só evolution — compartilhado por toda a instalação,
+ * não é por-org; ver Riscos SPEC-030 sobre esse caso de fronteira multi-tenant/self-host).
  * O valor NUNCA é logado nem serializado: `IntegrationConfig` esconde o segredo em toJSON/inspect; leia via `reveal()` só para montar
- * o cliente HTTP. Cache curto POR PROCESSO (TTL); salvar/remover invalida o do processo atual (outros processos: até o TTL).
+ * o cliente HTTP. Cache curto POR PROCESSO (TTL, chave inclui orgId); salvar/remover invalida o do processo atual (outros processos: até o TTL).
  */
 export const CACHE_TTL_MS = 30_000;
 
@@ -38,10 +40,10 @@ export class IntegrationConfig {
 type CacheEntry = { at: number; cfg: IntegrationConfig | null };
 const cache = new Map<string, CacheEntry>();
 let ttlMs = CACHE_TTL_MS;
-const keyOf = (i: IntegrationKindName, n: string) => `${i}:${n}`;
+const keyOf = (orgId: string, i: IntegrationKindName, n: string) => `${orgId}:${i}:${n}`;
 
-export function invalidateIntegrationCache(integration?: IntegrationKindName, name?: string): void {
-  if (integration && name) cache.delete(keyOf(integration, name));
+export function invalidateIntegrationCache(orgId?: string, integration?: IntegrationKindName, name?: string): void {
+  if (orgId && integration && name) cache.delete(keyOf(orgId, integration, name));
   else cache.clear();
 }
 /** Só testes. */
@@ -58,11 +60,11 @@ function fromEnv(integration: IntegrationKindName, name: string): IntegrationCon
   return new IntegrationConfig("evolution", "default", "env", key, baseUrl, true);
 }
 
-async function fromDb(integration: IntegrationKindName, name: string): Promise<IntegrationConfig | null> {
-  const hit = cache.get(keyOf(integration, name));
+async function fromDb(orgId: string, integration: IntegrationKindName, name: string): Promise<IntegrationConfig | null> {
+  const hit = cache.get(keyOf(orgId, integration, name));
   if (hit && Date.now() - hit.at < ttlMs) return hit.cfg;
   const row = await prisma.integrationSecret.findUnique({
-    where: { integration_name: { integration, name } },
+    where: { orgId_integration_name: { orgId, integration, name } },
     select: { encryptedValue: true, baseUrl: true, allowPrivateHost: true },
   });
   let cfg: IntegrationConfig | null = null;
@@ -74,17 +76,17 @@ async function fromDb(integration: IntegrationKindName, name: string): Promise<I
       throw new AppError({ code: "config", userMessage: `Não foi possível decifrar a chave de ${INTEGRATION_LABEL[integration]}. Cadastre-a novamente em Configurações > Integrações.` });
     }
   }
-  cache.set(keyOf(integration, name), { at: Date.now(), cfg });
+  cache.set(keyOf(orgId, integration, name), { at: Date.now(), cfg });
   return cfg;
 }
 
 /** null = não configurada (nem banco, nem env). */
-export async function findIntegrationConfig(integration: IntegrationKindName, name = "default"): Promise<IntegrationConfig | null> {
-  return (await fromDb(integration, name)) ?? fromEnv(integration, name);
+export async function findIntegrationConfig(orgId: string, integration: IntegrationKindName, name = "default"): Promise<IntegrationConfig | null> {
+  return (await fromDb(orgId, integration, name)) ?? fromEnv(integration, name);
 }
 
-export async function getIntegrationConfig(integration: IntegrationKindName, name = "default"): Promise<IntegrationConfig> {
-  const cfg = await findIntegrationConfig(integration, name);
+export async function getIntegrationConfig(orgId: string, integration: IntegrationKindName, name = "default"): Promise<IntegrationConfig> {
+  const cfg = await findIntegrationConfig(orgId, integration, name);
   if (!cfg) {
     throw new AppError({
       code: "config",
@@ -95,8 +97,8 @@ export async function getIntegrationConfig(integration: IntegrationKindName, nam
 }
 
 /** Origem efetiva sem decifrar nada (para listagem). */
-export async function integrationOrigin(integration: IntegrationKindName, name = "default"): Promise<IntegrationOrigin> {
-  const n = await prisma.integrationSecret.count({ where: { integration, name } });
+export async function integrationOrigin(orgId: string, integration: IntegrationKindName, name = "default"): Promise<IntegrationOrigin> {
+  const n = await prisma.integrationSecret.count({ where: { orgId, integration, name } });
   if (n) return "db";
   return fromEnv(integration, name) ? "env" : "none";
 }

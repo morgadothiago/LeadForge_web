@@ -47,6 +47,7 @@ let campB = "";
 let stepId = "";
 let userId = "";
 let instId = "";
+let orgId = "";
 let n = 0;
 const base = 10000000 + (Date.now() % 80000000);
 const phones: string[] = [];
@@ -78,14 +79,15 @@ beforeAll(async () => {
   const user = await prisma.user.findFirstOrThrow({ where: { email: "admin@leadforge.local" } });
   userId = user.id;
   const icp = await prisma.icpProfile.findFirstOrThrow();
-  const seq = await prisma.sequence.create({ data: { name: TAG } });
-  instId = (await prisma.whatsAppInstance.create({ data: { instanceName: TAG, number: "+5511999990017", webhookToken: randomBytes(32).toString("base64url"), status: "connected", warmupStartedAt: OLD_WARMUP } })).id;
-  campA = (await prisma.campaign.create({ data: { name: `${TAG}-A`, userId, icpId: icp.id, sequenceId: seq.id, whatsappInstanceId: instId } })).id;
-  campB = (await prisma.campaign.create({ data: { name: `${TAG}-B`, userId, icpId: icp.id, sequenceId: seq.id, whatsappInstanceId: instId } })).id;
-  const tpl = await prisma.messageTemplate.create({ data: { campaignId: campA, channel: "whatsapp", name: TAG, body: "{Oi|Olá|E aí} {{firstName}} da {{company}}" } });
+  orgId = icp.orgId;
+  const seq = await prisma.sequence.create({ data: { name: TAG, orgId: icp.orgId } });
+  instId = (await prisma.whatsAppInstance.create({ data: { orgId: icp.orgId, instanceName: TAG, number: "+5511999990017", webhookToken: randomBytes(32).toString("base64url"), status: "connected", warmupStartedAt: OLD_WARMUP } })).id;
+  campA = (await prisma.campaign.create({ data: { name: `${TAG}-A`, userId, icpId: icp.id, orgId: icp.orgId, sequenceId: seq.id, whatsappInstanceId: instId } })).id;
+  campB = (await prisma.campaign.create({ data: { name: `${TAG}-B`, userId, icpId: icp.id, orgId: icp.orgId, sequenceId: seq.id, whatsappInstanceId: instId } })).id;
+  const tpl = await prisma.messageTemplate.create({ data: { campaignId: campA, orgId: icp.orgId, channel: "whatsapp", name: TAG, body: "{Oi|Olá|E aí} {{firstName}} da {{company}}" } });
   stepId = (await prisma.sequenceStep.create({ data: { sequenceId: seq.id, day: 0, channel: "whatsapp", templateId: tpl.id, order: 1 } })).id;
-  await prisma.emailAccount.create({ data: { userId, provider: "smtp", smtpHost: "smtp.interno.local", email: `a1@${TAG}.com`, encryptedPassword: encrypt("x"), dailyLimit: 1000 } });
-  const etpl = await prisma.messageTemplate.create({ data: { campaignId: campA, channel: "email", name: `${TAG}-e`, subject: "Oi", body: "Olá {{name}}" } });
+  await prisma.emailAccount.create({ data: { orgId: icp.orgId, userId, provider: "smtp", smtpHost: "smtp.interno.local", email: `a1@${TAG}.com`, encryptedPassword: encrypt("x"), dailyLimit: 1000 } });
+  const etpl = await prisma.messageTemplate.create({ data: { campaignId: campA, orgId: icp.orgId, channel: "email", name: `${TAG}-e`, subject: "Oi", body: "Olá {{name}}" } });
   await prisma.sequenceStep.create({ data: { sequenceId: seq.id, day: 1, channel: "email", templateId: etpl.id, order: 2 } });
 }, 30000);
 
@@ -110,7 +112,7 @@ describe("supressão global: bloqueia envio", () => {
     await reset();
     const fake = new FakeWhatsAppProvider();
     const lead = await mkLead();
-    await addSuppression(undefined, { phone: lead.phone, reason: "manual" });
+    await addSuppression(undefined, orgId, { phone: lead.phone, reason: "manual" });
     const t = await mkTouch(lead.id);
     expect(await sendWhatsApp(t.id, { now: WED, provider: fake })).toMatchObject({ status: "skipped", reason: "suppressed" });
     expect(fake.sent).toHaveLength(0);
@@ -121,14 +123,14 @@ describe("supressão global: bloqueia envio", () => {
     await reset();
     const fake = new FakeWhatsAppProvider();
     const lead = await mkLead();
-    await addSuppression(undefined, { email: lead.email!.toUpperCase(), reason: "bounce" });
+    await addSuppression(undefined, orgId, { email: lead.email!.toUpperCase(), reason: "bounce" });
     const t = await mkTouch(lead.id);
     expect(await sendWhatsApp(t.id, { now: WED, provider: fake })).toMatchObject({ status: "skipped", reason: "suppressed" });
     expect(fake.sent).toHaveLength(0);
   });
   it("E-mail: suprimido -> skipped 'suprimido', transport NÃO é chamado", async () => {
     const lead = await mkLead();
-    await addSuppression(undefined, { email: lead.email, reason: "opt_out_manual" });
+    await addSuppression(undefined, orgId, { email: lead.email, reason: "opt_out_manual" });
     const step = await emailStep();
     const t = await prisma.touch.create({ data: { leadId: lead.id, channel: "email", stepId: step.id, status: "scheduled" } });
     const { t: tr, spy } = spyTransport();
@@ -138,16 +140,16 @@ describe("supressão global: bloqueia envio", () => {
   });
   it("isSuppressed normaliza (e-mail caixa alta/espaços; telefone com máscara) e removeSuppression libera", async () => {
     const e = `Norm@${TAG}.com`;
-    await addSuppression(undefined, { email: e, reason: "manual" });
-    await addSuppression(undefined, { email: e, reason: "bounce" }); // idempotente
+    await addSuppression(undefined, orgId, { email: e, reason: "manual" });
+    await addSuppression(undefined, orgId, { email: e, reason: "bounce" }); // idempotente
     expect(await prisma.suppression.count({ where: { value: `norm@${TAG}.com` } })).toBe(1);
     expect((await prisma.suppression.findFirstOrThrow({ where: { value: `norm@${TAG}.com` } })).reason).toBe("manual");
-    expect(await isSuppressed({ email: `  NORM@${TAG}.COM ` })).toBe(true);
-    expect(await removeSuppression(undefined, { email: e })).toBe(1);
-    expect(await findSuppression({ email: e })).toBeNull();
+    expect(await isSuppressed({ email: `  NORM@${TAG}.COM ` }, orgId)).toBe(true);
+    expect(await removeSuppression(undefined, orgId, { email: e })).toBe(1);
+    expect(await findSuppression({ email: e }, orgId)).toBeNull();
     const p = newPhone();
-    await addSuppression(undefined, { phone: p, reason: "manual" });
-    expect(await isSuppressed({ phone: `(${p.slice(3, 5)}) ${p.slice(5, 10)}-${p.slice(10)}` })).toBe(true);
+    await addSuppression(undefined, orgId, { phone: p, reason: "manual" });
+    expect(await isSuppressed({ phone: `(${p.slice(3, 5)}) ${p.slice(5, 10)}-${p.slice(10)}` }, orgId)).toBe(true);
   });
 });
 
@@ -156,7 +158,7 @@ describe("supressão global: toda origem de opt-out grava e vale para OUTRA camp
     await reset();
     const a = await mkLead(campA);
     await prisma.opportunity.create({ data: { leadId: a.id, campaignId: campA, stage: "contactado" } });
-    await prisma.$transaction((tx) => processInbound(tx, { id: instId }, { from: a.phone!, text: "PARAR", externalId: `${TAG}-in1`, timestamp: WED }, WED));
+    await prisma.$transaction((tx) => processInbound(tx, { id: instId, orgId }, { from: a.phone!, text: "PARAR", externalId: `${TAG}-in1`, timestamp: WED }, WED));
     const sup = await prisma.suppression.findMany({ where: { OR: [{ value: a.phone! }, { value: a.email! }] } });
     expect(sup.map((s) => s.kind).sort()).toEqual(["email", "phone"]);
     expect(new Set(sup.map((s) => s.reason))).toEqual(new Set(["opt_out_reply"]));
@@ -206,14 +208,14 @@ describe("supressão global: toda origem de opt-out grava e vale para OUTRA camp
     expect(await removeFromSuppression({ id: row.id, reason: `${TAG} curto` })).toMatchObject({ ok: false }); // sem confirmação
     expect(await removeFromSuppression({ id: row.id, reason: "x", confirm: true })).toMatchObject({ ok: false }); // motivo curto
     expect(await removeFromSuppression({ id: row.id, reason: `${TAG} cliente pediu para voltar`, confirm: true })).toMatchObject({ ok: true });
-    expect(await isSuppressed({ email: solto })).toBe(false);
+    expect(await isSuppressed({ email: solto }, orgId)).toBe(false);
     const ev = await prisma.webhookEvent.findFirst({ where: { source: "suppression", payload: { path: ["reason"], string_contains: TAG } } });
     expect(ev?.payload).toMatchObject({ action: "removed", kind: "email", originalReason: "bounce" });
     expect(JSON.stringify(ev?.payload)).not.toContain(solto);
   });
   it("createLead/updateLead: cria mesmo suprimido, com suppressed: true aditivo", async () => {
     const email = `criar@${TAG}.com`;
-    await addSuppression(undefined, { email, reason: "manual" });
+    await addSuppression(undefined, orgId, { email, reason: "manual" });
     const r = await createLead({ campaignId: campB, name: "Suprimida", email });
     expect(r).toMatchObject({ ok: true, data: { suppressed: true } });
     const ok = await createLead({ campaignId: campA, name: "Livre", email: `livre2@${TAG}.com` });
@@ -605,7 +607,7 @@ describe("invariante: nenhuma resposta automática ao lead", () => {
   it("suprimido: consulta ANTES da reserva (Touch nunca vira sending; failed também vira skipped)", async () => {
     await reset();
     const lead = await mkLead(campA);
-    await addSuppression(undefined, { phone: lead.phone, reason: "manual" });
+    await addSuppression(undefined, orgId, { phone: lead.phone, reason: "manual" });
     const fake = new FakeWhatsAppProvider();
     const t = await mkTouch(lead.id, { status: "failed", error: "instabilidade" });
     expect(await sendWhatsApp(t.id, { now: WED, provider: fake, rng: () => 0 })).toEqual({ status: "skipped", reason: "suppressed" });
@@ -620,12 +622,20 @@ describe("invariante: nenhuma resposta automática ao lead", () => {
     expect(cur.optedOutAt).toBeNull();
     expect(cur.sequenceStatus).not.toBe("opted_out");
     expect(await unsubscribeLead(lead.id)).toBe(true);
-    expect(await isSuppressed({ email: lead.email })).toBe(true);
+    expect(await isSuppressed({ email: lead.email }, orgId)).toBe(true);
   });
   it("backfill complementar (SQL da migration 200000): normaliza telefone e cobre opted_out sem optedOutAt; idempotente", async () => {
     const lead = await mkLead(campA, { phone: "(11) 9 8123-4567" , sequenceStatus: "opted_out", email: `bf@${TAG}.com` });
+    // SPEC-030 mudou o unique de Suppression de (kind, value) para (orgId, kind, value) e orgId passou a ser
+    // NOT NULL — a migration histórica (imutável, já aplicada em produção com o schema de então) não pode ser
+    // editada; aqui replicamos a MESMA lógica de backfill adaptada ao schema atual, só para validar que o
+    // comportamento (normalização + idempotência) continua correto pós-030, não o arquivo .sql verbatim.
     const sql = readFileSync(path.resolve(process.cwd(), "prisma/migrations/20260919200000_disconnected_at_backfill_fix/migration.sql"), "utf8")
-      .split("\n").filter((l) => !l.startsWith("--") && !l.startsWith("ALTER") && !l.startsWith("-- AlterTable")).join("\n");
+      .split("\n").filter((l) => !l.startsWith("--") && !l.startsWith("ALTER") && !l.startsWith("-- AlterTable")).join("\n")
+      .replaceAll('INSERT INTO "Suppression" ("id", "kind"', `INSERT INTO "Suppression" ("id", "orgId", "kind"`)
+      .replaceAll('gen_random_uuid()::text, \'phone\'', `gen_random_uuid()::text, '${orgId}', 'phone'`)
+      .replaceAll('gen_random_uuid()::text, \'email\'', `gen_random_uuid()::text, '${orgId}', 'email'`)
+      .replaceAll('ON CONFLICT ("kind", "value")', 'ON CONFLICT ("orgId", "kind", "value")');
     for (let i = 0; i < 2; i++) for (const stmt of sql.split(/;\s*\n/).map((x) => x.trim()).filter(Boolean)) await prisma.$executeRawUnsafe(stmt);
     expect(await prisma.suppression.count({ where: { kind: "phone", value: "+5511981234567" } })).toBe(1);
     expect(await prisma.suppression.count({ where: { kind: "email", value: `bf@${TAG}.com` } })).toBe(1);

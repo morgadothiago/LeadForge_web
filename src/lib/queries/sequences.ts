@@ -1,6 +1,6 @@
 import type { Channel } from "@prisma/client";
-import { prisma } from "@/lib/prisma";
-import { requireUser } from "@/lib/auth/require-user";
+import { requireProviderOrg } from "@/lib/auth/require-admin";
+import { scopedPrisma } from "@/lib/tenant/scoped-prisma";
 import { renderTemplate, type RenderResult, type TemplateVars } from "@/lib/templates/render";
 
 export interface SequenceListItem {
@@ -14,8 +14,8 @@ export interface SequenceListItem {
 }
 
 export async function listSequences(): Promise<SequenceListItem[]> {
-  await requireUser();
-  const rows = await prisma.sequence.findMany({
+  const { orgId } = await requireProviderOrg();
+  const rows = await scopedPrisma(orgId).sequence.findMany({
     orderBy: { createdAt: "desc" },
     select: {
       id: true,
@@ -25,14 +25,14 @@ export async function listSequences(): Promise<SequenceListItem[]> {
       campaigns: { select: { status: true } },
     },
   });
-  return rows.map((r) => ({
+  return rows.map((r: (typeof rows)[number]) => ({
     id: r.id,
     name: r.name,
     createdAt: r.createdAt,
     stepCount: r.steps.length,
-    days: r.steps.map((s) => s.day),
+    days: r.steps.map((s: { day: number }) => s.day),
     campaignCount: r.campaigns.length,
-    activeCampaignCount: r.campaigns.filter((c) => c.status === "active").length,
+    activeCampaignCount: r.campaigns.filter((c: { status: string }) => c.status === "active").length,
   }));
 }
 
@@ -50,8 +50,8 @@ export interface SequenceDetail {
 }
 
 export async function getSequence(id: string): Promise<SequenceDetail | null> {
-  await requireUser();
-  return prisma.sequence.findUnique({
+  const { orgId } = await requireProviderOrg();
+  return scopedPrisma(orgId).sequence.findUnique({
     where: { id },
     select: {
       id: true,
@@ -83,13 +83,13 @@ export interface TemplateListItem {
 }
 
 export async function listTemplates(campaignId: string, channel?: Channel): Promise<TemplateListItem[]> {
-  await requireUser();
-  const rows = await prisma.messageTemplate.findMany({
+  const { orgId } = await requireProviderOrg();
+  const rows = await scopedPrisma(orgId).messageTemplate.findMany({
     where: { campaignId, ...(channel ? { channel } : {}) },
     orderBy: { createdAt: "asc" },
     include: { _count: { select: { steps: true } } },
   });
-  return rows.map(({ _count, ...t }) => ({ ...t, usedInSteps: _count.steps }));
+  return rows.map(({ _count, ...t }: { _count: { steps: number } } & Omit<TemplateListItem, "usedInSteps">) => ({ ...t, usedInSteps: _count.steps }));
 }
 
 export const SAMPLE_LEAD: Required<TemplateVars> = {
@@ -112,11 +112,11 @@ export interface StepPreview {
 
 /** Preview server-side por step (uma query). Lead de exemplo por padrão; `lead` real opcional. */
 export async function previewSequence(id: string, lead: TemplateVars = SAMPLE_LEAD): Promise<StepPreview[] | null> {
-  await requireUser();
+  await requireProviderOrg(); // getSequence() já escopa por org; guard explícito aqui por defesa em profundidade.
   const seq = await getSequence(id);
   if (!seq) return null;
   const vars: TemplateVars = { ...lead, firstName: lead.firstName ?? lead.name?.split(/\s+/)[0] };
-  return seq.steps.map((s) => ({
+  return seq.steps.map((s: SequenceDetail["steps"][number]) => ({
     stepId: s.id,
     order: s.order,
     day: s.day,

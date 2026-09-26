@@ -86,21 +86,81 @@ enum InstanceHealth {
   paused
 }
 
+/// SPEC-030: status do tenant. `active` = opera normal. `suspended`/`cancelled` = cron nao dispara touches/busca de leads (gate minimo de billing; estados de assinatura mapeiam aqui, ver SPEC-033).
+enum OrgStatus {
+  active
+  suspended
+  cancelled
+}
+
+/// SPEC-030: papel do usuario DENTRO do tenant (nao confundir com User.role, que e papel de PLATAFORMA).
+enum OrgRole {
+  owner
+  member
+}
+
+/// SPEC-030: tenant (assinante/"Provider"). Unidade de isolamento de dados e de cobranca (ver SPEC-033).
+model Organization {
+  id        String    @id @default(uuid())
+  name      String
+  slug      String    @unique
+  status    OrgStatus @default(active)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  memberships          Membership[]
+  campaigns            Campaign[]
+  whatsappInstances    WhatsAppInstance[]
+  emailAccounts        EmailAccount[]
+  suppressions         Suppression[]
+  schedulerRuns        SchedulerRun[]
+  integrationSecrets   IntegrationSecret[]
+  integrationAuditLogs IntegrationAuditLog[]
+  agentSettings        AgentSettings?
+  meetingSettings      MeetingSettings?
+  agents               Agent[]
+  knowledgeDocuments   KnowledgeDocument[]
+  webhookEvents        WebhookEvent[]
+  icpProfiles          IcpProfile[]
+  sequences            Sequence[]
+  messageTemplates     MessageTemplate[]
+
+  @@index([status])
+}
+
+/// SPEC-030: liga User a Organization com papel dentro do tenant. N:N no schema (hoje so 1 membro/org na pratica; convite multi-membro e SPEC futura, D-30-4).
+model Membership {
+  id        String       @id @default(uuid())
+  userId    String
+  user      User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  orgId     String
+  org       Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  orgRole   OrgRole      @default(owner)
+  createdAt DateTime     @default(now())
+
+  @@unique([userId, orgId])
+  @@index([orgId])
+}
+
+/// SPEC-030: `role` e o papel de PLATAFORMA ("platform_admin" | "provider"), nao o papel dentro do tenant (esse e `Membership.orgRole`). `platform_admin` nao tem `Organization`/`Membership` propria; acessa dados via caminho cross-tenant explicito (`src/lib/tenant/admin-prisma.ts`).
 model User {
   id            String         @id @default(uuid())
   name          String
   email         String         @unique
-  role          String         @default("admin")
+  role          String         @default("provider")
   passwordHash  String?
   avatarUrl     String?
   createdAt     DateTime       @default(now())
   updatedAt     DateTime       @updatedAt
   campaigns     Campaign[]
   emailAccounts EmailAccount[]
+  memberships   Membership[]
 }
 
 model IcpProfile {
-  id          String     @id @default(uuid())
+  id          String       @id @default(uuid())
+  orgId       String
+  org         Organization @relation(fields: [orgId], references: [id], onDelete: Restrict)
   name        String
   niche       String
   location    String?
@@ -109,12 +169,16 @@ model IcpProfile {
   keywords    String[]
   sources     String[]
   desiredData String[]
-  createdAt   DateTime   @default(now())
+  createdAt   DateTime     @default(now())
   campaigns   Campaign[]
+
+  @@index([orgId])
 }
 
 model Campaign {
   id                 String            @id @default(uuid())
+  orgId              String
+  org                Organization      @relation(fields: [orgId], references: [id], onDelete: Restrict)
   name               String
   description        String?
   status             CampaignStatus    @default(active)
@@ -132,8 +196,11 @@ model Campaign {
   updatedAt          DateTime          @updatedAt
   leads              Lead[]
   opportunities      Opportunity[]
+  meetings           Meeting[]
   templates          MessageTemplate[]
+  searchRuns         SearchRun[]
 
+  @@index([orgId, status])
   @@index([userId])
   @@index([status])
 }
@@ -194,10 +261,14 @@ model LeadNote {
 
 model Sequence {
   id        String         @id @default(uuid())
+  orgId     String
+  org       Organization   @relation(fields: [orgId], references: [id], onDelete: Restrict)
   name      String
   createdAt DateTime       @default(now())
   steps     SequenceStep[]
   campaigns Campaign[]
+
+  @@index([orgId])
 }
 
 model SequenceStep {
@@ -274,24 +345,66 @@ model Opportunity {
   @@index([campaignId, stage, position])
 }
 
+enum MeetingStatus {
+  scheduled
+  done
+  cancelled
+  no_show
+}
+
+enum MeetingSource {
+  manual
+  agent
+  webhook
+}
+
+/// SPEC-028: reuniao agendada. UTC no banco; `timezone` IANA so para exibicao. `duration` (min) mantido em paralelo a `endsAt` (remocao em fase 2).
 model Meeting {
-  id              String      @id @default(uuid())
+  id              String        @id @default(uuid())
   opportunityId   String
-  opportunity     Opportunity @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
+  opportunity     Opportunity   @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
   leadId          String
-  lead            Lead        @relation(fields: [leadId], references: [id], onDelete: Cascade)
-  scheduledAt     DateTime
-  duration        Int         @default(30)
+  lead            Lead          @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  campaignId      String
+  campaign        Campaign      @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  startsAt        DateTime
+  endsAt          DateTime
+  duration        Int           @default(30)
+  timezone        String        @default("America/Sao_Paulo")
   calendarEventId String?
-  status          String      @default("scheduled")
-  createdAt       DateTime    @default(now())
+  status          MeetingStatus @default(scheduled)
+  link            String?
+  source          MeetingSource @default(manual)
+  notes           String?
+  /// Idempotencia do webhook (unique; NULLs nao colidem no Postgres).
+  externalId      String?       @unique
+  createdById     String?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @default(now()) @updatedAt
+  cancelledAt     DateTime?
 
   @@index([opportunityId])
   @@index([leadId])
+  @@index([campaignId])
+  @@index([startsAt])
+  @@index([status, startsAt])
+}
+
+/// SPEC-028/030: lembretes de reuniao. Ate SPEC-030: singleton global (id="global"). Apos SPEC-030: 1 linha por Organization (deixa de ser singleton).
+model MeetingSettings {
+  id               String       @id @default(uuid())
+  orgId            String       @unique
+  org              Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  remindersEnabled Boolean      @default(true)
+  /// Minutos antes do inicio; validos {1440,120,60,30,15,5}.
+  offsetsMin       Int[]        @default([1440, 60, 15])
+  updatedAt        DateTime     @updatedAt
 }
 
 model WhatsAppInstance {
   id              String               @id @default(uuid())
+  orgId           String
+  org             Organization         @relation(fields: [orgId], references: [id], onDelete: Restrict)
   instanceName    String               @unique
   number          String
   provider        WhatsAppProviderKind @default(evolution)
@@ -314,6 +427,8 @@ model WhatsAppInstance {
   campaigns       Campaign[]
   touches         Touch[]
   alerts          InstanceAlert[]
+
+  @@index([orgId])
 }
 
 model InstanceAlert {
@@ -330,6 +445,8 @@ model InstanceAlert {
 
 model Suppression {
   id        String            @id @default(uuid())
+  orgId     String
+  org       Organization      @relation(fields: [orgId], references: [id], onDelete: Restrict)
   kind      SuppressionKind
   value     String
   reason    SuppressionReason
@@ -337,33 +454,39 @@ model Suppression {
   note      String?
   createdAt DateTime          @default(now())
 
-  @@unique([kind, value])
+  @@unique([orgId, kind, value])
+  @@index([orgId, createdAt])
   @@index([createdAt])
 }
 
 model EmailAccount {
-  id                String    @id @default(uuid())
+  id                String       @id @default(uuid())
+  orgId             String
+  org               Organization @relation(fields: [orgId], references: [id], onDelete: Restrict)
   userId            String
-  user              User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user              User         @relation(fields: [userId], references: [id], onDelete: Cascade)
   provider          String
   imapHost          String?
   smtpHost          String
-  port              Int       @default(587)
-  email             String    @unique
+  port              Int          @default(587)
+  email             String       @unique
   encryptedPassword String
-  isActive          Boolean   @default(true)
+  isActive          Boolean      @default(true)
   fromName          String?
-  dailyLimit        Int       @default(50)
+  dailyLimit        Int          @default(50)
   lastVerifiedAt    DateTime?
   lastError         String?
-  createdAt         DateTime  @default(now())
+  createdAt         DateTime     @default(now())
   touches           Touch[]
 
+  @@index([orgId])
   @@index([userId])
 }
 
 model MessageTemplate {
   id         String         @id @default(uuid())
+  orgId      String
+  org        Organization   @relation(fields: [orgId], references: [id], onDelete: Restrict)
   campaignId String
   campaign   Campaign       @relation(fields: [campaignId], references: [id], onDelete: Cascade)
   channel    Channel
@@ -373,18 +496,23 @@ model MessageTemplate {
   createdAt  DateTime       @default(now())
   steps      SequenceStep[]
 
+  @@index([orgId])
   @@index([campaignId])
 }
 
+/// SPEC-030: `orgId` resolvido a partir do token/instancia recebida no webhook (nullable: nem todo evento resolve a org, ex. token invalido/nao encontrado — ver Riscos da SPEC-030).
 model WebhookEvent {
-  id          String    @id @default(uuid())
+  id          String        @id @default(uuid())
+  orgId       String?
+  org         Organization? @relation(fields: [orgId], references: [id], onDelete: SetNull)
   source      String
-  eventId     String?   @unique
+  eventId     String?       @unique
   payload     Json
   processedAt DateTime?
-  createdAt   DateTime  @default(now())
+  createdAt   DateTime      @default(now())
 
   @@index([source, createdAt])
+  @@index([orgId, createdAt])
 }
 
 model StageHistory {
@@ -400,14 +528,18 @@ model StageHistory {
 }
 
 /// SPEC-013: uma linha por rodada do scheduler (/api/cron/tick ou npm run tick). Sem PII/segredo.
+/// SPEC-030: `orgId` null = rodada "meta" do tick (ex.: status "locked", outra rodada já em andamento) que não pertence a nenhuma org especifica. Rodadas normais tem 1 linha por Organization ativa processada no tick.
 model SchedulerRun {
-  id         String    @id @default(uuid())
+  id         String        @id @default(uuid())
+  orgId      String?
+  org        Organization? @relation(fields: [orgId], references: [id], onDelete: Cascade)
   startedAt  DateTime
   finishedAt DateTime?
-  status     String    @default("running")
-  counters   Json      @default("{}")
+  status     String       @default("running")
+  counters   Json         @default("{}")
   error      String?
 
+  @@index([orgId, startedAt])
   @@index([startedAt])
 }
 
@@ -429,6 +561,8 @@ enum IntegrationAuditAction {
 
 model IntegrationSecret {
   id               String          @id @default(uuid())
+  orgId            String
+  org              Organization    @relation(fields: [orgId], references: [id], onDelete: Cascade)
   integration      IntegrationKind
   name             String          @default("default")
   encryptedValue   String
@@ -444,11 +578,13 @@ model IntegrationSecret {
   lastTestOk       Boolean?
   lastTestError    String?
 
-  @@unique([integration, name])
+  @@unique([orgId, integration, name])
 }
 
 model IntegrationAuditLog {
   id               String                 @id @default(uuid())
+  orgId            String
+  org              Organization           @relation(fields: [orgId], references: [id], onDelete: Cascade)
   userId           String
   integration      IntegrationKind
   action           IntegrationAuditAction
@@ -458,6 +594,7 @@ model IntegrationAuditLog {
   allowPrivateHost Boolean?
   at               DateTime               @default(now())
 
+  @@index([orgId, integration, at])
   @@index([integration, at])
 }
 
@@ -494,17 +631,21 @@ enum DraftStatus {
   blocked
 }
 
-/// Singleton (id = "global"): kill switch global (default LIGADO = agentes desligados) e teto mensal global.
+/// SPEC-019/030: kill switch (default LIGADO = agentes desligados) e teto mensal. Ate SPEC-030: singleton global (id="global"). Apos SPEC-030: 1 linha por Organization.
 model AgentSettings {
-  id                 String   @id @default("global")
-  killSwitch         Boolean  @default(true)
+  id                 String       @id @default(uuid())
+  orgId              String       @unique
+  org                Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  killSwitch         Boolean      @default(true)
   monthlyBudgetCents Int?
-  updatedAt          DateTime @updatedAt
+  updatedAt          DateTime     @updatedAt
   updatedBy          String?
 }
 
 model Agent {
   id                 String              @id @default(uuid())
+  orgId              String
+  org                Organization        @relation(fields: [orgId], references: [id], onDelete: Restrict)
   role               AgentRole
   name               String
   active             Boolean             @default(false)
@@ -534,18 +675,24 @@ model Agent {
   knowledge          KnowledgeDocument[]
   runs               AgentRun[]
   steps              SequenceStep[]
+
+  @@index([orgId])
 }
 
+/// SPEC-030: `orgId` direto (alem de `agentId`) para query eficiente e para o caso `agentId` null.
 model KnowledgeDocument {
-  id        String   @id @default(uuid())
+  id        String       @id @default(uuid())
+  orgId     String
+  org       Organization @relation(fields: [orgId], references: [id], onDelete: Restrict)
   agentId   String?
-  agent     Agent?   @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  agent     Agent?       @relation(fields: [agentId], references: [id], onDelete: Cascade)
   title     String
   content   String
-  version   Int      @default(1)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  version   Int          @default(1)
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
 
+  @@index([orgId])
   @@index([agentId])
 }
 
@@ -604,6 +751,7 @@ model Draft {
 model SearchRun {
   id         String    @id @default(uuid())
   campaignId String
+  campaign   Campaign  @relation(fields: [campaignId], references: [id], onDelete: Cascade)
   source     String
   trigger    String    @default("manual")
   status     String    @default("running")

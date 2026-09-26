@@ -30,6 +30,8 @@ export type EscalationRules = z.infer<typeof escalationRulesSchema>;
 
 export interface AgentConfig {
   id: string;
+  /** SPEC-030: org dona do agente — AgentSettings/KnowledgeDocument "globais" (agentId null) e o kill switch são resolvidos por este orgId. */
+  orgId: string;
   role: "sdr" | "followup" | "closer";
   name: string;
   active: boolean;

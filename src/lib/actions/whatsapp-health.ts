@@ -1,8 +1,8 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { prisma } from "@/lib/prisma";
-import { requireUser } from "@/lib/auth/require-user";
+import { requireProviderOrg } from "@/lib/auth/require-admin";
+import { scopedPrisma } from "@/lib/tenant/scoped-prisma";
 import { resumeInstanceNow } from "@/lib/whatsapp/health";
 import { NEEDS_REVIEW_PREFIX } from "@/lib/channels/reserve";
 import { retryTouchSchema, whatsappInstanceIdSchema } from "@/lib/schemas/whatsapp";
@@ -13,10 +13,11 @@ const revalidate = (): void => revalidatePath("/configuracoes/whatsapp");
 /** Retomada manual: reinicia a rampa um degrau abaixo e zera a janela de métricas. Idempotente (não pausada = sem efeito). */
 export async function resumeInstance(instanceId: unknown): Promise<ActionResult<{ id: string; resumed: boolean }>> {
   return safeAction(async () => {
-    await requireUser();
+    const { orgId } = await requireProviderOrg();
+    const db = scopedPrisma(orgId);
     const pid = whatsappInstanceIdSchema.safeParse(instanceId);
     if (!pid.success) return failure(zodErrors(pid.error));
-    const inst = await prisma.whatsAppInstance.findUnique({ where: { id: pid.data }, select: { id: true, health: true } });
+    const inst = await db.whatsAppInstance.findUnique({ where: { id: pid.data }, select: { id: true, health: true } });
     if (!inst) return formError("Instância não encontrada.");
     if (inst.health !== "paused") return success({ id: inst.id, resumed: false });
     await resumeInstanceNow(inst.id, new Date(), "manual");
@@ -28,10 +29,13 @@ export async function resumeInstance(instanceId: unknown): Promise<ActionResult<
 /** Marca como lidos os alertas da instância (some o badge). */
 export async function dismissInstanceAlerts(instanceId: unknown): Promise<ActionResult<{ id: string }>> {
   return safeAction(async () => {
-    await requireUser();
+    const { orgId } = await requireProviderOrg();
+    const db = scopedPrisma(orgId);
     const pid = whatsappInstanceIdSchema.safeParse(instanceId);
     if (!pid.success) return failure(zodErrors(pid.error));
-    await prisma.instanceAlert.updateMany({ where: { instanceId: pid.data, readAt: null }, data: { readAt: new Date() } });
+    // Confere que a instância pertence à org antes de tocar os alertas (instanceAlert é indireto via instance).
+    if (!(await db.whatsAppInstance.count({ where: { id: pid.data } }))) return formError("Instância não encontrada.");
+    await db.instanceAlert.updateMany({ where: { instanceId: pid.data, readAt: null }, data: { readAt: new Date() } });
     revalidate();
     return success({ id: pid.data });
   });
@@ -43,10 +47,11 @@ export async function dismissInstanceAlerts(instanceId: unknown): Promise<Action
  */
 export async function retryTouch(input: unknown): Promise<ActionResult<{ id: string }>> {
   return safeAction(async () => {
-    await requireUser();
+    const { orgId } = await requireProviderOrg();
+    const db = scopedPrisma(orgId);
     const parsed = retryTouchSchema.safeParse(input);
     if (!parsed.success) return failure(zodErrors(parsed.error));
-    const r = await prisma.touch.updateMany({
+    const r = await db.touch.updateMany({
       where: { id: parsed.data.touchId, channel: "whatsapp", direction: "outbound", status: "failed", error: { startsWith: NEEDS_REVIEW_PREFIX } },
       data: { status: "scheduled", scheduledAt: new Date(), error: null },
     });

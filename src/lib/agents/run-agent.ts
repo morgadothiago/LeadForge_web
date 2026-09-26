@@ -66,7 +66,7 @@ export async function runAgentTask(input: RunAgentInput): Promise<RunOutcome> {
     return violations.length ? { status: "blocked", violations } : { status: "handoff", reason };
   };
 
-  const settings = await prisma.agentSettings.findUnique({ where: { id: "global" } });
+  const settings = await prisma.agentSettings.findUnique({ where: { orgId: agent.orgId } });
   // Kill switch: NAO consome/pula a tarefa nem avanca o passo; fica na fila e retoma quando for desligado.
   if (settings?.killSwitch !== false) {
     await prisma.agentRun.update({ where: { id: run.id }, data: { status: "queued" } });
@@ -81,7 +81,7 @@ export async function runAgentTask(input: RunAgentInput): Promise<RunOutcome> {
   });
   if (!lead) return skip("lead_removido");
   if (lead.optedOutAt || lead.sequenceStatus === "opted_out") return skip("opt_out");
-  if (await findSuppression({ email: lead.email, phone: lead.phone })) return skip("suprimido");
+  if (await findSuppression({ email: lead.email, phone: lead.phone }, agent.orgId)) return skip("suprimido");
   if (lead.handoffAt) return skip("agente_parou_neste_lead");
   const isInbound = run.trigger.startsWith("inbound");
   if (!isInbound && (lead.repliedAt || lead.sequenceStatus === "paused_replied")) return skip("lead_respondeu");
@@ -119,7 +119,7 @@ export async function runAgentTask(input: RunAgentInput): Promise<RunOutcome> {
     if (h) return handoff(h);
   }
 
-  const globalDocs = await prisma.knowledgeDocument.findMany({ where: { agentId: null }, select: { id: true, title: true, content: true } });
+  const globalDocs = await prisma.knowledgeDocument.findMany({ where: { agentId: null, orgId: agent.orgId }, select: { id: true, title: true, content: true } });
   const knowledge = packKnowledge([...agent.knowledge.map((k) => ({ id: k.id, title: k.title, content: k.content })), ...globalDocs]);
   const step = run.stepId ? await prisma.sequenceStep.findUnique({ where: { id: run.stepId }, select: { channel: true } }) : null;
   const channel: "email" | "whatsapp" = step?.channel === "email" || step?.channel === "whatsapp" ? step.channel : lead.phone ? "whatsapp" : "email";
@@ -138,7 +138,7 @@ export async function runAgentTask(input: RunAgentInput): Promise<RunOutcome> {
 
   let result;
   try {
-    const provider = input.provider ?? (await getLlmProvider());
+    const provider = input.provider ?? (await getLlmProvider(agent.orgId));
     result = await provider.generate({ model: agent.model, system: buildSystemPrompt(agent), user: buildUserPrompt(ctx, knowledge) });
   } catch (e) {
     console.error("[agents] provedor falhou:", safeErrorForLog(e));

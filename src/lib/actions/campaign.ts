@@ -3,7 +3,8 @@
 import { revalidatePath } from "next/cache";
 import type { CampaignStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { requireUser } from "@/lib/auth/require-user";
+import { requireProviderOrg } from "@/lib/auth/require-admin";
+import { scopedPrisma } from "@/lib/tenant/scoped-prisma";
 import { campaignCreateSchema, campaignUpdateSchema, idSchema } from "@/lib/schemas/campaign";
 import { Prisma } from "@prisma/client";
 import { failure, formError, safeAction, success, zodErrors, type ActionResult, type FieldErrors } from "./result";
@@ -14,17 +15,16 @@ function revalidate(id?: string): void {
   revalidatePath("/dashboard"); // dashboard
 }
 
-/** Valida existência das FKs opcionais, devolvendo erro por campo em PT-BR. */
-async function checkRefs(refs: {
-  icpId?: string;
-  sequenceId: string | null;
-  whatsappInstanceId: string | null;
-}): Promise<FieldErrors | null> {
+/** Valida existência das FKs opcionais (dentro da org), devolvendo erro por campo em PT-BR. */
+async function checkRefs(
+  db: ReturnType<typeof scopedPrisma>,
+  refs: { icpId?: string; sequenceId: string | null; whatsappInstanceId: string | null },
+): Promise<FieldErrors | null> {
   const [icp, seq, wa] = await Promise.all([
-    refs.icpId ? prisma.icpProfile.count({ where: { id: refs.icpId } }) : Promise.resolve(1),
-    refs.sequenceId ? prisma.sequence.count({ where: { id: refs.sequenceId } }) : Promise.resolve(1),
+    refs.icpId ? db.icpProfile.count({ where: { id: refs.icpId } }) : Promise.resolve(1),
+    refs.sequenceId ? db.sequence.count({ where: { id: refs.sequenceId } }) : Promise.resolve(1),
     refs.whatsappInstanceId
-      ? prisma.whatsAppInstance.count({ where: { id: refs.whatsappInstanceId } })
+      ? db.whatsAppInstance.count({ where: { id: refs.whatsappInstanceId } })
       : Promise.resolve(1),
   ]);
   const errors: FieldErrors = {};
@@ -36,18 +36,19 @@ async function checkRefs(refs: {
 
 export async function createCampaign(input: unknown): Promise<ActionResult<{ id: string }>> {
   return safeAction(async () => {
-    const user = await requireUser();
+    const { user, orgId } = await requireProviderOrg();
+    const db = scopedPrisma(orgId);
     const parsed = campaignCreateSchema.safeParse(input);
     if (!parsed.success) return { ok: false, errors: zodErrors(parsed.error) };
     const { icp, icpId, sequenceId, whatsappInstanceId, name, description, status, autoStart } = parsed.data;
-    const refErrors = await checkRefs({ icpId, sequenceId, whatsappInstanceId });
+    const refErrors = await checkRefs(db, { icpId, sequenceId, whatsappInstanceId });
     if (refErrors) return failure(refErrors);
 
     const campaign = await prisma.$transaction(async (tx) => {
-      const resolvedIcpId = icp ? (await tx.icpProfile.create({ data: icp, select: { id: true } })).id : icpId;
+      const resolvedIcpId = icp ? (await tx.icpProfile.create({ data: { ...icp, orgId }, select: { id: true } })).id : icpId;
       if (!resolvedIcpId) throw new Error("icpId ausente após validação.");
       return tx.campaign.create({
-        data: { name, description, status, ...(autoStart !== undefined ? { autoStart } : {}), sequenceId, whatsappInstanceId, userId: user.id, icpId: resolvedIcpId },
+        data: { orgId, name, description, status, ...(autoStart !== undefined ? { autoStart } : {}), sequenceId, whatsappInstanceId, userId: user.id, icpId: resolvedIcpId },
         select: { id: true },
       });
     });
@@ -58,14 +59,15 @@ export async function createCampaign(input: unknown): Promise<ActionResult<{ id:
 
 export async function updateCampaign(input: unknown): Promise<ActionResult<{ id: string }>> {
   return safeAction(async () => {
-    await requireUser();
+    const { orgId } = await requireProviderOrg();
+    const db = scopedPrisma(orgId);
     const parsed = campaignUpdateSchema.safeParse(input);
     if (!parsed.success) return { ok: false, errors: zodErrors(parsed.error) };
     const { id, ...data } = parsed.data;
-    if (!(await prisma.campaign.count({ where: { id } }))) return formError("Campanha não encontrada.");
-    const refErrors = await checkRefs(data);
+    if (!(await db.campaign.count({ where: { id } }))) return formError("Campanha não encontrada.");
+    const refErrors = await checkRefs(db, data);
     if (refErrors) return failure(refErrors);
-    await prisma.campaign.update({ where: { id }, data });
+    await db.campaign.update({ where: { id }, data });
     revalidate(id);
     return success({ id });
   });
@@ -73,11 +75,12 @@ export async function updateCampaign(input: unknown): Promise<ActionResult<{ id:
 
 async function setStatus(id: unknown, status: CampaignStatus): Promise<ActionResult<{ id: string; status: CampaignStatus }>> {
   return safeAction(async () => {
-    await requireUser();
+    const { orgId } = await requireProviderOrg();
+    const db = scopedPrisma(orgId);
     const parsed = idSchema.safeParse(id);
     if (!parsed.success) return formError("ID inválido.");
-    if (!(await prisma.campaign.count({ where: { id: parsed.data } }))) return formError("Campanha não encontrada.");
-    await prisma.campaign.update({ where: { id: parsed.data }, data: { status } });
+    if (!(await db.campaign.count({ where: { id: parsed.data } }))) return formError("Campanha não encontrada.");
+    await db.campaign.update({ where: { id: parsed.data }, data: { status } });
     revalidate(parsed.data);
     return success({ id: parsed.data, status });
   });
@@ -96,12 +99,13 @@ export async function archiveCampaign(id: unknown) {
 /** Copia configuração (ICP, sequência, instância); não copia leads nem templates. Nasce pausada. */
 export async function duplicateCampaign(id: unknown): Promise<ActionResult<{ id: string }>> {
   return safeAction(async () => {
-    const user = await requireUser();
+    const { user, orgId } = await requireProviderOrg();
+    const db = scopedPrisma(orgId);
     const parsed = idSchema.safeParse(id);
     if (!parsed.success) return formError("ID inválido.");
-    const src = await prisma.campaign.findUnique({ where: { id: parsed.data } });
+    const src = await db.campaign.findUnique({ where: { id: parsed.data } });
     if (!src) return formError("Campanha não encontrada.");
-    const copy = await prisma.campaign.create({
+    const copy = await db.campaign.create({
       data: {
         name: `${src.name} (cópia)`.slice(0, 120),
         description: src.description,
@@ -124,16 +128,16 @@ const blockedMsg = (n: number): string =>
 /** Campanha com leads não pode ser excluída (só arquivada). */
 export async function deleteCampaign(id: unknown): Promise<ActionResult<{ id: string }>> {
   return safeAction(async () => {
-    await requireUser();
+    const { orgId } = await requireProviderOrg();
     const parsed = idSchema.safeParse(id);
     if (!parsed.success) return formError("ID inválido.");
     try {
       const res = await prisma.$transaction(async (tx) => {
         const c = await tx.campaign.findUnique({
           where: { id: parsed.data },
-          select: { _count: { select: { leads: true } } },
+          select: { orgId: true, _count: { select: { leads: true } } },
         });
-        if (!c) return formError<{ id: string }>("Campanha não encontrada.");
+        if (!c || c.orgId !== orgId) return formError<{ id: string }>("Campanha não encontrada.");
         if (c._count.leads > 0) return formError<{ id: string }>(blockedMsg(c._count.leads));
         await tx.campaign.delete({ where: { id: parsed.data } });
         return success({ id: parsed.data });

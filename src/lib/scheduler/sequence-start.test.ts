@@ -8,7 +8,7 @@ process.env.ENCRYPTION_KEY = randomBytes(32).toString("base64");
 process.env.AUTH_URL = "http://app.test";
 
 import { prisma } from "@/lib/prisma";
-import { seed } from "../../../prisma/seed";
+import { seed, SEED_IDS } from "../../../prisma/seed";
 import { signInAsSeedAdmin } from "@/lib/auth/test-helpers";
 import { purgeTestCampaigns } from "@/lib/test-utils/purge";
 import { encrypt } from "@/lib/crypto/secret-box";
@@ -36,10 +36,10 @@ const sendMail = vi.spyOn(transport, "sendMail");
 async function mkCampaign(steps: ("email" | "whatsapp")[] = ["email"], over: Record<string, unknown> = {}) {
   n++;
   const name = `${TAG}-${n}`;
-  const seq = await prisma.sequence.create({ data: { name } });
+  const seq = await prisma.sequence.create({ data: { name, orgId: SEED_IDS.org } });
   seqs.push(seq.id);
-  const camp = await prisma.campaign.create({ data: { name, userId, icpId, sequenceId: seq.id, ...over } });
-  const tpl = await prisma.messageTemplate.create({ data: { campaignId: camp.id, channel: "email", name, subject: "Oi", body: "Olá {{firstName}}" } });
+  const camp = await prisma.campaign.create({ data: { name, userId, icpId, orgId: SEED_IDS.org, sequenceId: seq.id, ...over } });
+  const tpl = await prisma.messageTemplate.create({ data: { campaignId: camp.id, orgId: SEED_IDS.org, channel: "email", name, subject: "Oi", body: "Olá {{firstName}}" } });
   for (const [i, channel] of steps.entries()) await prisma.sequenceStep.create({ data: { sequenceId: seq.id, day: i, channel, templateId: tpl.id, order: i + 1 } });
   return camp.id;
 }
@@ -74,7 +74,7 @@ beforeAll(async () => {
   await signInAsSeedAdmin();
   userId = (await prisma.user.findFirstOrThrow({ where: { email: "admin@leadforge.local" } })).id;
   icpId = (await prisma.icpProfile.findFirstOrThrow()).id;
-  await prisma.emailAccount.create({ data: { userId, provider: "smtp", smtpHost: "smtp.interno.local", email: `a@${TAG}.com`, encryptedPassword: encrypt("x"), dailyLimit: 1000 } });
+  await prisma.emailAccount.create({ data: { orgId: SEED_IDS.org, userId, provider: "smtp", smtpHost: "smtp.interno.local", email: `a@${TAG}.com`, encryptedPassword: encrypt("x"), dailyLimit: 1000 } });
 }, 30000);
 
 afterEach(() => {
@@ -155,7 +155,7 @@ describe("início explícito", () => {
     const c = await mkCampaign(["email"], { autoStart: true });
     const ok = await mkLead(c);
     const sup = await mkLead(c, { email: `sup@${TAG}.com` });
-    await prisma.suppression.create({ data: { kind: "email", value: `sup@${TAG}.com`, reason: "bounce" } });
+    await prisma.suppression.create({ data: { orgId: SEED_IDS.org, kind: "email", value: `sup@${TAG}.com`, reason: "bounce" } });
     const optOut = await mkLead(c, { optedOutAt: NOW });
     const noMail = await mkLead(c, { email: null });
     const replied = await mkLead(c, { repliedAt: NOW });
@@ -210,7 +210,7 @@ describe("início explícito", () => {
     const p = await mkLead(paused);
     const rp = await startSequence({ leadId: p.id });
     expect(!rp.ok && rp.errors.leadId[0]).toMatch(/não está ativa/);
-    const noSeq = await prisma.campaign.create({ data: { name: `${TAG}-noseq`, userId, icpId } });
+    const noSeq = await prisma.campaign.create({ data: { name: `${TAG}-noseq`, userId, icpId, orgId: SEED_IDS.org } });
     const ns = await mkLead(noSeq.id);
     const rn = await startSequence({ leadId: ns.id });
     expect(!rn.ok && rn.errors.leadId[0]).toMatch(/sem sequência/);
@@ -220,7 +220,7 @@ describe("início explícito", () => {
     expect((await startSequence({ leadId: nophone.id })).ok).toBe(false);
     // suprimido
     const sup = await mkLead(c, { email: `sup2@${TAG}.com` });
-    await prisma.suppression.create({ data: { kind: "email", value: `sup2@${TAG}.com`, reason: "manual" } });
+    await prisma.suppression.create({ data: { orgId: SEED_IDS.org, kind: "email", value: `sup2@${TAG}.com`, reason: "manual" } });
     const rs = await startSequence({ leadId: sup.id });
     expect(!rs.ok && rs.errors.leadId[0]).toMatch(/supressão/);
     expect((await getLead(sup.id)).sequenceStatus).toBe("not_started");

@@ -30,7 +30,7 @@ const TOKEN_C = "ExponentPushToken[zzCCCC]";
 let userId = "";
 let devA = "", devB = "";
 let tokA = "", tokB = "";
-let icpId = "", campId = "", instId = "", leadId = "";
+let icpId = "", campId = "", instId = "", leadId = "", orgId = "";
 
 const hdr = (t: string | null): RequestInit => ({ headers: t ? { authorization: `Bearer ${t}` } : {} });
 const get = (t: string | null, url = "http://x/api") => new Request(url, hdr(t));
@@ -46,15 +46,18 @@ async function mkDevice(name: string, extra: object = {}) {
 
 beforeAll(async () => {
   await prisma.user.deleteMany({ where: { email: EMAIL } });
-  userId = (await prisma.user.create({ data: { name: "A", email: EMAIL, passwordHash: await hashPassword("Senha-Forte-Teste-123") } })).id;
+  userId = (await prisma.user.create({ data: { name: "A", email: EMAIL, role: "provider", passwordHash: await hashPassword("Senha-Forte-Teste-123") } })).id;
+  // SPEC-030: schema exige orgId (Campaign/IcpProfile/WhatsAppInstance); runTick() também exige Organization ativa.
+  orgId = (await prisma.organization.create({ data: { name: "zz-alerts-org", slug: "zz-alerts-org", status: "active" } })).id;
+  await prisma.membership.create({ data: { userId, orgId, orgRole: "owner" } });
   devA = await mkDevice("A", { pushToken: TOKEN_A });
   devB = await mkDevice("B", { pushToken: TOKEN_B });
   tokA = await signAccessToken(userId, devA);
   tokB = await signAccessToken(userId, devB);
-  icpId = (await prisma.icpProfile.create({ data: { name: "zz-icp-alerts", niche: "n" } })).id;
-  campId = (await prisma.campaign.create({ data: { name: "zz-alerts-camp", icpId, userId } })).id;
+  icpId = (await prisma.icpProfile.create({ data: { orgId, name: "zz-icp-alerts", niche: "n" } })).id;
+  campId = (await prisma.campaign.create({ data: { name: "zz-alerts-camp", icpId, orgId, userId } })).id;
   leadId = (await prisma.lead.create({ data: { campaignId: campId, name: LEAD_NAME, email: LEAD_EMAIL, phone: LEAD_PHONE } })).id;
-  instId = (await prisma.whatsAppInstance.create({ data: { instanceName: "zz-inst-alerts", number: LEAD_PHONE, webhookToken: `wt-${crypto.randomUUID()}`, status: "connected" } })).id;
+  instId = (await prisma.whatsAppInstance.create({ data: { orgId, instanceName: "zz-inst-alerts", number: LEAD_PHONE, webhookToken: `wt-${crypto.randomUUID()}`, status: "connected" } })).id;
 });
 beforeEach(async () => {
   await cleanAlerts();
@@ -70,11 +73,14 @@ afterEach(() => {
 });
 afterAll(async () => {
   await cleanAlerts();
+  await prisma.lead.deleteMany({ where: { campaignId: campId } });
   await prisma.campaign.deleteMany({ where: { id: campId } });
   await prisma.whatsAppInstance.deleteMany({ where: { id: instId } });
   await prisma.icpProfile.deleteMany({ where: { id: icpId } });
   await prisma.mobileDevice.deleteMany({ where: { userId } });
   await prisma.user.deleteMany({ where: { email: EMAIL } });
+  await prisma.membership.deleteMany({ where: { orgId } });
+  await prisma.organization.deleteMany({ where: { id: orgId } });
 });
 
 const mine = (kind: string, ref: string) => prisma.mobileAlert.findMany({ where: { kind, refId: ref } });
@@ -112,7 +118,7 @@ describe("gatilhos, severidade, dedupe e resolucao (AC1-3)", () => {
 
   it("opt-out em massa: alta quando supressoes por opt-out >= limite; resolve quando cai", async () => {
     const vals = Array.from({ length: 5 }, (_, i) => `zz-optout-${i}-${crypto.randomUUID()}@x.test`);
-    await prisma.suppression.createMany({ data: vals.map((value) => ({ kind: "email", value, reason: "opt_out_reply" })) });
+    await prisma.suppression.createMany({ data: vals.map((value) => ({ orgId, kind: "email", value, reason: "opt_out_reply" })) });
     try {
       await sweepAlerts();
       const rows = await prisma.mobileAlert.findMany({ where: { kind: "mass_opt_out" } });
@@ -127,7 +133,7 @@ describe("gatilhos, severidade, dedupe e resolucao (AC1-3)", () => {
   });
 
   it("handoff do Closer: alta, com link https da call (so na API), sem PII; resolve quando o lead sai de needsHuman", async () => {
-    const agent = await prisma.agent.create({ data: { role: "closer", name: "zz-closer-alerts", callLink: "https://cal.example.com/call-zz", monthlyBudgetCents: null } });
+    const agent = await prisma.agent.create({ data: { orgId, role: "closer", name: "zz-closer-alerts", callLink: "https://cal.example.com/call-zz", monthlyBudgetCents: null } });
     try {
       await prisma.lead.update({ where: { id: leadId }, data: { needsHuman: true, handoffAt: new Date(), handoffReason: `${LEAD_NAME} pediu ligação` } });
       await sweepAlerts();
@@ -149,7 +155,7 @@ describe("gatilhos, severidade, dedupe e resolucao (AC1-3)", () => {
   });
 
   it("orcamento 80% = media, 100% = alta (por agente); resolve quando volta ao normal", async () => {
-    const agent = await prisma.agent.create({ data: { role: "sdr", name: "zz-sdr-budget", monthlyBudgetCents: 100 } });
+    const agent = await prisma.agent.create({ data: { orgId, role: "sdr", name: "zz-sdr-budget", monthlyBudgetCents: 100 } });
     try {
       const run = await prisma.agentRun.create({ data: { agentId: agent.id, leadId, trigger: "zz", costMicros: 85 * 10_000 } });
       await sweepAlerts();
@@ -299,7 +305,7 @@ describe("push Expo (AC4-6, 8)", () => {
 
 describe("API (AC7, authz, IDOR)", () => {
   it("sem Bearer / Bearer web / dispositivo revogado = 401 em todas as rotas", async () => {
-    const web = await signSessionToken(userId);
+    const web = await signSessionToken(userId, orgId, "provider");
     const revokedDev = await mkDevice("R", { revokedAt: new Date() });
     const revoked = await signAccessToken(userId, revokedDev);
     const calls: [string, (t: string | null) => Promise<Response>][] = [
@@ -338,7 +344,7 @@ describe("API (AC7, authz, IDOR)", () => {
     const cnt = async () => (await (await unreadCount(get(tokA))).json()).data.count as number;
     const total = await cnt();
     expect(total).toBe(await prisma.mobileAlert.count({ where: { readAt: null } }));
-    const id = seen[0];
+    const id = (await prisma.mobileAlert.findFirstOrThrow({ where: { readAt: null, kind: "scheduler_stale" } })).id; // nao-lido garantido (SPEC-028: lembretes de reuniao do seed podem nascer lidos)
     const r1 = await (await readOne(send("POST", tokA), ctx(id))).json();
     const r2 = await (await readOne(send("POST", tokA), ctx(id))).json();
     expect(r2.data.readAt).toBe(r1.data.readAt); // idempotente: nao reescreve readAt

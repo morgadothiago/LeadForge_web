@@ -4,7 +4,7 @@ import { withSerializableRetry } from "@/lib/db/tx-conflict";
 import { revalidatePath } from "next/cache";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { requireUser } from "@/lib/auth/require-user";
+import { requireProviderOrg } from "@/lib/auth/require-admin";
 import { STOP_NOTE, activateLeads, classifyStartable, ineligibleReason, loadCampaignCtx, REASON_LABEL, START_LEAD_SELECT, writeSequenceAudit, type IneligibleReason } from "@/lib/domain/sequence-start";
 import { findSuppression } from "@/lib/domain/suppression";
 import { startCampaignSequencesSchema, startSequenceSchema, stopSequenceSchema } from "@/lib/schemas/sequence-start";
@@ -24,17 +24,17 @@ const revalidate = (campaignId: string, leadId?: string): void => {
  */
 export async function startSequence(input: unknown): Promise<ActionResult<{ leadId: string; started: boolean }>> {
   return safeAction(async () => {
-    const user = await requireUser();
+    const { user, orgId } = await requireProviderOrg();
     const parsed = startSequenceSchema.safeParse(input);
     if (!parsed.success) return failure(zodErrors(parsed.error));
     const { leadId } = parsed.data;
-    const lead = await prisma.lead.findUnique({ where: { id: leadId }, select: { ...START_LEAD_SELECT, campaignId: true } });
-    if (!lead) return formError("Lead não encontrado.");
+    const lead = await prisma.lead.findUnique({ where: { id: leadId }, select: { ...START_LEAD_SELECT, campaignId: true, campaign: { select: { orgId: true } } } });
+    if (!lead || lead.campaign.orgId !== orgId) return formError("Lead não encontrado.");
     if (lead.sequenceStatus === "active") return success({ leadId, started: false });
     const ctx = await loadCampaignCtx(lead.campaignId);
     if (!ctx) return formError("Campanha não encontrada.");
     let reason: IneligibleReason | null = ineligibleReason(lead, ctx, false);
-    if (!reason && (await findSuppression({ email: lead.email, phone: lead.phone }))) reason = "suppressed";
+    if (!reason && (await findSuppression({ email: lead.email, phone: lead.phone }, orgId))) reason = "suppressed";
     if (reason) return failure({ leadId: [REASON_LABEL[reason]] });
     const now = new Date();
     const started = await activateLeads([leadId], now);
@@ -52,11 +52,11 @@ export async function startCampaignSequences(
   input: unknown,
 ): Promise<ActionResult<{ campaignId: string; started: number; ineligible: Partial<Record<IneligibleReason, number>>; ineligibleTotal: number }>> {
   return safeAction(async () => {
-    const user = await requireUser();
+    const { user, orgId } = await requireProviderOrg();
     const parsed = startCampaignSequencesSchema.safeParse(input);
     if (!parsed.success) return failure(zodErrors(parsed.error));
     const { campaignId } = parsed.data;
-    const summary = await classifyStartable(campaignId);
+    const summary = await classifyStartable(campaignId, orgId);
     if (!summary) return formError("Campanha não encontrada.");
     const ctx = await loadCampaignCtx(campaignId);
     if (ctx?.status !== "active") return formError(REASON_LABEL.campaign_inactive);
@@ -74,12 +74,12 @@ export async function startCampaignSequences(
  */
 export async function stopSequence(input: unknown): Promise<ActionResult<{ leadId: string; stopped: boolean; cancelledTouches: number }>> {
   return safeAction(async () => {
-    const user = await requireUser();
+    const { user, orgId } = await requireProviderOrg();
     const parsed = stopSequenceSchema.safeParse(input);
     if (!parsed.success) return failure(zodErrors(parsed.error));
     const { leadId } = parsed.data;
-    const lead = await prisma.lead.findUnique({ where: { id: leadId }, select: { campaignId: true, sequenceStatus: true } });
-    if (!lead) return formError("Lead não encontrado.");
+    const lead = await prisma.lead.findUnique({ where: { id: leadId }, select: { campaignId: true, sequenceStatus: true, campaign: { select: { orgId: true } } } });
+    if (!lead || lead.campaign.orgId !== orgId) return formError("Lead não encontrado.");
     if (lead.sequenceStatus === "paused_manual") return success({ leadId, stopped: false, cancelledTouches: 0 });
     if (lead.sequenceStatus !== "active") return failure({ leadId: ["A sequência deste lead não está ativa."] });
     const cancelled = await withSerializableRetry(() => prisma.$transaction(async (tx) => {

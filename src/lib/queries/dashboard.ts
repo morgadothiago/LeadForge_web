@@ -1,8 +1,8 @@
 import { z } from "zod";
 import { addDays, startOfDay, subDays } from "date-fns";
 import type { Prisma, Stage, Channel, TouchDirection } from "@prisma/client";
-import { prisma } from "@/lib/prisma";
-import { requireUser } from "@/lib/auth/require-user";
+import { requireProviderOrg } from "@/lib/auth/require-admin";
+import { scopedPrisma, type ScopedPrisma } from "@/lib/tenant/scoped-prisma";
 import { getMetrics } from "@/lib/dashboard/metrics";
 
 /* ---------- Input (Zod) ---------- */
@@ -134,40 +134,40 @@ export function mergeActivities(
 
 /* ---------- Queries ---------- */
 
-async function getWeekly(now: Date, campaignId?: string): Promise<WeeklyPoint[]> {
+async function getWeekly(db: ScopedPrisma, now: Date, campaignId?: string): Promise<WeeklyPoint[]> {
   const from = startOfDay(subDays(now, 6));
   const to = addDays(startOfDay(now), 1);
   const createdAt = { gte: from, lt: to };
   const [leads, touches] = await Promise.all([
-    prisma.lead.findMany({
+    db.lead.findMany({
       where: { ...(campaignId ? { campaignId } : {}), createdAt },
       select: { createdAt: true },
     }),
-    prisma.touch.findMany({
+    db.touch.findMany({
       where: { ...(campaignId ? { lead: { campaignId } } : {}), createdAt },
       select: { createdAt: true, direction: true },
     }),
   ]);
   return buildWeeklySeries(now, [
-    ...leads.map((l) => ({ createdAt: l.createdAt, kind: "lead" as const })),
-    ...touches.map((t) => ({
+    ...(leads as { createdAt: Date }[]).map((l) => ({ createdAt: l.createdAt, kind: "lead" as const })),
+    ...(touches as { createdAt: Date; direction: TouchDirection }[]).map((t) => ({
       createdAt: t.createdAt,
       kind: (t.direction satisfies TouchDirection) as "inbound" | "outbound",
     })),
   ]);
 }
 
-async function getActivities(campaignId?: string): Promise<DashboardActivity[]> {
+async function getActivities(db: ScopedPrisma, campaignId?: string): Promise<DashboardActivity[]> {
   const leadFilter: Prisma.LeadWhereInput | undefined = campaignId ? { campaignId } : undefined;
   const [touches, opps] = await Promise.all([
-    prisma.touch.findMany({
+    db.touch.findMany({
       where: leadFilter ? { lead: leadFilter } : {},
       orderBy: { createdAt: "desc" },
       take: 10,
       include: { lead: { select: { id: true, name: true } } },
     }),
     // Mudança de stage = StageHistory com origem (entrada inicial, fromStage null, não conta).
-    prisma.stageHistory.findMany({
+    db.stageHistory.findMany({
       where: {
         fromStage: { not: null },
         ...(campaignId ? { opportunity: { campaignId } } : {}),
@@ -177,8 +177,10 @@ async function getActivities(campaignId?: string): Promise<DashboardActivity[]> 
       include: { opportunity: { include: { lead: { select: { id: true, name: true } } } } },
     }),
   ]);
+  type TouchRow = { id: string; direction: TouchDirection; createdAt: Date; lead: { id: string; name: string }; channel: Channel };
+  type StageRow = { id: string; changedAt: Date; toStage: Stage; opportunity: { lead: { id: string; name: string } } };
   return mergeActivities([
-    touches.map((t) => ({
+    (touches as TouchRow[]).map((t) => ({
       id: `touch:${t.id}`,
       kind: t.direction === "inbound" ? ("touch_inbound" as const) : ("touch_outbound" as const),
       at: t.createdAt,
@@ -187,7 +189,7 @@ async function getActivities(campaignId?: string): Promise<DashboardActivity[]> 
       channel: t.channel,
       stage: null,
     })),
-    opps.map((h) => ({
+    (opps as StageRow[]).map((h) => ({
       id: `stage:${h.id}`,
       kind: "stage_change" as const,
       at: h.changedAt,
@@ -203,12 +205,13 @@ export async function getDashboardData(
   params: DashboardParams,
   now: Date = new Date(),
 ): Promise<DashboardData> {
-  await requireUser();
+  const { orgId } = await requireProviderOrg();
+  const db = scopedPrisma(orgId);
   const ranges = getPeriodRanges(now, params.period);
   const [metrics, weekly, activities] = await Promise.all([
-    getMetrics(ranges, params.campaignId),
-    getWeekly(now, params.campaignId),
-    getActivities(params.campaignId),
+    getMetrics(orgId, ranges, params.campaignId),
+    getWeekly(db, now, params.campaignId),
+    getActivities(db, params.campaignId),
   ]);
   const isEmpty =
     activities.length === 0 &&

@@ -6,6 +6,9 @@ import { dispatchDraft, rejectDraft } from "@/lib/agents/drafts";
 import { stopAgentOnManualReply } from "@/lib/agents/lead-state";
 import { fail, invalidInput, ok, requireMobile, tooMany, type MobileAuth } from "./http";
 import { hitActionLimit, clearReauthFailures, recordReauthFailure, reauthBlockedSeconds } from "./action-limit";
+import { resolveOrgId } from "./org";
+
+export { resolveOrgId };
 
 /**
  * SPEC-026: acoes de gestao leves do app. As regras vivem nas funcoes de dominio ja usadas pelo web
@@ -78,9 +81,11 @@ export function maskDisplayName(name: string | null | undefined): string {
 }
 
 // ---------- Campanha ----------
-export async function setCampaignStatus(id: string, status: "paused" | "active"): Promise<ActionResult> {
-  const c = await prisma.campaign.findUnique({ where: { id }, select: { status: true } });
-  if (!c) return bad(404, "not_found", "Campanha não encontrada.");
+export async function setCampaignStatus(a: MobileAuth, id: string, status: "paused" | "active"): Promise<ActionResult> {
+  const orgId = await resolveOrgId(a.userId);
+  if (!orgId) return bad(403, "forbidden", "Sem permissão.");
+  const c = await prisma.campaign.findUnique({ where: { id }, select: { status: true, orgId: true } });
+  if (!c || c.orgId !== orgId) return bad(404, "not_found", "Campanha não encontrada.");
   if (c.status === "archived") return conflict("Campanha arquivada não pode ser pausada nem retomada.");
   // Retomar so muda o status: envios seguem decididos na hora pelo scheduler/politica de envio (SPEC-017: limites, aquecimento, janela).
   if (c.status !== status) await prisma.campaign.update({ where: { id }, data: { status } });
@@ -90,7 +95,8 @@ export async function setCampaignStatus(id: string, status: "paused" | "active")
 // ---------- Kill switch ----------
 export async function setKillSwitch(a: MobileAuth, killSwitch: boolean, password: string | undefined): Promise<ActionResult> {
   const user = await prisma.user.findUnique({ where: { id: a.userId }, select: { role: true, passwordHash: true } });
-  if (!user || user.role !== "admin") return bad(403, "forbidden", "Sem permissão.");
+  const orgId = await resolveOrgId(a.userId);
+  if (!user || user.role !== "provider" || !orgId) return bad(403, "forbidden", "Sem permissão.");
   // Parar os agentes (killSwitch=true) nunca tem atrito. Deixa-los rodar (killSwitch=false) exige senha atual (reautenticacao).
   if (!killSwitch) {
     const wait = reauthBlockedSeconds(a.deviceId);
@@ -103,8 +109,8 @@ export async function setKillSwitch(a: MobileAuth, killSwitch: boolean, password
     clearReauthFailures(a.deviceId);
   }
   const s = await prisma.agentSettings.upsert({
-    where: { id: "global" },
-    create: { id: "global", killSwitch, updatedBy: a.userId },
+    where: { orgId },
+    create: { orgId, killSwitch, updatedBy: a.userId },
     update: { killSwitch, updatedBy: a.userId },
   });
   return good({ killSwitch: s.killSwitch });
@@ -122,9 +128,12 @@ export const draftDetail = (d: DraftRow) => ({
 export const DRAFT_SELECT = { id: true, channel: true, subject: true, body: true, status: true, createdAt: true, lead: { select: { name: true } } } as const;
 
 export async function approveDraftMobile(a: MobileAuth, id: string): Promise<ActionResult> {
+  const orgId = await resolveOrgId(a.userId);
+  if (!orgId) return bad(403, "forbidden", "Sem permissão.");
   try {
     // Mesma rota de envio do web: supressao/opt-out, cadencia, janela e limites da SPEC-017 seguem decidindo.
-    const r = await dispatchDraft(id, { reviewer: a.userId });
+    // SPEC-030: orgId sempre passado — dispatchDraft nunca opera num rascunho de outro tenant.
+    const r = await dispatchDraft(id, { reviewer: a.userId, orgId });
     if (r.status === "blocked") return conflict(r.reason);
     return good({ id, status: r.status });
   } catch (e) {
@@ -134,15 +143,20 @@ export async function approveDraftMobile(a: MobileAuth, id: string): Promise<Act
 }
 
 export async function rejectDraftMobile(a: MobileAuth, id: string, reason: string): Promise<ActionResult> {
-  if (!(await prisma.draft.count({ where: { id } }))) return bad(404, "not_found", "Rascunho não encontrado.");
-  if (!(await rejectDraft(id, a.userId, reason))) return conflict("Este rascunho já foi tratado.");
+  const orgId = await resolveOrgId(a.userId);
+  if (!orgId) return bad(403, "forbidden", "Sem permissão.");
+  if (!(await prisma.draft.count({ where: { id, lead: { campaign: { orgId } } } }))) return bad(404, "not_found", "Rascunho não encontrado.");
+  if (!(await rejectDraft(id, a.userId, reason, new Date(), orgId))) return conflict("Este rascunho já foi tratado.");
   return good({ id, status: "rejected" });
 }
 
 // ---------- Handoff ----------
 /** Assumir: o agente para no lead e rascunhos pendentes expiram (regra SPEC-019). Nao expoe telefone/e-mail; devolve o link https da call, se houver. */
-export async function takeHandoff(leadId: string): Promise<ActionResult> {
-  const lead = await prisma.lead.findUnique({ where: { id: leadId }, select: { id: true } });
+export async function takeHandoff(a: MobileAuth, leadId: string): Promise<ActionResult> {
+  const orgId = await resolveOrgId(a.userId);
+  if (!orgId) return bad(403, "forbidden", "Sem permissão.");
+  // SPEC-030: Lead é indireto (via campaign) — nunca assume handoff de lead de outra org.
+  const lead = await prisma.lead.findFirst({ where: { id: leadId, campaign: { orgId } }, select: { id: true } });
   if (!lead) return bad(404, "not_found", "Lead não encontrado.");
   await stopAgentOnManualReply(leadId);
   const l = await prisma.lead.findUniqueOrThrow({ where: { id: leadId }, select: { handoffAt: true, sequenceStatus: true } });

@@ -51,12 +51,12 @@ beforeAll(async () => {
   const user = await prisma.user.findFirstOrThrow({ where: { email: "admin@leadforge.local" } });
   userId = user.id;
   const icp = await prisma.icpProfile.findFirstOrThrow();
-  const seq = await prisma.sequence.create({ data: { name: TAG } });
-  campId = (await prisma.campaign.create({ data: { name: TAG, userId, icpId: icp.id, sequenceId: seq.id } })).id;
-  tplId = (await prisma.messageTemplate.create({ data: { campaignId: campId, channel: "email", name: TAG, subject: "Oi {{firstName}}", body: "Olá {{name}} da {{company}}" } })).id;
+  const seq = await prisma.sequence.create({ data: { name: TAG, orgId: icp.orgId } });
+  campId = (await prisma.campaign.create({ data: { name: TAG, userId, icpId: icp.id, orgId: icp.orgId, sequenceId: seq.id } })).id;
+  tplId = (await prisma.messageTemplate.create({ data: { campaignId: campId, orgId: icp.orgId, channel: "email", name: TAG, subject: "Oi {{firstName}}", body: "Olá {{name}} da {{company}}" } })).id;
   stepId = (await prisma.sequenceStep.create({ data: { sequenceId: seq.id, day: 0, channel: "email", templateId: tplId, order: 1 } })).id;
   const mk = (email: string, over = {}) =>
-    prisma.emailAccount.create({ data: { userId, provider: "smtp", smtpHost: "smtp.interno.local", email, encryptedPassword: encrypt(PASS), ...over } });
+    prisma.emailAccount.create({ data: { orgId: icp.orgId, userId, provider: "smtp", smtpHost: "smtp.interno.local", email, encryptedPassword: encrypt(PASS), ...over } });
   acc1 = (await mk(`a1@${TAG}.com`, { dailyLimit: 100, fromName: "Time Zz" })).id;
   acc2 = (await mk(`a2@${TAG}.com`, { isActive: false })).id;
 }, 30000);

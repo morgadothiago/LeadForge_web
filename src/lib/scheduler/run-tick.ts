@@ -63,6 +63,12 @@ const sanitize = (s: string) => s.replace(/\s+/g, " ").slice(0, 300);
 
 type StepRow = { id: string; day: number; channel: Channel; order: number; agentId: string | null; agentFallbackTemplate: boolean };
 
+/**
+ * SPEC-030: o tick itera por Organization ATIVA (não mais "todas as campanhas do banco" cegamente) — org
+ * suspensa/cancelada não dispara touches nem busca de leads (gate mínimo de billing). 1 lock global (não
+ * por org: o volume não justifica ainda) + orçamento de tempo/envios COMPARTILHADO entre todas as orgs da
+ * rodada; 1 `SchedulerRun` por org processada (mais 1 "meta" sem org para status "locked"/erro geral).
+ */
 export async function runTick(now: Date, overrides: Partial<TickDeps> = {}): Promise<TickSummary> {
   const deps: TickDeps = { ...defaultDeps(), ...overrides };
   const t0 = deps.clock();
@@ -82,43 +88,56 @@ export async function runTick(now: Date, overrides: Partial<TickDeps> = {}): Pro
     return summary({ status: "locked", skipped: "locked", runId: run?.id ?? null, budget: null });
   }
 
-  let runId: string | null = null;
+  let firstRunId: string | null = null;
   let budget: TickSummary["budget"] = null;
   let error: string | undefined;
+  const state = { sends: 0, budget: null as TickSummary["budget"] };
   try {
-    runId = (await prisma.schedulerRun.create({ data: { startedAt: now, status: "running" } })).id;
     await prisma.schedulerRun.deleteMany({ where: { startedAt: { lt: new Date(now.getTime() - RUN_RETENTION_MS) } } }).catch(() => {});
-    budget = await execute(now, deps, t0, inc);
+    // deps.campaignIds (testes/execução dirigida): resolve as orgs donas dessas campanhas em vez de varrer todas.
+    const orgIds = deps.campaignIds
+      ? [...new Set((await prisma.campaign.findMany({ where: { id: { in: deps.campaignIds } }, select: { orgId: true } })).map((c) => c.orgId))]
+      : (await prisma.organization.findMany({ where: { status: "active" }, select: { id: true } })).map((o) => o.id);
+    for (const orgId of orgIds) {
+      if (state.budget) break; // orçamento de tempo/envios já esgotado nesta rodada
+      const runId = (await prisma.schedulerRun.create({ data: { orgId, startedAt: now, status: "running" } })).id;
+      firstRunId ??= runId;
+      let orgError: string | undefined;
+      try {
+        await execute(now, deps, t0, inc, state, orgId);
+      } catch (e) {
+        orgError = sanitize(safeErrorForLog(e));
+        error ??= orgError;
+        console.error(`[scheduler] rodada da org ${orgId} falhou:`, orgError);
+      }
+      await prisma.schedulerRun
+        .update({ where: { id: runId }, data: { finishedAt: new Date(), status: orgError ? "error" : "ok", counters: { ...counters, ...(state.budget ? { budget: state.budget } : {}) }, error: orgError ?? null } })
+        .catch(() => {});
+    }
+    budget = state.budget;
   } catch (e) {
     error = sanitize(safeErrorForLog(e));
     console.error("[scheduler] rodada falhou:", error);
   } finally {
     await lock.release().catch((e) => console.error("[scheduler] falha ao liberar lock:", safeErrorForLog(e)));
   }
-  if (runId) {
-    await prisma.schedulerRun
-      .update({ where: { id: runId }, data: { finishedAt: new Date(), status: error ? "error" : "ok", counters: { ...counters, ...(budget ? { budget } : {}) }, error: error ?? null } })
-      .catch(() => {});
-  }
   // SPEC-023: alertas mobile (isolado; falha nunca derruba o tick)
   await sweepThrottled(new Date()).catch(() => {});
-  return summary({ status: error ? "error" : "ok", runId, budget, ...(error ? { error } : {}) });
+  return summary({ status: error ? "error" : "ok", runId: firstRunId, budget, ...(error ? { error } : {}) });
 }
 
-async function execute(now: Date, deps: TickDeps, t0: number, inc: (k: string, n?: number) => void): Promise<TickSummary["budget"]> {
-  let sends = 0;
-  let budget: TickSummary["budget"] = null;
+async function execute(now: Date, deps: TickDeps, t0: number, inc: (k: string, n?: number) => void, state: { sends: number; budget: TickSummary["budget"] }, orgId: string): Promise<void> {
   const processedTouches = new Set<string>();
   const processedLeads = new Set<string>();
   const usedInstances = new Set<string>();
   const stepsCache = new Map<string, StepRow[]>();
-  const scope: Prisma.CampaignWhereInput = deps.campaignIds ? { id: { in: deps.campaignIds } } : {};
+  const scope: Prisma.CampaignWhereInput = { orgId, ...(deps.campaignIds ? { id: { in: deps.campaignIds } } : {}) };
   // SPEC-013: lead de seed nunca entra nas filas (a menos que ALLOW_SEED_SENDS=true). source pode ser null -> OR explícito.
   const notSeed: Prisma.LeadWhereInput = allowSeedSends() ? {} : { OR: [{ source: null }, { source: { not: "seed" } }] };
 
   const outOfBudget = (): boolean => {
-    if (deps.clock() - t0 >= deps.config.timeBudgetMs) return (budget ??= "time"), true;
-    if (sends >= deps.config.maxSends) return (budget ??= "sends"), true;
+    if (deps.clock() - t0 >= deps.config.timeBudgetMs) return (state.budget ??= "time"), true;
+    if (state.sends >= deps.config.maxSends) return (state.budget ??= "sends"), true;
     return false;
   };
   const getSteps = async (sequenceId: string): Promise<StepRow[]> => {
@@ -147,7 +166,7 @@ async function execute(now: Date, deps: TickDeps, t0: number, inc: (k: string, n
     let to: EndStatus;
     if (status === "suppressed") {
       const l = await prisma.lead.findUnique({ where: { id: leadId }, select: { email: true, phone: true } });
-      const reason = l ? await findSuppression(l) : null;
+      const reason = l ? await findSuppression(l, orgId) : null;
       to = reason && (reason.startsWith("opt_out") || reason === "possible_opt_out_confirmed") ? "opted_out" : "completed";
     } else to = status;
     const r = await prisma.lead.updateMany({ where: { id: leadId, sequenceStatus: { in: ["active", "not_started"] } }, data: { sequenceStatus: to, nextTouchAt: null } });
@@ -170,7 +189,7 @@ async function execute(now: Date, deps: TickDeps, t0: number, inc: (k: string, n
   /** Executa o canal do Touch respeitando orçamento e "1 WhatsApp por instância por rodada". null = não chamou. */
   const dispatch = async (touchId: string, channel: Channel, instanceId: string | null): Promise<ChannelResult | null> => {
     if (channel === "whatsapp" && instanceId && usedInstances.has(instanceId)) return void inc("instance_busy"), null;
-    sends++;
+    state.sends++;
     let r: ChannelResult;
     try {
       r = channel === "whatsapp" ? await deps.sendWhatsApp(touchId, now) : await deps.sendEmail(touchId, now);
@@ -232,7 +251,7 @@ async function execute(now: Date, deps: TickDeps, t0: number, inc: (k: string, n
   try {
     const autoCamps = await prisma.campaign.findMany({ where: { status: "active", autoStart: true, sequenceId: { not: null }, ...scope }, select: { id: true } });
     for (const c of autoCamps) {
-      const sum = await classifyStartable(c.id, { limit: AUTO_START_LIMIT, onlyNotStarted: true });
+      const sum = await classifyStartable(c.id, orgId, { limit: AUTO_START_LIMIT, onlyNotStarted: true });
       if (!sum?.eligibleIds.length) continue;
       const n = await activateLeads(sum.eligibleIds, now);
       if (n) {
@@ -346,7 +365,7 @@ async function execute(now: Date, deps: TickDeps, t0: number, inc: (k: string, n
           inc("completed");
           continue;
         }
-        if (await findSuppression({ email: lead.email, phone: lead.phone })) {
+        if (await findSuppression({ email: lead.email, phone: lead.phone }, orgId)) {
           await endLead(lead.id, "suppressed");
           inc("suppressed_closed");
           continue;
@@ -404,5 +423,4 @@ async function execute(now: Date, deps: TickDeps, t0: number, inc: (k: string, n
       }
     }
   }
-  return budget;
 }

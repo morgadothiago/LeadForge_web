@@ -52,10 +52,17 @@ function allAsyncFns(src: string): Fn[] {
   return hits.map((h, i) => ({ name: h.name, body: src.slice(h.at, hits[i + 1]?.at ?? src.length) }));
 }
 
+/**
+ * SPEC-030: `requireProviderOrg()`/`requirePlatformAdmin()` (`src/lib/auth/require-admin.ts`) chamam
+ * `requireUser()` por dentro — são "exige sessão" tanto quanto a chamada direta, só que também exigem
+ * org/papel de plataforma. O grep original só procurava `requireUser(` literal.
+ */
+const SESSION_GUARD_RE = /\brequireUser\s*\(|\brequireProviderOrg\s*\(|\brequirePlatformAdmin\s*\(/;
+
 // Funções de queries/actions (exportadas ou helpers locais como setStatus) que exigem sessão (delegáveis).
 const guarded = new Set<string>();
 for (const f of files.filter((f) => /src\/(lib\/queries|lib\/actions)\//.test(f.split(path.sep).join("/")))) {
-  for (const fn of allAsyncFns(readFileSync(f, "utf8"))) if (/\brequireUser\s*\(/.test(fn.body)) guarded.add(fn.name);
+  for (const fn of allAsyncFns(readFileSync(f, "utf8"))) if (SESSION_GUARD_RE.test(fn.body)) guarded.add(fn.name);
 }
 
 describe("estático: todo arquivo 'use server' exige sessão", () => {
@@ -72,7 +79,7 @@ describe("estático: todo arquivo 'use server' exige sessão", () => {
       expect(fns.length, "arquivo 'use server' sem função exportada?").toBeGreaterThan(0);
       for (const fn of fns) {
         if (ALLOWLIST[fn.name] === rel(f)) continue;
-        const direct = /\brequireUser\s*\(/.test(fn.body);
+        const direct = SESSION_GUARD_RE.test(fn.body);
         const delegated = [...guarded].some((g) => new RegExp(`\\b${g}\\s*\\(`).test(fn.body.replace(new RegExp(`export\\s+async\\s+function\\s+${fn.name}`), "")));
         expect(direct || delegated, `${rel(f)}::${fn.name} sem requireUser`).toBe(true);
       }

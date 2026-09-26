@@ -5,6 +5,8 @@ import { hashPassword } from "../src/lib/auth/password";
 
 export const SEED_IDS = {
   user: "00000000-0000-4000-8000-000000000001",
+  /** SPEC-030: Organization dona de todo o dado de seed (o usuário de seed é `provider`, owner desta org). */
+  org: "00000000-0000-4000-8000-00000000000f",
   icp: "00000000-0000-4000-8000-000000000002",
   campaign: "00000000-0000-4000-8000-000000000003",
   sequence: "00000000-0000-4000-8000-000000000004",
@@ -25,16 +27,30 @@ function seedId(kind: number, lead: number, k: number): string {
 }
 
 export async function seed(prisma: PrismaClient, now: Date = new Date()) {
+  // SPEC-030: usuário de seed é `provider`, owner de uma Organization própria — todo o dado de negócio
+  // abaixo (ICP/Sequence/Campaign/...) pertence a ela. `signInAsSeedAdmin()` continua funcionando: agora
+  // resolve orgId/platformRole por essa Membership (não mais por "role=admin").
   await prisma.user.upsert({
     where: { email: "admin@leadforge.local" },
     update: {},
-    create: { id: SEED_IDS.user, name: "Admin", email: "admin@leadforge.local", role: "admin" },
+    create: { id: SEED_IDS.user, name: "Admin", email: "admin@leadforge.local", role: "provider" },
+  });
+  await prisma.organization.upsert({
+    where: { id: SEED_IDS.org },
+    update: {},
+    create: { id: SEED_IDS.org, name: "Organização de Seed", slug: "seed-org", status: "active" },
+  });
+  await prisma.membership.upsert({
+    where: { userId_orgId: { userId: SEED_IDS.user, orgId: SEED_IDS.org } },
+    update: {},
+    create: { userId: SEED_IDS.user, orgId: SEED_IDS.org, orgRole: "owner" },
   });
   await prisma.icpProfile.upsert({
     where: { id: SEED_IDS.icp },
     update: {},
     create: {
       id: SEED_IDS.icp,
+      orgId: SEED_IDS.org,
       name: "Clínicas odontológicas SP",
       niche: "Odontologia",
       location: "São Paulo, SP",
@@ -48,13 +64,14 @@ export async function seed(prisma: PrismaClient, now: Date = new Date()) {
   await prisma.sequence.upsert({
     where: { id: SEED_IDS.sequence },
     update: {},
-    create: { id: SEED_IDS.sequence, name: "Cadência 0/2/5/7/10" },
+    create: { id: SEED_IDS.sequence, orgId: SEED_IDS.org, name: "Cadência 0/2/5/7/10" },
   });
   await prisma.campaign.upsert({
     where: { id: SEED_IDS.campaign },
     update: {},
     create: {
       id: SEED_IDS.campaign,
+      orgId: SEED_IDS.org,
       name: "Prospecção Odonto SP",
       description: "Campanha de exemplo",
       icpId: SEED_IDS.icp,
@@ -72,6 +89,7 @@ export async function seed(prisma: PrismaClient, now: Date = new Date()) {
       update: {},
       create: {
         id: templateId,
+        orgId: SEED_IDS.org,
         campaignId: SEED_IDS.campaign,
         channel: s.channel,
         name: `Dia ${s.day} - ${s.channel}`,
@@ -234,6 +252,7 @@ export async function seed(prisma: PrismaClient, now: Date = new Date()) {
     if ((stage === "reuniao_agendada" || stage === "fechado") && repliedAt) {
       meetingAt = at(repliedAt, 12);
       const done = stage === "fechado";
+      const meetingStart = done ? at(meetingAt, 48) : at(now, (2 + (i % 3)) * 24);
       await prisma.meeting.upsert({
         where: { id: seedId(4, n, 0) },
         update: {},
@@ -241,7 +260,9 @@ export async function seed(prisma: PrismaClient, now: Date = new Date()) {
           id: seedId(4, n, 0),
           opportunityId: opp.id,
           leadId: lead.id,
-          scheduledAt: done ? at(meetingAt, 48) : at(now, (2 + (i % 3)) * 24),
+          campaignId: opp.campaignId,
+          startsAt: meetingStart,
+          endsAt: new Date(meetingStart.getTime() + 30 * 60_000),
           duration: 30,
           status: done ? "done" : "scheduled",
           createdAt: meetingAt,
@@ -294,11 +315,18 @@ export async function seedAdmin(
   }
   if (password.length < 12) throw new Error("ADMIN_PASSWORD deve ter ao menos 12 caracteres.");
   const passwordHash = await hashPassword(password);
-  await prisma.user.upsert({
+  const user = await prisma.user.upsert({
     where: { email },
     update: { passwordHash },
-    create: { name: "Admin", email, role: "admin", passwordHash },
+    create: { name: "Admin", email, role: "provider", passwordHash },
   });
+  // SPEC-030: garante Organization própria (owner) se ainda não existir — sem isso o login fica bloqueado
+  // (sessão nunca é criada sem org para um `provider`, ver actions/auth.ts).
+  const hasOrg = await prisma.membership.findFirst({ where: { userId: user.id } });
+  if (!hasOrg) {
+    const org = await prisma.organization.create({ data: { name: "Organização Admin", slug: `admin-org-${user.id.slice(0, 8)}`, status: "active" } });
+    await prisma.membership.create({ data: { userId: user.id, orgId: org.id, orgRole: "owner" } });
+  }
   return "upserted";
 }
 

@@ -1,6 +1,6 @@
 import { Prisma, type Channel, type SequenceStatus, type Stage, type TouchDirection, type TouchStatus } from "@prisma/client";
-import { prisma } from "@/lib/prisma";
-import { requireUser } from "@/lib/auth/require-user";
+import { requireProviderOrg } from "@/lib/auth/require-admin";
+import { scopedPrisma } from "@/lib/tenant/scoped-prisma";
 import { suppressedIds } from "@/lib/domain/suppression";
 import { getLastInboundByLead, sanitizeInboundText } from "@/lib/whatsapp/last-inbound";
 import { leadListParamsSchema, type LeadListParams } from "@/lib/schemas/lead";
@@ -41,7 +41,8 @@ export interface LeadListResult {
  * campanha/oportunidade/último touch aninhados) + count — sem N+1.
  */
 export async function listLeads(params: LeadListParams = {}): Promise<LeadListResult> {
-  await requireUser();
+  const { orgId } = await requireProviderOrg();
+  const db = scopedPrisma(orgId);
   const p = leadListParamsSchema.parse(params);
   const and: Prisma.LeadWhereInput[] = [];
   if (p.campaignId) and.push({ campaignId: p.campaignId });
@@ -59,10 +60,16 @@ export async function listLeads(params: LeadListParams = {}): Promise<LeadListRe
     });
   }
   if (p.channel) {
-    const rows = await prisma.$queryRaw<{ leadId: string }[]>(Prisma.sql`
+    // SPEC-030: $queryRaw não passa pelo scopedPrisma — o filtro de orgId precisa ir explícito no SQL
+    // (join até Campaign), senão vaza leadId de outra organização com o mesmo canal.
+    const rows = await db.raw.$queryRaw<{ leadId: string }[]>(Prisma.sql`
       SELECT "leadId" FROM (
-        SELECT DISTINCT ON ("leadId") "leadId", channel
-        FROM "Touch" ORDER BY "leadId", "createdAt" DESC, id DESC
+        SELECT DISTINCT ON (t."leadId") t."leadId", t.channel
+        FROM "Touch" t
+        JOIN "Lead" l ON l.id = t."leadId"
+        JOIN "Campaign" c ON c.id = l."campaignId"
+        WHERE c."orgId" = ${orgId}
+        ORDER BY t."leadId", t."createdAt" DESC, t.id DESC
       ) t WHERE t.channel = ${p.channel}::"Channel"`);
     and.push({ id: { in: rows.map((r) => r.leadId) } });
   }
@@ -70,7 +77,7 @@ export async function listLeads(params: LeadListParams = {}): Promise<LeadListRe
   const orderBy: Prisma.LeadOrderByWithRelationInput[] = [{ [p.sort]: p.dir }, { id: "asc" }];
 
   const [rows, total] = await Promise.all([
-    prisma.lead.findMany({
+    db.lead.findMany({
       where,
       orderBy,
       skip: (p.page - 1) * p.pageSize,
@@ -91,12 +98,12 @@ export async function listLeads(params: LeadListParams = {}): Promise<LeadListRe
         touches: { select: { channel: true }, orderBy: [{ createdAt: "desc" }, { id: "desc" }], take: 1 },
       },
     }),
-    prisma.lead.count({ where }),
+    db.lead.count({ where }),
   ]);
-  const inbound = await getLastInboundByLead(rows.map((r) => r.id));
-  const suppressed = await suppressedIds(rows);
+  const inbound = await getLastInboundByLead(rows.map((r: { id: string }) => r.id));
+  const suppressed = await suppressedIds(rows, orgId);
   return {
-    items: rows.map((r) => ({
+    items: rows.map((r: (typeof rows)[number]) => ({
       id: r.id,
       name: r.name,
       company: r.company,
@@ -166,13 +173,13 @@ export interface LeadDetail {
   /** Mais recente primeiro (createdAt desc, id desc). */
   touches: LeadTouchItem[];
   notes: { id: string; body: string; createdAt: Date }[];
-  meetings: { id: string; scheduledAt: Date; duration: number; status: string }[];
+  meetings: { id: string; startsAt: Date; duration: number; status: string }[];
 }
 
 /** Ficha completa em 1 query (include aninhado, batch do Prisma). null se não existir. */
 export async function getLead(id: string): Promise<LeadDetail | null> {
-  await requireUser();
-  const l = await prisma.lead.findUnique({
+  const { orgId } = await requireProviderOrg();
+  const l = await scopedPrisma(orgId).lead.findUnique({
     where: { id },
     include: {
       campaign: { select: { id: true, name: true } },
@@ -186,21 +193,21 @@ export async function getLead(id: string): Promise<LeadDetail | null> {
       },
       notes: { orderBy: [{ createdAt: "desc" }, { id: "desc" }], select: { id: true, body: true, createdAt: true } },
       meetings: {
-        orderBy: [{ scheduledAt: "desc" }, { id: "asc" }],
-        select: { id: true, scheduledAt: true, duration: true, status: true },
+        orderBy: [{ startsAt: "desc" }, { id: "asc" }],
+        select: { id: true, startsAt: true, duration: true, status: true },
       },
     },
   });
   if (!l) return null;
   const { opportunities, rawData: _raw, campaignId: _c, currentStepOrder, ...rest } = l;
   void _raw; void _c;
-  const lastIn = l.touches.find((t) => t.direction === "inbound");
+  const lastIn = l.touches.find((t: LeadTouchItem) => t.direction === "inbound");
   return {
     ...rest,
     currentStepOrder,
     opportunity: opportunities[0] ?? null,
     lastInboundAt: lastIn ? (lastIn.repliedAt ?? lastIn.createdAt) : null,
     lastInboundText: sanitizeInboundText(lastIn?.content),
-    suppressed: (await suppressedIds([{ id: l.id, email: l.email, phone: l.phone }])).has(l.id),
+    suppressed: (await suppressedIds([{ id: l.id, email: l.email, phone: l.phone }], orgId)).has(l.id),
   };
 }

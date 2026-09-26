@@ -17,6 +17,7 @@ const IN_WINDOW = new Date("2026-06-10T13:30:00Z"); // quarta, SP 10:30 (janela 
 let campId = "";
 let stepId = "";
 let instId = "";
+let orgId = "";
 let n = 0;
 
 async function mkLead(over: Record<string, unknown> = {}) {
@@ -36,10 +37,11 @@ beforeAll(async () => {
   await seed(prisma);
   const user = await prisma.user.findFirstOrThrow({ where: { email: "admin@leadforge.local" } });
   const icp = await prisma.icpProfile.findFirstOrThrow();
-  const seq = await prisma.sequence.create({ data: { name: TAG } });
-  instId = (await prisma.whatsAppInstance.create({ data: { instanceName: TAG, number: "+5511999990000", webhookToken: `${TAG}-${Date.now()}-${Math.random()}`, status: "connected" } })).id;
-  campId = (await prisma.campaign.create({ data: { name: TAG, userId: user.id, icpId: icp.id, sequenceId: seq.id, whatsappInstanceId: instId } })).id;
-  const tpl = await prisma.messageTemplate.create({ data: { campaignId: campId, channel: "whatsapp", name: TAG, body: "Olá {{firstName}} da {{company}}" } });
+  orgId = icp.orgId;
+  const seq = await prisma.sequence.create({ data: { name: TAG, orgId: icp.orgId } });
+  instId = (await prisma.whatsAppInstance.create({ data: { orgId: icp.orgId, instanceName: TAG, number: "+5511999990000", webhookToken: `${TAG}-${Date.now()}-${Math.random()}`, status: "connected" } })).id;
+  campId = (await prisma.campaign.create({ data: { name: TAG, userId: user.id, icpId: icp.id, orgId: icp.orgId, sequenceId: seq.id, whatsappInstanceId: instId } })).id;
+  const tpl = await prisma.messageTemplate.create({ data: { campaignId: campId, orgId: icp.orgId, channel: "whatsapp", name: TAG, body: "Olá {{firstName}} da {{company}}" } });
   stepId = (await prisma.sequenceStep.create({ data: { sequenceId: seq.id, day: 0, channel: "whatsapp", templateId: tpl.id, order: 1 } })).id;
 }, 30000);
 
@@ -109,7 +111,7 @@ describe("sendWhatsApp (somente FakeWhatsAppProvider)", () => {
 
   it("variável desconhecida -> failed", async () => {
     await reset();
-    const tpl = await prisma.messageTemplate.create({ data: { campaignId: campId, channel: "whatsapp", name: TAG, body: "Oi {{xyz}}" } });
+    const tpl = await prisma.messageTemplate.create({ data: { campaignId: campId, orgId, channel: "whatsapp", name: TAG, body: "Oi {{xyz}}" } });
     const step = await prisma.sequenceStep.create({ data: { sequenceId: (await prisma.campaign.findUniqueOrThrow({ where: { id: campId } })).sequenceId!, day: 1, channel: "whatsapp", templateId: tpl.id, order: 2 } });
     const t = await mkTouch((await mkLead()).id, { stepId: step.id });
     const fake = new FakeWhatsAppProvider();

@@ -20,19 +20,20 @@ export async function enqueueAgentRun(input: { agentId: string; leadId: string; 
   }
 }
 
-/** Agente ativo, com teto definido e kill switch global desligado (senão nenhuma tarefa nova é criada). */
-export async function isAgentAvailable(agentId: string): Promise<boolean> {
-  const s = await prisma.agentSettings.findUnique({ where: { id: "global" } });
+/** Agente ativo, com teto definido e kill switch da ORG do agente desligado (SPEC-030: AgentSettings é por-org). */
+export async function isAgentAvailable(agentId: string, db: Pick<typeof prisma, "agent" | "agentSettings"> = prisma): Promise<boolean> {
+  const a = await db.agent.findUnique({ where: { id: agentId }, select: { active: true, monthlyBudgetCents: true, orgId: true } });
+  if (!a) return false;
+  const s = await db.agentSettings.findUnique({ where: { orgId: a.orgId } });
   if (s?.killSwitch !== false) return false;
-  const a = await prisma.agent.findUnique({ where: { id: agentId }, select: { active: true, monthlyBudgetCents: true } });
-  return !!a?.active && a.monthlyBudgetCents !== null;
+  return !!a.active && a.monthlyBudgetCents !== null;
 }
 
-/** Agente Closer ativo (e sistema ligado) para tarefa inbound; null = nada a fazer. */
-export async function findActiveCloser(db: Pick<typeof prisma, "agent" | "agentSettings"> = prisma): Promise<{ id: string } | null> {
-  const s = await db.agentSettings.findUnique({ where: { id: "global" } });
+/** Agente Closer ativo (e sistema ligado) para tarefa inbound DESTA org; null = nada a fazer. */
+export async function findActiveCloser(orgId: string, db: Pick<typeof prisma, "agent" | "agentSettings"> = prisma): Promise<{ id: string } | null> {
+  const s = await db.agentSettings.findUnique({ where: { orgId } });
   if (s?.killSwitch !== false) return null;
-  return db.agent.findFirst({ where: { role: "closer", active: true }, select: { id: true }, orderBy: { createdAt: "asc" } });
+  return db.agent.findFirst({ where: { orgId, role: "closer", active: true }, select: { id: true }, orderBy: { createdAt: "asc" } });
 }
 
 export interface QueueSummary { processed: number; outcomes: Record<string, number>; expired: number; purged: number }

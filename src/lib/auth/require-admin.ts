@@ -1,4 +1,3 @@
-import { prisma } from "@/lib/prisma";
 import { requireUser, type CurrentUser } from "./require-user";
 
 export class ForbiddenError extends Error {
@@ -8,10 +7,23 @@ export class ForbiddenError extends Error {
   }
 }
 
-/** Exige sessão + papel `admin` (relido do banco a cada chamada; nunca confia no token). Lança UnauthorizedError/ForbiddenError. */
-export async function requireAdmin(): Promise<CurrentUser & { role: string }> {
+/**
+ * SPEC-030: exige sessão de `provider` com org ativa. Substitui o antigo `requireAdmin()` para todo
+ * recurso que hoje é por-organização (campanhas, integrações, agentes, configurações...). Lança
+ * UnauthorizedError (sem sessão) ou ForbiddenError (sessão de platform_admin, sem org).
+ */
+export async function requireProviderOrg(): Promise<{ user: CurrentUser; orgId: string }> {
   const user = await requireUser();
-  const row = await prisma.user.findUnique({ where: { id: user.id }, select: { role: true } });
-  if (!row || row.role !== "admin") throw new ForbiddenError();
-  return { ...user, role: row.role };
+  if (user.platformRole !== "provider" || !user.orgId) throw new ForbiddenError();
+  return { user, orgId: user.orgId };
+}
+
+/**
+ * SPEC-030: exige sessão de `platform_admin` (cross-tenant, sem org). Usado pelas SPECs 031-034 (admin
+ * cross-tenant) — nenhum endpoint desta SPEC-030 chama isto ainda (fora de escopo, ver spec.md).
+ */
+export async function requirePlatformAdmin(): Promise<{ user: CurrentUser }> {
+  const user = await requireUser();
+  if (user.platformRole !== "platform_admin") throw new ForbiddenError();
+  return { user };
 }

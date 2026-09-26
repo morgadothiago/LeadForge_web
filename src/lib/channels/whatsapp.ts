@@ -88,7 +88,7 @@ export async function sendWhatsApp(touchId: string, opts: SendWhatsAppOptions = 
 async function doSend(touchId: string, now: Date, opts: SendWhatsAppOptions): Promise<SendWhatsAppResult> {
   const touch = await prisma.touch.findUnique({
     where: { id: touchId },
-    include: { lead: { include: { campaign: { select: { whatsappInstanceId: true } } } }, step: { include: { template: true } } },
+    include: { lead: { include: { campaign: { select: { whatsappInstanceId: true, orgId: true } } } }, step: { include: { template: true } } },
   });
   if (!touch) throw new AppError({ code: "not_found", userMessage: "Envio não encontrado." });
   if (touch.channel !== "whatsapp") return fail(touchId, new AppError({ code: "validation", userMessage: "Este envio não é do canal WhatsApp." }));
@@ -104,7 +104,7 @@ async function doSend(touchId: string, now: Date, opts: SendWhatsAppOptions): Pr
   const closerBypass = await isCloserTouch(touch);
   if (repliedOrEnded(lead, touch.createdAt, closerBypass)) return skip("replied");
   // SPEC-017: supressão global ANTES de qualquer outra coisa (provider nunca é chamado).
-  if (await findSuppression({ email: lead.email, phone: lead.phone })) return skip("suppressed");
+  if (await findSuppression({ email: lead.email, phone: lead.phone }, lead.campaign.orgId)) return skip("suppressed");
 
   const phone = lead.phone ? normalizeBrPhone(lead.phone) : null;
   if (!phone || !phone.ok) return fail(touchId, new AppError({ code: "validation", userMessage: "O lead não possui telefone válido (celular brasileiro)." }));
@@ -161,7 +161,7 @@ async function doSend(touchId: string, now: Date, opts: SendWhatsAppOptions): Pr
     instance = { ...instance, warmupStartedAt: now };
   }
 
-  const provider = opts.provider ?? getWhatsAppProvider(instance.provider);
+  const provider = opts.provider ?? getWhatsAppProvider(instance.orgId, instance.provider);
 
   // Verificar número (1º envio, cacheado): sem WhatsApp = skipped; falha da checagem = deferred, nunca envia às cegas.
   if (lead.hasWhatsapp === false) return skip("no_whatsapp");

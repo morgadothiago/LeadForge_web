@@ -44,7 +44,7 @@ describe("excecao Closer a repliedOrEnded (SPEC-017/019)", () => {
     for (const f of ["email.ts", "whatsapp.ts"]) {
       const src = readFileSync(path.join(__dirname, f), "utf8");
       expect(src.indexOf("repliedOrEnded(lead, touch.createdAt, closerBypass)")).toBeGreaterThan(-1);
-      expect(src.indexOf("repliedOrEnded(lead, touch.createdAt, closerBypass)")).toBeLessThan(src.indexOf('findSuppression({ email: lead.email, phone: lead.phone })'));
+      expect(src.indexOf("repliedOrEnded(lead, touch.createdAt, closerBypass)")).toBeLessThan(src.indexOf('findSuppression({ email: lead.email, phone: lead.phone }, lead.campaign.orgId)'));
       expect(src).toContain("leadStopped(lead.id, touch.createdAt, closerBypass)");
       expect(src).toMatch(/if \(lead\.optedOutAt \|\| lead\.sequenceStatus === "opted_out"\)/);
     }

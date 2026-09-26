@@ -2,8 +2,8 @@
 
 import { revalidatePath } from "next/cache";
 import type { Prisma } from "@prisma/client";
-import { prisma } from "@/lib/prisma";
-import { requireUser } from "@/lib/auth/require-user";
+import { requireProviderOrg } from "@/lib/auth/require-admin";
+import { scopedPrisma } from "@/lib/tenant/scoped-prisma";
 import { runMoveOpportunity, type MoveResult } from "@/lib/domain/move-opportunity";
 import {
   moveOpportunitySchema,
@@ -34,10 +34,16 @@ export async function moveOpportunity(
   input: unknown,
 ): Promise<ActionResult<MoveResult>> {
   return safeAction(async () => {
-    await requireUser();
+    const { orgId } = await requireProviderOrg();
+    const db = scopedPrisma(orgId);
     const parsed = moveOpportunitySchema.safeParse(input);
     if (!parsed.success) return failure(zodErrors(parsed.error));
     const { opportunityId, toStage, toIndex, campaignId, lostReason } = parsed.data;
+
+    // Confere que a oportunidade (e a campanha opcional) pertencem à org antes de tocar a transação
+    // crua (defesa contra opportunityId/campaignId adivinhado, mesmo que a transação em si não filtre por org).
+    if (!(await db.opportunity.count({ where: { id: opportunityId } }))) return formError("Oportunidade não encontrada. Ela pode ter sido movida ou excluída.");
+    if (campaignId && !(await db.campaign.count({ where: { id: campaignId } }))) return formError("Oportunidade não encontrada. Ela pode ter sido movida ou excluída.");
 
     const outcome = await runMoveOpportunity({ opportunityId, toStage, toIndex, campaignId, lostReason });
     if (outcome.status === "conflict") {
@@ -57,14 +63,15 @@ export async function updateOpportunity(
   input: unknown,
 ): Promise<ActionResult<{ id: string }>> {
   return safeAction(async () => {
-    await requireUser();
+    const { orgId } = await requireProviderOrg();
+    const db = scopedPrisma(orgId);
     const parsed = updateOpportunitySchema.safeParse(input);
     if (!parsed.success) return failure(zodErrors(parsed.error));
     const { opportunityId, value, notes } = parsed.data;
     const data: Prisma.OpportunityUpdateInput = {};
     if (value !== undefined) data.value = value;
     if (notes !== undefined) data.notes = notes;
-    const updated = await prisma.opportunity.update({
+    const updated = await db.opportunity.update({
       where: { id: opportunityId },
       data,
       select: { id: true },

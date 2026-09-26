@@ -104,12 +104,14 @@ export async function processItem(campaignId: string, raw: unknown, index: numbe
   if (!p.success) return { index, status: "invalid", reason: reasonFrom(p.error) };
   const d = p.data;
   const contact = { email: d.email, phone: d.phone };
+  const campaign = await prisma.campaign.findUnique({ where: { id: campaignId }, select: { orgId: true } });
+  if (!campaign) return { index, status: "invalid", reason: "campanha não encontrada" };
   const dup = await prisma.lead.findFirst({
     where: { campaignId, OR: [...(d.email ? [{ email: d.email }] : []), ...(d.phone ? [{ phone: d.phone }] : [])] },
     select: { id: true },
   });
   if (dup) return { index, status: "duplicate", leadId: dup.id };
-  if (await findSuppression(contact)) return { index, status: "suppressed" };
+  if (await findSuppression(contact, campaign.orgId)) return { index, status: "suppressed" };
   try {
     const out = await withSerializableRetry(() =>
       prisma.$transaction(

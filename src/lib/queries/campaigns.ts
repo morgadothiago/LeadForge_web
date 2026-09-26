@@ -1,6 +1,6 @@
 import type { CampaignStatus, Channel } from "@prisma/client";
-import { prisma } from "@/lib/prisma";
-import { requireUser } from "@/lib/auth/require-user";
+import { requireProviderOrg } from "@/lib/auth/require-admin";
+import { scopedPrisma } from "@/lib/tenant/scoped-prisma";
 import { campaignListParamsSchema, type CampaignListParams } from "@/lib/schemas/campaign";
 
 export interface IcpSummary {
@@ -57,9 +57,9 @@ function toIcpSummary(i: {
 
 /** Lista com contagem de leads (1 query, sem N+1). Arquivadas ocultas por padrão. */
 export async function listCampaigns(params: CampaignListParams = {}): Promise<CampaignListItem[]> {
-  await requireUser();
+  const { orgId } = await requireProviderOrg();
   const { status, includeArchived } = campaignListParamsSchema.parse(params);
-  const rows = await prisma.campaign.findMany({
+  const rows = await scopedPrisma(orgId).campaign.findMany({
     where: status ? { status } : includeArchived ? {} : { status: { not: "archived" } },
     orderBy: { createdAt: "desc" },
     include: {
@@ -69,12 +69,12 @@ export async function listCampaigns(params: CampaignListParams = {}): Promise<Ca
       _count: { select: { leads: true, templates: true } },
     },
   });
-  return rows.map(({ _count, ...c }) => ({ ...c, leadCount: _count.leads, templateCount: _count.templates }));
+  return rows.map(({ _count, ...c }: { _count: { leads: number; templates: number } } & Record<string, unknown>) => ({ ...c, leadCount: _count.leads, templateCount: _count.templates })) as unknown as CampaignListItem[];
 }
 
 export async function getCampaign(id: string): Promise<CampaignDetail | null> {
-  await requireUser();
-  const c = await prisma.campaign.findUnique({
+  const { orgId } = await requireProviderOrg();
+  const c = await scopedPrisma(orgId).campaign.findUnique({
     where: { id },
     include: {
       icp: { include: { _count: { select: { campaigns: true } } } },
@@ -91,8 +91,8 @@ export async function getCampaign(id: string): Promise<CampaignDetail | null> {
 
 /** ICPs para select/gestão, com nº de campanhas que os usam. */
 export async function listIcps(): Promise<IcpSummary[]> {
-  await requireUser();
-  const rows = await prisma.icpProfile.findMany({
+  const { orgId } = await requireProviderOrg();
+  const rows = await scopedPrisma(orgId).icpProfile.findMany({
     orderBy: { createdAt: "desc" },
     include: { _count: { select: { campaigns: true } } },
   });
@@ -100,8 +100,8 @@ export async function listIcps(): Promise<IcpSummary[]> {
 }
 
 export async function getIcp(id: string): Promise<IcpSummary | null> {
-  await requireUser();
-  const i = await prisma.icpProfile.findUnique({
+  const { orgId } = await requireProviderOrg();
+  const i = await scopedPrisma(orgId).icpProfile.findUnique({
     where: { id },
     include: { _count: { select: { campaigns: true } } },
   });
@@ -113,10 +113,11 @@ export async function listCampaignFormOptions(): Promise<{
   sequences: { id: string; name: string }[];
   whatsappInstances: { id: string; instanceName: string }[];
 }> {
-  await requireUser();
+  const { orgId } = await requireProviderOrg();
+  const db = scopedPrisma(orgId);
   const [sequences, whatsappInstances] = await Promise.all([
-    prisma.sequence.findMany({ select: { id: true, name: true }, orderBy: { name: "asc" } }),
-    prisma.whatsAppInstance.findMany({ select: { id: true, instanceName: true }, orderBy: { instanceName: "asc" } }),
+    db.sequence.findMany({ select: { id: true, name: true }, orderBy: { name: "asc" } }),
+    db.whatsAppInstance.findMany({ select: { id: true, instanceName: true }, orderBy: { instanceName: "asc" } }),
   ]);
   return { sequences, whatsappInstances };
 }

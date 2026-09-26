@@ -25,7 +25,7 @@ beforeAll(async () => {
   await signInAsSeedAdmin();
   const icp = await prisma.icpProfile.findFirstOrThrow();
   const user = await prisma.user.findFirstOrThrow();
-  const c = await prisma.campaign.create({ data: { name: TAG, userId: user.id, icpId: icp.id } });
+  const c = await prisma.campaign.create({ data: { name: TAG, userId: user.id, icpId: icp.id, orgId: icp.orgId } });
   campId = c.id;
   for (let i = 0; i < 4; i++) {
     const lead = await prisma.lead.create({
@@ -156,7 +156,7 @@ describe("pipeline - lostReason e encerramento de sequência", () => {
   beforeAll(async () => {
     const icp = await prisma.icpProfile.findFirstOrThrow();
     const user = await prisma.user.findFirstOrThrow();
-    const c = await prisma.campaign.create({ data: { name: T2, userId: user.id, icpId: icp.id } });
+    const c = await prisma.campaign.create({ data: { name: T2, userId: user.id, icpId: icp.id, orgId: icp.orgId } });
     camp = c.id;
     const l = await prisma.lead.create({ data: { campaignId: camp, name: `${T2} lead` } });
     leadId = l.id;

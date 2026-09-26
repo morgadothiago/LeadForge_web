@@ -27,11 +27,11 @@ describe("provider factory", () => {
     try {
       process.env.EVOLUTION_API_URL = "http://evo.test";
       process.env.EVOLUTION_API_KEY = "k";
-      expect(typeof getWhatsAppProvider("evolution").getStatus).toBe("function");
+      expect(typeof getWhatsAppProvider("00000000-0000-4000-8000-000000000000", "evolution").getStatus).toBe("function");
       delete process.env.EVOLUTION_API_KEY;
       _setCacheTtl(0);
-      await expect(getWhatsAppProvider("evolution").getStatus("x")).rejects.toThrow(/não configurada/);
-      expect(() => getWhatsAppProvider("cloud_api" as never)).toThrow(/não suportado/);
+      await expect(getWhatsAppProvider("00000000-0000-4000-8000-000000000000", "evolution").getStatus("x")).rejects.toThrow(/não configurada/);
+      expect(() => getWhatsAppProvider("00000000-0000-4000-8000-000000000000", "cloud_api" as never)).toThrow(/não suportado/);
     } finally {
       _setCacheTtl(null);
       if (old.u === undefined) delete process.env.EVOLUTION_API_URL; else process.env.EVOLUTION_API_URL = old.u;

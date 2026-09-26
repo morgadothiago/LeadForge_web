@@ -21,7 +21,7 @@ beforeAll(async () => {
   await seed(prisma);
   await signInAsSeedAdmin();
   const c = await prisma.campaign.create({
-    data: { name: `${TAG} c2`, icpId: SEED_IDS.icp, userId: SEED_IDS.user, status: "paused" },
+    data: { name: `${TAG} c2`, icpId: SEED_IDS.icp, userId: SEED_IDS.user, status: "paused", orgId: SEED_IDS.org },
   });
   camp2 = c.id;
   const mk = async (campaignId: string, channel: "email" | "whatsapp", name: string) => {
@@ -142,7 +142,7 @@ describe("integridade", () => {
     // A campanha do seed nasce PAUSADA (SPEC-013); a própria teste cria uma campanha ativa vinculada (limpa no afterAll por prefixo TAG).
     const own = await createSequence({ name: `${TAG} inuse`, steps: [] });
     if (!own.ok) throw new Error("x");
-    await prisma.campaign.create({ data: { name: `${TAG} c-active`, icpId: SEED_IDS.icp, userId: SEED_IDS.user, status: "active", sequenceId: own.data.id } });
+    await prisma.campaign.create({ data: { name: `${TAG} c-active`, icpId: SEED_IDS.icp, userId: SEED_IDS.user, status: "active", sequenceId: own.data.id, orgId: SEED_IDS.org } });
     const d = await deleteSequence(own.data.id);
     expect(!d.ok && d.errors._form?.[0]).toMatch(/campanha\(s\) ativa/);
     const free = await createSequence({ name: `${TAG} free`, steps: [] });

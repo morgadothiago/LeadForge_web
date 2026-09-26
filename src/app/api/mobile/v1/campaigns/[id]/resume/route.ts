@@ -7,5 +7,5 @@ export const dynamic = "force-dynamic";
 export async function POST(req: Request, ctx: { params: Promise<{ id: string }> }): Promise<Response> {
   const id = await paramId(ctx);
   if (!id) return fail(404, "not_found", "Campanha não encontrada.");
-  return mobileAction(req, { action: "campaign.resume", target: id, run: () => setCampaignStatus(id, "active") });
+  return mobileAction(req, { action: "campaign.resume", target: id, run: (a) => setCampaignStatus(a, id, "active") });
 }

@@ -64,7 +64,7 @@ const NO_KEY = "Chave de Places não configurada. Cadastre em Configurações > 
 
 async function execute(campaignId: string, opts: { trigger?: "manual" | "scheduled"; source?: LeadSource }): Promise<SearchOutcome | "skipped"> {
   const trigger = opts.trigger ?? "manual";
-  const camp = await prisma.campaign.findUnique({ where: { id: campaignId }, select: { id: true, status: true, icp: { select: { niche: true, location: true, keywords: true } } } });
+  const camp = await prisma.campaign.findUnique({ where: { id: campaignId }, select: { id: true, orgId: true, status: true, icp: { select: { niche: true, location: true, keywords: true } } } });
   if (!camp) throw new AppError({ code: "not_found", userMessage: "Campanha não encontrada." });
   if (camp.status !== "active") throw new AppError({ code: "conflict", userMessage: "A campanha precisa estar ativa para buscar leads." });
 
@@ -72,7 +72,7 @@ async function execute(campaignId: string, opts: { trigger?: "manual" | "schedul
   let block: string | null = null;
   if (!isSearchEnabled()) block = DISABLED;
   else if (!source) {
-    const cfg = await findIntegrationConfig("places");
+    const cfg = await findIntegrationConfig(camp.orgId, "places");
     if (!cfg) block = NO_KEY;
     else source = new PlacesSource(createPlacesClient(cfg.reveal()));
   }

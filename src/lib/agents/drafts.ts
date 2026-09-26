@@ -13,10 +13,18 @@ export type DispatchResult =
  * ÚNICO ponto de envio de agentes: cria o Touch (agentGenerated) e chama sendEmail/sendWhatsApp, que aplicam supressão, cadência
  * (3 toques/14 dias), janela, aquecimento e saúde da SPEC-017. Nenhum outro caminho envia mensagem de agente (teste estático).
  */
-export async function dispatchDraft(draftId: string, opts: { reviewer: string | null; editedBody?: string; now?: Date }): Promise<DispatchResult> {
+export async function dispatchDraft(
+  draftId: string,
+  opts: { reviewer: string | null; editedBody?: string; now?: Date; orgId?: string },
+): Promise<DispatchResult> {
   const now = opts.now ?? new Date();
-  const draft = await prisma.draft.findUnique({ where: { id: draftId }, include: { agentRun: { select: { stepId: true, agent: { select: { role: true } } } } } });
-  if (!draft) throw new AppError({ code: "not_found", userMessage: "Rascunho não encontrado." });
+  const draft = await prisma.draft.findUnique({
+    where: { id: draftId },
+    include: { agentRun: { select: { stepId: true, agent: { select: { role: true } } } }, lead: { select: { campaign: { select: { orgId: true } } } } },
+  });
+  // SPEC-030: quando orgId é informado (todo caller externo/autenticado passa), só opera se o draft
+  // pertencer a esta org — defesa contra draftId adivinhado de outro tenant. Nunca revela se existe em outra org.
+  if (!draft || (opts.orgId && draft.lead.campaign.orgId !== opts.orgId)) throw new AppError({ code: "not_found", userMessage: "Rascunho não encontrado." });
   if (draft.status !== "pending") throw new AppError({ code: "conflict", userMessage: "Este rascunho já foi tratado." });
   // Closer responde a lead que já respondeu: excecao minima a repliedOrEnded nos canais (isCloserTouch); demais regras da SPEC-017 valem.
   const body = (opts.editedBody ?? draft.body).trim();
@@ -54,8 +62,13 @@ async function blockDraft(draftId: string, reason: string): Promise<DispatchResu
   return { status: "blocked", reason };
 }
 
-export async function rejectDraft(draftId: string, reviewer: string, reason: string, now = new Date()): Promise<boolean> {
-  const draft = await prisma.draft.findUnique({ where: { id: draftId }, select: { leadId: true, agentRun: { select: { stepId: true } } } });
+export async function rejectDraft(draftId: string, reviewer: string, reason: string, now = new Date(), orgId?: string): Promise<boolean> {
+  const draft = await prisma.draft.findUnique({
+    where: { id: draftId },
+    select: { leadId: true, agentRun: { select: { stepId: true } }, lead: { select: { campaign: { select: { orgId: true } } } } },
+  });
+  // SPEC-030: mesma defesa de dispatchDraft — draftId de outra org nunca é tratado (updateMany não acha nada -> count 0).
+  if (orgId && draft && draft.lead.campaign.orgId !== orgId) return false;
   const r = await prisma.draft.updateMany({ where: { id: draftId, status: "pending" }, data: { status: "rejected", rejectReason: reason.slice(0, 300), reviewedBy: reviewer, reviewedAt: now } });
   if (r.count && draft) await advanceAfterAgentStep(draft.leadId, draft.agentRun.stepId, now);
   return r.count > 0;

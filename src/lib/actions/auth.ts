@@ -22,15 +22,25 @@ export async function login(input: LoginInput): Promise<ActionResult<{ redirectT
     const ek = emailKey(email);
     if (isRateLimited(key, ek)) return formError("Muitas tentativas. Aguarde alguns minutos e tente novamente.");
 
-    const user = await prisma.user.findUnique({ where: { email }, select: { id: true, passwordHash: true } });
+    const user = await prisma.user.findUnique({
+      where: { email },
+      select: { id: true, passwordHash: true, role: true, memberships: { select: { orgId: true }, take: 1 } },
+    });
     // Tempo constante: sempre executa um verify (contra hash dummy se não há usuário/senha).
     const ok = await verifyPassword(user?.passwordHash ?? (await getDummyHash()), password);
     if (!user || !user.passwordHash || !ok) {
       recordFailure(key, ek);
       return formError(INVALID);
     }
+    // SPEC-030: platform_admin nunca tem Membership (D-30-1); provider sem Membership é estado inconsistente (nunca deveria existir pós-migração) -> erro tratado, nunca sessão sem org.
+    const platformRole = user.role === "platform_admin" ? "platform_admin" : "provider";
+    const orgId = user.memberships[0]?.orgId ?? null;
+    if (platformRole === "provider" && !orgId) {
+      recordFailure(key, ek);
+      return formError("Conta sem organização associada. Contate o suporte.");
+    }
     resetFailures(key, ek);
-    await createSession(user.id);
+    await createSession(user.id, orgId, platformRole);
     return success({ redirectTo: safeNext(next) });
   });
 }

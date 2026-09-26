@@ -9,7 +9,7 @@ export const dynamic = "force-dynamic";
 
 export default async function Page() {
   const user = await requireUser();
-  if (user.role !== "admin") {
+  if (user.platformRole !== "provider") {
     return (
       <Card role="alert" className="flex flex-col items-center gap-2 p-10 text-center">
         <Lock className="size-8 text-muted-foreground" aria-hidden="true" />
@@ -20,7 +20,7 @@ export default async function Page() {
   }
   const [agents, settings] = await Promise.all([listAgents(), getAgentSettings()]);
   const views = await Promise.all(
-    agents.map(async (a) => {
+    agents.map(async (a: (typeof agents)[number]) => {
       const u = await getAgentUsage({ id: a.id });
       return {
         id: a.id, role: a.role, name: a.name, active: a.active, persona: a.persona, objective: a.objective, tone: a.tone, model: a.model,

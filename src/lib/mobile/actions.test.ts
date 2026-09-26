@@ -30,7 +30,7 @@ const LEAD_NAME = "Carolina Figueiredo Teste";
 const LEAD_EMAIL = `carol@${TAG}.example.com`;
 const BODY = "Olá! ".padEnd(400, "x");
 let userId = "", devA = "", tokA = "", tokUser2 = "";
-let campId = "", agentId = "", nonAdminId = "";
+let campId = "", agentId = "", nonAdminId = "", orgId = "";
 let prevSettings: { killSwitch: boolean } | null = null;
 
 const ctx = (id: string) => ({ params: Promise.resolve({ id }) });
@@ -63,15 +63,19 @@ async function cleanup() {
 beforeAll(async () => {
   await prisma.user.deleteMany({ where: { email: { startsWith: TAG } } });
   await cleanup();
-  userId = (await prisma.user.create({ data: { name: "Adm", email: `${TAG}@leadforge.local`, role: "admin", passwordHash: await hashPassword(PASS) } })).id;
-  nonAdminId = (await prisma.user.create({ data: { name: "U2", email: `${TAG}-2@leadforge.local`, role: "user", passwordHash: await hashPassword(PASS) } })).id;
+  userId = (await prisma.user.create({ data: { name: "Adm", email: `${TAG}@leadforge.local`, role: "provider", passwordHash: await hashPassword(PASS) } })).id;
+  nonAdminId = (await prisma.user.create({ data: { name: "U2", email: `${TAG}-2@leadforge.local`, role: "provider", passwordHash: await hashPassword(PASS) } })).id;
+  // SPEC-030: schema exige orgId em Campaign/IcpProfile/Agent/Suppression — mobile ainda não é org-scoped
+  // em runtime (ver Implementation Notes do spec.md), só a fixture precisa de uma org válida.
+  orgId = (await prisma.organization.create({ data: { name: TAG, slug: TAG, status: "active" } })).id;
+  await prisma.membership.create({ data: { userId, orgId, orgRole: "owner" } });
   const d = await mkDevice(userId);
   devA = d.id; tokA = d.tok;
   tokUser2 = (await mkDevice(nonAdminId)).tok;
-  const icp = await prisma.icpProfile.create({ data: { name: `${TAG}-icp`, niche: "n" } });
-  campId = (await prisma.campaign.create({ data: { name: `${TAG}-camp`, icpId: icp.id, userId } })).id;
-  agentId = (await prisma.agent.create({ data: { role: "sdr", name: `${TAG}-sdr`, active: true, monthlyBudgetCents: 1000, allowedTools: [] } })).id;
-  prevSettings = await prisma.agentSettings.findUnique({ where: { id: "global" } });
+  const icp = await prisma.icpProfile.create({ data: { orgId, name: `${TAG}-icp`, niche: "n" } });
+  campId = (await prisma.campaign.create({ data: { name: `${TAG}-camp`, icpId: icp.id, orgId, userId } })).id;
+  agentId = (await prisma.agent.create({ data: { orgId, role: "sdr", name: `${TAG}-sdr`, active: true, monthlyBudgetCents: 1000, allowedTools: [] } })).id;
+  prevSettings = await prisma.agentSettings.findUnique({ where: { orgId } });
 }, 30000);
 beforeEach(async () => {
   _clearActionLimit();
@@ -84,8 +88,10 @@ afterAll(async () => {
   await prisma.mobileDevice.deleteMany({ where: { userId: { in: [userId, nonAdminId] } } });
   await prisma.user.deleteMany({ where: { email: { startsWith: TAG } } });
   await prisma.icpProfile.deleteMany({ where: { name: `${TAG}-icp` } });
-  if (prevSettings) await prisma.agentSettings.update({ where: { id: "global" }, data: { killSwitch: prevSettings.killSwitch } });
-  else await prisma.agentSettings.deleteMany({});
+  if (prevSettings) await prisma.agentSettings.update({ where: { orgId }, data: { killSwitch: prevSettings.killSwitch } });
+  else await prisma.agentSettings.deleteMany({ where: { orgId } });
+  await prisma.membership.deleteMany({ where: { orgId } });
+  await prisma.organization.deleteMany({ where: { id: orgId } });
 });
 
 describe("auth e entrada", () => {
@@ -195,7 +201,7 @@ describe("aprovar/rejeitar (AC1, AC3)", () => {
   });
   it("AC3: lead em supressao = 409 e nada enviado", async () => {
     const lead = await mkLead({ email: `sup-${TAG}@example.com` });
-    await prisma.suppression.create({ data: { kind: "email", value: `sup-${TAG}@example.com`, reason: "manual" } });
+    await prisma.suppression.create({ data: { orgId, kind: "email", value: `sup-${TAG}@example.com`, reason: "manual" } });
     const d = await mkDraft(lead.id);
     expect((await approve(req("POST", tokA), ctx(d.id))).status).toBe(409);
     expect(await prisma.touch.count({ where: { leadId: lead.id, status: "sent" } })).toBe(0);
@@ -215,22 +221,22 @@ describe("aprovar/rejeitar (AC1, AC3)", () => {
 
 describe("kill switch com reautenticacao (AC4)", () => {
   it("parar (true) funciona sem senha; ligar agentes (false) exige senha correta", async () => {
-    await prisma.agentSettings.upsert({ where: { id: "global" }, create: { id: "global", killSwitch: false }, update: { killSwitch: false } });
+    await prisma.agentSettings.upsert({ where: { orgId }, create: { orgId, killSwitch: false }, update: { killSwitch: false } });
     const off = await killSwitch(req("PUT", tokA, { killSwitch: true }));
     expect(off.status).toBe(200);
     expect((await off.json()).data).toEqual({ killSwitch: true });
-    expect((await prisma.agentSettings.findUniqueOrThrow({ where: { id: "global" } })).killSwitch).toBe(true);
+    expect((await prisma.agentSettings.findUniqueOrThrow({ where: { orgId } })).killSwitch).toBe(true);
 
     const noPw = await killSwitch(req("PUT", tokA, { killSwitch: false }));
     expect(noPw.status).toBe(403);
     expect((await noPw.json()).error.code).toBe("reauth_required");
     expect((await killSwitch(req("PUT", tokA, { killSwitch: false, password: "errada" }))).status).toBe(403);
-    expect((await prisma.agentSettings.findUniqueOrThrow({ where: { id: "global" } })).killSwitch).toBe(true);
+    expect((await prisma.agentSettings.findUniqueOrThrow({ where: { orgId } })).killSwitch).toBe(true);
 
     const on = await killSwitch(req("PUT", tokA, { killSwitch: false, password: PASS }));
     expect(on.status).toBe(200);
     expect((await on.json()).data).toEqual({ killSwitch: false });
-    expect((await prisma.agentSettings.findUniqueOrThrow({ where: { id: "global" } })).killSwitch).toBe(false);
+    expect((await prisma.agentSettings.findUniqueOrThrow({ where: { orgId } })).killSwitch).toBe(false);
     expect((await prisma.mobileActionLog.findMany({ where: { userId } })).some((l) => JSON.stringify(l).includes(PASS))).toBe(false);
   });
   it("senha errada repetida bloqueia (429); nao-admin = 403; corpo invalido = 400", async () => {

@@ -1,6 +1,6 @@
 import type { InstanceHealth } from "@prisma/client";
-import { prisma } from "@/lib/prisma";
-import { requireUser } from "@/lib/auth/require-user";
+import { requireProviderOrg } from "@/lib/auth/require-admin";
+import { scopedPrisma } from "@/lib/tenant/scoped-prisma";
 import type { HealthMetrics } from "@/lib/whatsapp/health";
 import { buildInstanceHealthView } from "@/lib/whatsapp/health-view";
 
@@ -29,15 +29,15 @@ export interface InstanceHealthView {
 }
 
 export async function getInstanceHealth(instanceId: string, now: Date = new Date()): Promise<InstanceHealthView | null> {
-  await requireUser();
-  const inst = await prisma.whatsAppInstance.findUnique({ where: { id: instanceId } });
+  const { orgId } = await requireProviderOrg();
+  const inst = await scopedPrisma(orgId).whatsAppInstance.findUnique({ where: { id: instanceId } });
   if (!inst) return null;
   return buildInstanceHealthView(inst, now);
 }
 
-/** Alertas não lidos de todas as instâncias (badge/toast do painel). */
+/** Alertas não lidos de todas as instâncias DA ORG (badge/toast do painel). */
 export async function listUnreadInstanceAlerts(): Promise<(InstanceAlertView & { instanceId: string; instanceName: string })[]> {
-  await requireUser();
-  const rows = await prisma.instanceAlert.findMany({ where: { readAt: null }, orderBy: { createdAt: "desc" }, take: 50, include: { instance: { select: { instanceName: true } } } });
-  return rows.map((r) => ({ id: r.id, kind: r.kind, message: r.message, createdAt: r.createdAt, readAt: r.readAt, instanceId: r.instanceId, instanceName: r.instance.instanceName }));
+  const { orgId } = await requireProviderOrg();
+  const rows = await scopedPrisma(orgId).instanceAlert.findMany({ where: { readAt: null }, orderBy: { createdAt: "desc" }, take: 50, include: { instance: { select: { instanceName: true } } } });
+  return rows.map((r: (typeof rows)[number]) => ({ id: r.id, kind: r.kind, message: r.message, createdAt: r.createdAt, readAt: r.readAt, instanceId: r.instanceId, instanceName: r.instance.instanceName }));
 }

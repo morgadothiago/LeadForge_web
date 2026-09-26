@@ -46,7 +46,10 @@ export const spec: OpenAPIV3_1.Document = {
   },
   servers: [{ url: "/api/mobile/v1" }],
   components: {
-    securitySchemes: { bearerAuth: { type: "http", scheme: "bearer", bearerFormat: "JWT (aud mobile, 15 min)" } },
+    securitySchemes: {
+      bearerAuth: { type: "http", scheme: "bearer", bearerFormat: "JWT (aud mobile, 15 min)" },
+      ingestBearer: { type: "http", scheme: "bearer", bearerFormat: "INGEST_SECRET (SPEC-014/028)" },
+    },
     schemas: {
       Error: { type: "object", required: ["error"], properties: { error: { type: "object", required: ["code", "message"], properties: { code: { type: "string" }, message: { type: "string" } } } } },
       PageMeta: { type: "object", properties: { nextCursor: { type: ["string", "null"] } } },
@@ -97,7 +100,11 @@ export const spec: OpenAPIV3_1.Document = {
         agents: { type: "array", items: { type: "object", additionalProperties: false, required: ["id", "name", "role", "active", "spentCents", "budgetCents", "budgetState", "percent"], properties: { id: str, name: str, role: str, active: bool, spentCents: { type: "number" }, budgetCents: nullable("integer"), budgetState: { type: "string", enum: ["ok", "alert", "exhausted", "no_budget"] }, percent: nullable("number") } } },
       }),
       SearchRunItem: obj({ id: str, campaignId: str, source: str, trigger: str, status: str, found: int, created: int, duplicate: int, suppressed: int, invalid: int, error: nullable("string"), startedAt: str, finishedAt: nullable("string") }),
-      MobileAlert: obj({ id: str, kind: str, severity: { type: "string", enum: ["critica", "alta", "media", "baixa"] }, title: str, body: str, refType: str, refId: nullable("string"), link: nullable("string"), createdAt: str, readAt: nullable("string"), resolvedAt: nullable("string") }),
+      // SPEC-028 (rotas web/webhook; auth de sessao/segredo, nao Bearer mobile)
+      NotificationSummary: obj({ unreadTotal: int, byArea: obj({ calendario: int, leads: int, configuracoes: int, aprovacoes: int }) }),
+      Notification: obj({ id: str, kind: str, severity: { type: "string", enum: ["critica", "alta", "media", "baixa"] }, title: str, body: str, refType: str, refId: nullable("string"), link: nullable("string"), createdAt: str, readAt: nullable("string"), resolvedAt: nullable("string"), area: { type: ["string", "null"], enum: ["calendario", "leads", "configuracoes", "aprovacoes", null] } }),
+      MeetingWebhookResult: obj({ meetingId: str, leadId: str, startsAt: str, endsAt: str, conflicts: int }),
+      MobileAlert: obj({ id: str, kind: { type: "string", description: "wa_disconnected, wa_paused, mass_opt_out, handoff, budget_alert, budget_exhausted, scheduler_stale, lead_replied, meeting_reminder (SPEC-028: refType meeting, refId = meetingId)" }, severity: { type: "string", enum: ["critica", "alta", "media", "baixa"] }, title: str, body: str, refType: str, refId: nullable("string"), link: nullable("string"), createdAt: str, readAt: nullable("string"), resolvedAt: nullable("string") }),
       UnreadCount: obj({ count: int }),
       Updated: obj({ updated: int }),
       AlertRead: obj({ id: str, readAt: nullable("string") }),
@@ -166,6 +173,44 @@ export const spec: OpenAPIV3_1.Document = {
       },
     },
     "/handoffs/{leadId}/take": { post: { tags: ["actions"], summary: "Assume o lead: o agente para nele; devolve o link https da call se houver, sem dados de contato (SPEC-026)", security: secured, parameters: [{ name: "leadId", in: "path", required: true, schema: { type: "string" } }, idemHeader], responses: actionResp(ref("HandoffTaken")) } },
+    // SPEC-028: fora do prefixo /api/mobile/v1 (servers por path). Sessao web (cookie) e webhook (Bearer INGEST_SECRET).
+    "/notifications/summary": {
+      servers: [{ url: "/api" }],
+      get: { tags: ["notifications"], summary: "Resumo de nao lidas por area (sessao; ETag/If-None-Match -> 304; sem PII) (SPEC-028)", description: "Autenticação: cookie de sessão web (nunca Bearer mobile); 401 JSON sem sessão.", responses: { "200": okResp("OK (header ETag)", env(ref("NotificationSummary"))), "304": { description: "Nao modificado" }, "401": err("Não autenticado") } },
+    },
+    "/notifications": {
+      servers: [{ url: "/api" }],
+      get: {
+        tags: ["notifications"], summary: "Lista de notificacoes, cursor createdAt,id (sessao) (SPEC-028)", description: "Autenticação: cookie de sessão web (nunca Bearer mobile); 401 JSON sem sessão.",
+        parameters: [
+          { name: "area", in: "query" as const, schema: { type: "string" as const, enum: ["calendario", "leads", "configuracoes", "aprovacoes"] } },
+          { name: "kind", in: "query" as const, schema: { type: "string" as const } },
+          { name: "unread", in: "query" as const, schema: { type: "boolean" as const } },
+          ...paging,
+        ],
+        responses: { "200": okResp("OK", env({ type: "array", items: ref("Notification") }, true)), "400": err("Entrada inválida"), "401": err("Não autenticado") },
+      },
+    },
+    "/notifications/{id}/read": { servers: [{ url: "/api" }], post: { tags: ["notifications"], summary: "Marca uma notificacao como lida, idempotente (sessao) (SPEC-028)", description: "Autenticação: cookie de sessão web (nunca Bearer mobile); 401 JSON sem sessão.", parameters: [idParam], responses: { "200": okResp("OK", env(obj({ id: str, readAt: nullable("string") }))), "401": err("Não autenticado"), "403": err("Origem não permitida"), "404": err("Não encontrado") } } },
+    "/notifications/read-all": {
+      servers: [{ url: "/api" }],
+      post: {
+        tags: ["notifications"], summary: "Marca todas (ou so de uma area) como lidas, idempotente (sessao) (SPEC-028)", description: "Autenticação: cookie de sessão web (nunca Bearer mobile); 401 JSON sem sessão.",
+        requestBody: { required: false, content: json({ type: "object", additionalProperties: false, properties: { area: { type: "string", enum: ["calendario", "leads", "configuracoes", "aprovacoes"] } } }) },
+        responses: { "200": okResp("OK", env(ref("Updated"))), "400": err("Entrada inválida"), "401": err("Não autenticado"), "403": err("Origem não permitida") },
+      },
+    },
+    "/integrations/meetings": {
+      servers: [{ url: "/api" }],
+      post: {
+        tags: ["integrations"], summary: "Webhook: cria reuniao, idempotente por externalId (Bearer INGEST_SECRET; 401 sem chave; 429 + Retry-After) (SPEC-028)", security: [{ ingestBearer: [] }],
+        requestBody: { required: true, content: json({ type: "object", additionalProperties: false, required: ["startsAt"], properties: { leadId: { type: "string", format: "uuid" }, phone: str, startsAt: { type: "string", description: "ISO 8601 com offset" }, durationMin: { type: "integer", minimum: 5, maximum: 480 }, link: { type: "string", description: "https://" }, externalId: str } }) },
+        responses: {
+          "200": okResp("Repeticao idempotente (idempotentReplay=true)", ref("MeetingWebhookResult")), "201": okResp("Criada", ref("MeetingWebhookResult")),
+          "400": { description: "Payload invalido" }, "401": { description: "Sem chave" }, "404": { description: "Lead/oportunidade nao encontrado" }, "409": { description: "Telefone ambiguo" }, "429": { description: "Rate limit (Retry-After)" }, "503": { description: "Integracao desativada" },
+        },
+      },
+    },
     "/devices/push-token": {
       put: { tags: ["devices"], summary: "Registra/remove o push token do proprio dispositivo (token null remove) e preferencias por kind (SPEC-023)", security: secured, requestBody: { required: true, content: json({ type: "object", required: ["token"], properties: { token: { type: ["string", "null"] }, prefs: { type: "object", additionalProperties: { type: "boolean" } } } }) }, responses: { "200": okResp("OK", env(ref("PushRegistered"))), "400": err("Entrada inválida"), "401": err("Não autenticado") } },
       delete: { tags: ["devices"], summary: "Remove o push token do proprio dispositivo (SPEC-023)", security: secured, responses: { "200": okResp("OK", env(ref("PushRegistered"))), "401": err("Não autenticado") } },

@@ -1,8 +1,14 @@
 import { SignJWT, jwtVerify } from "jose";
 import { SESSION_TTL_SECONDS } from "./config";
 
+/** SPEC-030: papel de PLATAFORMA (não confundir com `Membership.orgRole`, papel dentro do tenant). */
+export type PlatformRole = "provider" | "platform_admin";
+
 export interface SessionPayload {
   userId: string;
+  /** null só para `platform_admin` (sem Organization própria — D-30-1). */
+  orgId: string | null;
+  platformRole: PlatformRole;
 }
 
 function key(secret?: string): Uint8Array {
@@ -12,9 +18,14 @@ function key(secret?: string): Uint8Array {
 }
 
 /** JWT HS256 assinado com AUTH_SECRET. Seguro para o proxy (sem next/headers, sem banco). */
-export async function signSessionToken(userId: string, opts: { ttlSeconds?: number; secret?: string; now?: Date } = {}): Promise<string> {
+export async function signSessionToken(
+  userId: string,
+  orgId: string | null,
+  platformRole: PlatformRole,
+  opts: { ttlSeconds?: number; secret?: string; now?: Date } = {},
+): Promise<string> {
   const iat = Math.floor((opts.now ?? new Date()).getTime() / 1000);
-  return new SignJWT({})
+  return new SignJWT({ orgId, platformRole })
     .setProtectedHeader({ alg: "HS256" })
     .setSubject(userId)
     .setIssuedAt(iat)
@@ -22,12 +33,15 @@ export async function signSessionToken(userId: string, opts: { ttlSeconds?: numb
     .sign(key(opts.secret));
 }
 
-/** Retorna null se ausente, adulterado, expirado ou algoritmo diferente de HS256. */
+/** Retorna null se ausente, adulterado, expirado, algoritmo diferente de HS256 ou payload incompleto. */
 export async function verifySessionToken(token: string | undefined, secret?: string): Promise<SessionPayload | null> {
   if (!token) return null;
   try {
     const { payload } = await jwtVerify(token, key(secret), { algorithms: ["HS256"] });
-    return payload.sub ? { userId: payload.sub } : null;
+    if (!payload.sub) return null;
+    if (payload.platformRole !== "provider" && payload.platformRole !== "platform_admin") return null;
+    const orgId = typeof payload.orgId === "string" ? payload.orgId : null;
+    return { userId: payload.sub, orgId, platformRole: payload.platformRole };
   } catch {
     return null;
   }

@@ -57,12 +57,12 @@ export const GENERIC_CONNECT_MESSAGE = "Não foi possível conectar ao servidor 
  * `privateTarget` (allowPrivateHost=true): sem distinguir DNS inexistente / conexão recusada / timeout (evita oráculo de rede interna);
  * o detalhe fica só no log seguro. Resposta HTTP do servidor alcançado (status 401/403/404/5xx/429) continua informando: o admin precisa saber que a chave foi rejeitada.
  */
-export async function runConnectionTest(integration: IntegrationKindName, opts: { privateTarget?: boolean } = {}): Promise<ConnectionTestResult> {
+export async function runConnectionTest(orgId: string, integration: IntegrationKindName, opts: { privateTarget?: boolean } = {}): Promise<ConnectionTestResult> {
   if (integration !== "evolution") {
     return { available: false, ok: false, message: "Teste de conexão indisponível para esta integração. O formato foi validado." };
   }
   try {
-    const provider = getWhatsAppProvider("evolution", { timeoutMs: Math.min(deadlineMs, 10_000), retry: false });
+    const provider = getWhatsAppProvider(orgId, "evolution", { timeoutMs: Math.min(deadlineMs, 10_000), retry: false });
     if (!provider.ping) return { available: false, ok: false, message: "Teste de conexão indisponível para este provider." };
     await withDeadline(provider.ping());
     return { available: true, ok: true, message: "Conexão com a Evolution OK." };

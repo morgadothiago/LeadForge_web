@@ -54,10 +54,10 @@ beforeAll(async () => {
   await seed(prisma);
   const user = await prisma.user.findFirstOrThrow({ where: { email: "admin@leadforge.local" } });
   const icp = await prisma.icpProfile.findFirstOrThrow();
-  const seq = await prisma.sequence.create({ data: { name: TAG } });
-  instId = (await prisma.whatsAppInstance.create({ data: { instanceName: TAG, number: "+5511999990001", webhookToken: TOKEN, status: "connecting", apiKey: encrypt(INST_KEY) } })).id;
-  campId = (await prisma.campaign.create({ data: { name: TAG, userId: user.id, icpId: icp.id, sequenceId: seq.id, whatsappInstanceId: instId } })).id;
-  const tpl = await prisma.messageTemplate.create({ data: { campaignId: campId, channel: "whatsapp", name: TAG, body: "Oi" } });
+  const seq = await prisma.sequence.create({ data: { name: TAG, orgId: icp.orgId } });
+  instId = (await prisma.whatsAppInstance.create({ data: { orgId: icp.orgId, instanceName: TAG, number: "+5511999990001", webhookToken: TOKEN, status: "connecting", apiKey: encrypt(INST_KEY) } })).id;
+  campId = (await prisma.campaign.create({ data: { name: TAG, userId: user.id, icpId: icp.id, orgId: icp.orgId, sequenceId: seq.id, whatsappInstanceId: instId } })).id;
+  const tpl = await prisma.messageTemplate.create({ data: { campaignId: campId, orgId: icp.orgId, channel: "whatsapp", name: TAG, body: "Oi" } });
   stepId = (await prisma.sequenceStep.create({ data: { sequenceId: seq.id, day: 0, channel: "whatsapp", templateId: tpl.id, order: 1 } })).id;
 }, 30000);
 afterAll(async () => {
@@ -219,7 +219,7 @@ describe("MESSAGES_UPSERT: resposta (D4)", () => {
     const user = await prisma.user.findFirstOrThrow({ where: { email: "admin@leadforge.local" } });
     const icp = await prisma.icpProfile.findFirstOrThrow();
     const seq = await prisma.sequence.findFirstOrThrow({ where: { name: TAG } });
-    const other = await prisma.campaign.create({ data: { name: `${TAG}-b`, userId: user.id, icpId: icp.id, sequenceId: seq.id } });
+    const other = await prisma.campaign.create({ data: { name: `${TAG}-b`, userId: user.id, icpId: icp.id, orgId: icp.orgId, sequenceId: seq.id } });
     try {
       const outro = await prisma.lead.create({ data: { campaignId: other.id, name: "X", phone: PHONE, sequenceStatus: "active" } });
       const { lead } = await mkLead();

@@ -5,7 +5,8 @@ import { randomBytes } from "node:crypto";
 import { revalidatePath } from "next/cache";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { requireUser } from "@/lib/auth/require-user";
+import { requireProviderOrg } from "@/lib/auth/require-admin";
+import { scopedPrisma } from "@/lib/tenant/scoped-prisma";
 import { encrypt } from "@/lib/crypto/secret-box";
 import { AppError, safeErrorForLog } from "@/lib/errors";
 import { buildWebhookUrl, getWhatsAppProvider, type ConnectionState } from "@/lib/whatsapp/provider";
@@ -34,16 +35,18 @@ async function record(id: string, status: ConnectionState, err?: unknown): Promi
 
 export async function createWhatsAppInstance(input: unknown): Promise<ActionResult<{ id: string }>> {
   return safeAction(async () => {
-    await requireUser();
+    const { orgId } = await requireProviderOrg();
+    const db = scopedPrisma(orgId);
     const parsed = whatsappInstanceCreateSchema.safeParse(input);
     if (!parsed.success) return failure(zodErrors(parsed.error));
     const { instanceName, number, dailyLimit } = parsed.data;
+    // instanceName é @unique GLOBAL no schema (nome usado no provider externo) — checagem cruza orgs de propósito.
     if (await prisma.whatsAppInstance.count({ where: { instanceName } })) return failure(DUP);
     const webhookToken = randomBytes(32).toString("base64url");
-    const provider = getWhatsAppProvider("evolution");
+    const provider = getWhatsAppProvider(orgId, "evolution");
     const created = await provider.createInstance({ instanceName, number, webhookUrl: buildWebhookUrl({ webhookToken }) });
     try {
-      const row = await prisma.whatsAppInstance.create({
+      const row = await db.whatsAppInstance.create({
         data: {
           instanceName, number, dailyLimit, webhookToken, provider: "evolution", status: "connecting",
           apiKey: created.apiKey ? encrypt(created.apiKey) : null,
@@ -63,13 +66,14 @@ export async function createWhatsAppInstance(input: unknown): Promise<ActionResu
 
 export async function getInstanceQr(id: unknown): Promise<ActionResult<{ qrCode: string | null; pairingCode: string | null }>> {
   return safeAction(async () => {
-    await requireUser();
+    const { orgId } = await requireProviderOrg();
+    const db = scopedPrisma(orgId);
     const pid = whatsappInstanceIdSchema.safeParse(id);
     if (!pid.success) return failure(zodErrors(pid.error));
-    const inst = await prisma.whatsAppInstance.findUnique({ where: { id: pid.data } });
+    const inst = await db.whatsAppInstance.findUnique({ where: { id: pid.data } });
     if (!inst) return formError(NOT_FOUND);
     try {
-      const qr = await getWhatsAppProvider(inst.provider).getQr(inst.instanceName);
+      const qr = await getWhatsAppProvider(orgId, inst.provider).getQr(inst.instanceName);
       await prisma.whatsAppInstance.update({ where: { id: inst.id }, data: { lastError: null } });
       return success({ qrCode: qr.qrCode, pairingCode: qr.pairingCode ?? null });
     } catch (e) {
@@ -81,13 +85,14 @@ export async function getInstanceQr(id: unknown): Promise<ActionResult<{ qrCode:
 
 export async function refreshInstanceStatus(id: unknown): Promise<ActionResult<{ status: ConnectionState }>> {
   return safeAction(async () => {
-    await requireUser();
+    const { orgId } = await requireProviderOrg();
+    const db = scopedPrisma(orgId);
     const pid = whatsappInstanceIdSchema.safeParse(id);
     if (!pid.success) return failure(zodErrors(pid.error));
-    const inst = await prisma.whatsAppInstance.findUnique({ where: { id: pid.data } });
+    const inst = await db.whatsAppInstance.findUnique({ where: { id: pid.data } });
     if (!inst) return formError(NOT_FOUND);
     try {
-      const { status } = await getWhatsAppProvider(inst.provider).getStatus(inst.instanceName);
+      const { status } = await getWhatsAppProvider(orgId, inst.provider).getStatus(inst.instanceName);
       await record(inst.id, status);
       revalidate();
       return success({ status });
@@ -100,11 +105,12 @@ export async function refreshInstanceStatus(id: unknown): Promise<ActionResult<{
 
 export async function updateInstance(input: unknown): Promise<ActionResult<{ id: string }>> {
   return safeAction(async () => {
-    await requireUser();
+    const { orgId } = await requireProviderOrg();
+    const db = scopedPrisma(orgId);
     const parsed = whatsappInstanceUpdateSchema.safeParse(input);
     if (!parsed.success) return failure(zodErrors(parsed.error));
     const { id, number, dailyLimit } = parsed.data;
-    const r = await prisma.whatsAppInstance.updateMany({ where: { id }, data: { dailyLimit, ...(number ? { number } : {}) } });
+    const r = await db.whatsAppInstance.updateMany({ where: { id }, data: { dailyLimit, ...(number ? { number } : {}) } });
     if (!r.count) return formError(NOT_FOUND);
     revalidate();
     return success({ id });
@@ -113,10 +119,11 @@ export async function updateInstance(input: unknown): Promise<ActionResult<{ id:
 
 export async function deleteWhatsAppInstance(id: unknown): Promise<ActionResult<{ id: string }>> {
   return safeAction(async () => {
-    await requireUser();
+    const { orgId } = await requireProviderOrg();
+    const db = scopedPrisma(orgId);
     const pid = whatsappInstanceIdSchema.safeParse(id);
     if (!pid.success) return failure(zodErrors(pid.error));
-    const inst = await prisma.whatsAppInstance.findUnique({ where: { id: pid.data }, include: { _count: { select: { campaigns: true } } } });
+    const inst = await db.whatsAppInstance.findUnique({ where: { id: pid.data }, include: { _count: { select: { campaigns: true } } } });
     if (!inst) return formError(NOT_FOUND);
     const n = inst._count.campaigns;
     if (n > 0) return formError(`Não é possível excluir: ${n} campanha${n > 1 ? "s usam" : " usa"} esta instância. Desvincule-${n > 1 ? "as" : "a"} antes.`);
@@ -126,7 +133,7 @@ export async function deleteWhatsAppInstance(id: unknown): Promise<ActionResult<
       await tx.whatsAppInstance.delete({ where: { id: inst.id } });
     });
     try {
-      await getWhatsAppProvider(inst.provider).deleteInstance?.(inst.instanceName);
+      await getWhatsAppProvider(orgId, inst.provider).deleteInstance?.(inst.instanceName);
     } catch (e) {
       if (!(e instanceof AppError && e.code === "not_found")) {
         // Sem segredo: só o código do erro. Órfã no provider (deve ser removida manualmente lá).
@@ -141,12 +148,13 @@ export async function deleteWhatsAppInstance(id: unknown): Promise<ActionResult<
 /** Desconecta (logout) a sessão, se o provider suportar. */
 export async function disconnectInstance(id: unknown): Promise<ActionResult<{ id: string }>> {
   return safeAction(async () => {
-    await requireUser();
+    const { orgId } = await requireProviderOrg();
+    const db = scopedPrisma(orgId);
     const pid = whatsappInstanceIdSchema.safeParse(id);
     if (!pid.success) return failure(zodErrors(pid.error));
-    const inst = await prisma.whatsAppInstance.findUnique({ where: { id: pid.data } });
+    const inst = await db.whatsAppInstance.findUnique({ where: { id: pid.data } });
     if (!inst) return formError(NOT_FOUND);
-    const provider = getWhatsAppProvider(inst.provider);
+    const provider = getWhatsAppProvider(orgId, inst.provider);
     if (!provider.logoutInstance) return formError("O provider desta instância não suporta desconectar.");
     await provider.logoutInstance(inst.instanceName);
     await record(inst.id, "disconnected");
@@ -158,10 +166,11 @@ export async function disconnectInstance(id: unknown): Promise<ActionResult<{ id
 /** Única saída do token completo: detalhe autenticado, para configurar o webhook manualmente se preciso. `url` já contém o token (caminho). */
 export async function getInstanceWebhookConfig(id: unknown): Promise<ActionResult<{ url: string; token: string }>> {
   return safeAction(async () => {
-    await requireUser();
+    const { orgId } = await requireProviderOrg();
+    const db = scopedPrisma(orgId);
     const pid = whatsappInstanceIdSchema.safeParse(id);
     if (!pid.success) return failure(zodErrors(pid.error));
-    const inst = await prisma.whatsAppInstance.findUnique({ where: { id: pid.data }, select: { webhookToken: true } });
+    const inst = await db.whatsAppInstance.findUnique({ where: { id: pid.data }, select: { webhookToken: true } });
     if (!inst) return formError(NOT_FOUND);
     return success({ url: buildWebhookUrl(inst), token: inst.webhookToken });
   });
@@ -174,12 +183,13 @@ export async function getInstanceWebhookConfig(id: unknown): Promise<ActionResul
  */
 export async function rotateWebhookToken(instanceId: unknown): Promise<ActionResult<{ webhookUrl: string; tokenHint: string }>> {
   return safeAction(async () => {
-    await requireUser();
+    const { orgId } = await requireProviderOrg();
+    const db = scopedPrisma(orgId);
     const pid = whatsappInstanceIdSchema.safeParse(instanceId);
     if (!pid.success) return failure(zodErrors(pid.error));
-    const inst = await prisma.whatsAppInstance.findUnique({ where: { id: pid.data } });
+    const inst = await db.whatsAppInstance.findUnique({ where: { id: pid.data } });
     if (!inst) return formError(NOT_FOUND);
-    const provider = getWhatsAppProvider(inst.provider);
+    const provider = getWhatsAppProvider(orgId, inst.provider);
     const newToken = randomBytes(32).toString("base64url");
     const oldUrl = buildWebhookUrl(inst);
     const newUrl = buildWebhookUrl({ webhookToken: newToken });
@@ -206,10 +216,11 @@ const revalidateLead = (id: string): void => {
 /** Confirma o opt-out sugerido (possibleOptOut): mesmo efeito do opt-out automático. Idempotente. */
 export async function confirmOptOut(leadId: unknown): Promise<ActionResult<{ id: string }>> {
   return safeAction(async () => {
-    await requireUser();
+    const { orgId } = await requireProviderOrg();
+    const db = scopedPrisma(orgId);
     const pid = leadIdSchema.safeParse(leadId);
     if (!pid.success) return failure(zodErrors(pid.error));
-    const lead = await prisma.lead.findUnique({ where: { id: pid.data }, select: { id: true, opportunities: { select: { id: true, stage: true }, take: 1 } } });
+    const lead = await db.lead.findUnique({ where: { id: pid.data }, select: { id: true, opportunities: { select: { id: true, stage: true }, take: 1 } } });
     if (!lead) return formError("Lead não encontrado.");
     await withSerializableRetry(() => prisma.$transaction(
       (tx) => applyOptOut(tx, lead.id, lead.opportunities[0] ?? null, new Date(), "possible_opt_out_confirmed"),
@@ -223,10 +234,11 @@ export async function confirmOptOut(leadId: unknown): Promise<ActionResult<{ id:
 /** Descarta o alerta "Possível opt-out". */
 export async function dismissPossibleOptOut(leadId: unknown): Promise<ActionResult<{ id: string }>> {
   return safeAction(async () => {
-    await requireUser();
+    const { orgId } = await requireProviderOrg();
+    const db = scopedPrisma(orgId);
     const pid = leadIdSchema.safeParse(leadId);
     if (!pid.success) return failure(zodErrors(pid.error));
-    const r = await prisma.lead.updateMany({ where: { id: pid.data }, data: { possibleOptOut: false } });
+    const r = await db.lead.updateMany({ where: { id: pid.data }, data: { possibleOptOut: false } });
     if (!r.count) return formError("Lead não encontrado.");
     revalidateLead(pid.data);
     return success({ id: pid.data });

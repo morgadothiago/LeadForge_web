@@ -1,8 +1,9 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth/require-user";
+import { requireProviderOrg } from "@/lib/auth/require-admin";
+import { scopedPrisma } from "@/lib/tenant/scoped-prisma";
 import { idSchema } from "@/lib/schemas/campaign";
 import { templateCreateSchema, templateUpdateSchema } from "@/lib/schemas/template";
 import { validateFirstTouchTemplate } from "@/lib/whatsapp/first-touch";
@@ -21,13 +22,14 @@ const warningsFor = (channel: string, body: string): string[] => (channel === "w
 
 export async function createTemplate(input: unknown): Promise<ActionResult<{ id: string; warnings: string[] }>> {
   return safeAction(async () => {
-  await requireUser();
+  const { orgId } = await requireProviderOrg();
+  const db = scopedPrisma(orgId);
   const parsed = templateCreateSchema.safeParse(input);
   if (!parsed.success) return failure(zodErrors(parsed.error));
-  if (!(await prisma.campaign.count({ where: { id: parsed.data.campaignId } }))) {
+  if (!(await db.campaign.count({ where: { id: parsed.data.campaignId } }))) {
     return failure({ campaignId: ["Campanha não encontrada."] });
   }
-  const t = await prisma.messageTemplate.create({ data: parsed.data, select: { id: true } });
+  const t = await db.messageTemplate.create({ data: parsed.data, select: { id: true } });
   revalidate(parsed.data.campaignId);
   return success({ ...t, warnings: warningsFor(parsed.data.channel, parsed.data.body) });
   });
@@ -35,11 +37,12 @@ export async function createTemplate(input: unknown): Promise<ActionResult<{ id:
 
 export async function updateTemplate(input: unknown): Promise<ActionResult<{ id: string; warnings: string[] }>> {
   return safeAction(async () => {
-  await requireUser();
+  const { orgId } = await requireProviderOrg();
+  const db = scopedPrisma(orgId);
   const parsed = templateUpdateSchema.safeParse(input);
   if (!parsed.success) return failure(zodErrors(parsed.error));
   const { id, ...data } = parsed.data;
-  const current = await prisma.messageTemplate.findUnique({
+  const current = await db.messageTemplate.findUnique({
     where: { id },
     select: { campaignId: true, channel: true, _count: { select: { steps: true } } },
   });
@@ -51,10 +54,10 @@ export async function updateTemplate(input: unknown): Promise<ActionResult<{ id:
     if (current.campaignId !== data.campaignId) {
       return failure({ campaignId: ["Não é possível mover o template: ele é usado em passos de sequência."] });
     }
-  } else if (!(await prisma.campaign.count({ where: { id: data.campaignId } }))) {
+  } else if (!(await db.campaign.count({ where: { id: data.campaignId } }))) {
     return failure({ campaignId: ["Campanha não encontrada."] });
   }
-  await prisma.messageTemplate.update({ where: { id }, data });
+  await db.messageTemplate.update({ where: { id }, data });
   revalidate(data.campaignId);
   return success({ id, warnings: warningsFor(data.channel, data.body) });
   });
@@ -63,19 +66,20 @@ export async function updateTemplate(input: unknown): Promise<ActionResult<{ id:
 /** Template usado em passo não é excluído (Restrict), com mensagem listando as sequências. */
 export async function deleteTemplate(id: unknown): Promise<ActionResult<{ id: string }>> {
   return safeAction(async () => {
-  await requireUser();
+  const { orgId } = await requireProviderOrg();
+  const db = scopedPrisma(orgId);
   const parsed = idSchema.safeParse(id);
   if (!parsed.success) return formError("ID inválido.");
-  const t = await prisma.messageTemplate.findUnique({
+  const t = await db.messageTemplate.findUnique({
     where: { id: parsed.data },
     select: { campaignId: true, steps: { select: { sequence: { select: { name: true } } } } },
   });
   if (!t) return formError("Template não encontrado.");
   if (t.steps.length > 0) {
-    const names = [...new Set(t.steps.map((s) => s.sequence.name))].join(", ");
+    const names = [...new Set(t.steps.map((s: { sequence: { name: string } }) => s.sequence.name))].join(", ");
     return formError(`Não é possível excluir: o template é usado em ${t.steps.length} passo(s) da(s) sequência(s) ${names}.`);
   }
-  await prisma.messageTemplate.delete({ where: { id: parsed.data } });
+  await db.messageTemplate.delete({ where: { id: parsed.data } });
   revalidate(t.campaignId);
   return success({ id: parsed.data });
   });

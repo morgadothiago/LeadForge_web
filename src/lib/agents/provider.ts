@@ -62,8 +62,8 @@ export class ClaudeProvider implements LlmProvider {
 }
 
 /** Chave via SPEC-018 (banco > env). Sem chave: AppError config (agente cai em handoff/rascunho, nunca envia às cegas). */
-export async function getLlmProvider(): Promise<LlmProvider> {
-  const cfg = await getIntegrationConfig("llm");
+export async function getLlmProvider(orgId: string): Promise<LlmProvider> {
+  const cfg = await getIntegrationConfig(orgId, "llm");
   return new ClaudeProvider(createClaudeClient(cfg.reveal()));
 }
 

@@ -31,6 +31,7 @@ let token = "";
 let campId = "";
 let icpId = "";
 let instId = "";
+let orgId = "";
 const leadIds: string[] = [];
 const req = (url = "http://x/api", t: string | null = token) => new Request(url, { headers: t ? { authorization: `Bearer ${t}` } : {} });
 
@@ -39,9 +40,13 @@ beforeAll(async () => {
   userId = (await prisma.user.create({ data: { name: "M", email: EMAIL, passwordHash: await hashPassword("Senha-Forte-Teste-123") } })).id;
   deviceId = (await prisma.mobileDevice.create({ data: { userId, name: "d", platform: "ios", refreshHash: `h-${crypto.randomUUID()}`, refreshExpiresAt: new Date(Date.now() + 1e9) } })).id;
   token = await signAccessToken(userId, deviceId);
-  icpId = (await prisma.icpProfile.create({ data: { name: "zz-icp", niche: "n" } })).id;
-  campId = (await prisma.campaign.create({ data: { name: "zz-metrics-camp", icpId, userId } })).id;
-  instId = (await prisma.whatsAppInstance.create({ data: { instanceName: "zz-inst-metrics", number: FULL_NUMBER, webhookToken: WEBHOOK, apiKey: SECRET_KEY, warmupStartedAt: new Date() } })).id;
+  // SPEC-030: schema exige orgId; src/lib/mobile/metrics.ts ainda não é org-scoped em runtime (ver
+  // Implementation Notes do spec.md) — só a fixture precisa de uma org válida.
+  orgId = (await prisma.organization.create({ data: { name: "zz-metrics-org", slug: "zz-metrics-org", status: "active" } })).id;
+  await prisma.membership.create({ data: { userId, orgId, orgRole: "owner" } });
+  icpId = (await prisma.icpProfile.create({ data: { orgId, name: "zz-icp", niche: "n" } })).id;
+  campId = (await prisma.campaign.create({ data: { name: "zz-metrics-camp", icpId, orgId, userId } })).id;
+  instId = (await prisma.whatsAppInstance.create({ data: { orgId, instanceName: "zz-inst-metrics", number: FULL_NUMBER, webhookToken: WEBHOOK, apiKey: SECRET_KEY, warmupStartedAt: new Date() } })).id;
   await prisma.instanceAlert.create({ data: { instanceId: instId, kind: "possible_ban", message: "Possível banimento" } });
   // 3 leads: 2 contatados (1 respondeu), 1 ativo com nextTouchAt
   for (let i = 0; i < 3; i++) {
@@ -52,7 +57,7 @@ beforeAll(async () => {
   for (const id of leadIds.slice(0, 2)) await prisma.touch.create({ data: { leadId: id, channel: "whatsapp", direction: "outbound", status: "sent", sentAt: now, whatsappInstanceId: instId } });
   await prisma.touch.create({ data: { leadId: leadIds[0], channel: "whatsapp", direction: "inbound", status: "replied" } });
   await prisma.searchRun.create({ data: { campaignId: campId, source: "places", status: "error", error: "falhou https://api.x.com/v1?key=AIzaSECRET123 token abc123" } });
-  await prisma.schedulerRun.create({ data: { startedAt: new Date(Date.now() - 1000), status: "error", error: "erro em https://h.io/?apikey=ZZZ" } });
+  await prisma.schedulerRun.create({ data: { orgId, startedAt: new Date(Date.now() - 1000), status: "error", error: "erro em https://h.io/?apikey=ZZZ" } });
 });
 afterAll(async () => {
   await prisma.schedulerRun.deleteMany({ where: { error: { contains: "h.io" } } });
@@ -62,6 +67,8 @@ afterAll(async () => {
   await prisma.icpProfile.deleteMany({ where: { id: icpId } });
   await prisma.mobileDevice.deleteMany({ where: { userId } });
   await prisma.user.deleteMany({ where: { email: EMAIL } });
+  await prisma.membership.deleteMany({ where: { orgId } });
+  await prisma.organization.deleteMany({ where: { id: orgId } });
 });
 
 const routes: [string, (r: Request) => Promise<Response>][] = [
@@ -74,7 +81,7 @@ const j = async (r: Response) => (await r.json()) as { data: any; meta?: any };
 describe("authz (todas as rotas)", () => {
   it("sem Bearer, Bearer web e dispositivo revogado = 401 com no-store", async () => {
     const { signSessionToken } = await import("@/lib/auth/session-token");
-    const web = await signSessionToken(userId);
+    const web = await signSessionToken(userId, orgId, "provider");
     const dev = await prisma.mobileDevice.create({ data: { userId, name: "rev", platform: "ios", refreshHash: `h-${crypto.randomUUID()}`, refreshExpiresAt: new Date(Date.now() + 1e9), revokedAt: new Date() } });
     const revoked = await signAccessToken(userId, dev.id);
     for (const [path, h] of routes) for (const t of [null, web, revoked]) {
@@ -96,7 +103,7 @@ describe("dados, paridade e no-store", () => {
   });
   it("AC1 paridade: /summary == queries da web; /pipeline == board", async () => {
     const now = new Date();
-    const m = await getMetrics(getPeriodRanges(now, "7d"));
+    const m = await getMetrics(orgId, getPeriodRanges(now, "7d"));
     const s = (await j(await summary(req()))).data;
     expect(s.newLeads.value).toBe(m.newLeads.value);
     expect(s.replied.value).toBe(m.replies.value);
@@ -106,7 +113,7 @@ describe("dados, paridade e no-store", () => {
     expect(s.responseRate.rate).toBe(rate(s.responseRate.responded, s.responseRate.contacted));
     const p = (await j(await pipeline(req()))).data as { stage: string; count: number }[];
     expect(p).toHaveLength(7);
-    const total = await prisma.opportunity.count();
+    const total = await prisma.opportunity.count({ where: { campaign: { orgId } } });
     expect(p.reduce((a, x) => a + x.count, 0)).toBe(total);
   });
   it("AC8: /summary < 5 KB; period invalido = 400", async () => {
@@ -128,7 +135,7 @@ describe("dados, paridade e no-store", () => {
     expect((await campaigns(req("http://x/api?status=xx"))).status).toBe(400);
   });
   it("AC7: 50 campanhas -> poucas queries (sem N+1) e paginacao por cursor", async () => {
-    await prisma.campaign.createMany({ data: Array.from({ length: 50 }, (_, i) => ({ name: `zz-bulk-${i}`, icpId, userId })) });
+    await prisma.campaign.createMany({ data: Array.from({ length: 50 }, (_, i) => ({ name: `zz-bulk-${i}`, icpId, orgId, userId })) });
     try {
       const spies = [vi.spyOn(prisma.campaign, "findMany"), vi.spyOn(prisma.lead, "groupBy"), vi.spyOn(prisma, "$queryRaw")];
       const one = await j(await campaigns(req("http://x/api?limit=50")));
@@ -174,11 +181,11 @@ describe("scheduler stale, orcamento e fuso", () => {
   it("AC3: stale conforme relogio injetado (limiar 2x intervalo)", async () => {
     const t0 = new Date("2030-01-01T12:00:00Z");
     await prisma.schedulerRun.deleteMany({ where: { startedAt: { gte: new Date("2029-12-31"), lte: new Date("2030-01-02") } } });
-    const run = await prisma.schedulerRun.create({ data: { startedAt: t0, finishedAt: new Date(t0.getTime() + 1000), status: "ok" } });
+    const run = await prisma.schedulerRun.create({ data: { orgId, startedAt: t0, finishedAt: new Date(t0.getTime() + 1000), status: "ok" } });
     try {
       // Runs 'ok' mais recentes de outros testes/dados reais nao existem no futuro (2030): o mais recente e o nosso.
-      expect((await getMobileScheduler(new Date(t0.getTime() + 3 * 60_000))).stale).toBe(false);
-      expect((await getMobileScheduler(new Date(t0.getTime() + 5 * 60_000))).stale).toBe(true);
+      expect((await getMobileScheduler(orgId, new Date(t0.getTime() + 3 * 60_000))).stale).toBe(false);
+      expect((await getMobileScheduler(orgId, new Date(t0.getTime() + 5 * 60_000))).stale).toBe(true);
     } finally {
       await prisma.schedulerRun.delete({ where: { id: run.id } });
     }
@@ -191,13 +198,13 @@ describe("scheduler stale, orcamento e fuso", () => {
   });
   it("AC6: 'enviadas hoje' usa o dia de Sao Paulo (startOfDaySP)", async () => {
     const now = new Date();
-    const before = (await getMobileSummary("7d", now)).sentToday.whatsapp.sent;
+    const before = (await getMobileSummary(orgId, "7d", now)).sentToday.whatsapp.sent;
     const start = startOfDaySP(now);
     const mk = (sentAt: Date) => prisma.touch.create({ data: { leadId: leadIds[2], channel: "whatsapp", direction: "outbound", status: "sent", sentAt, whatsappInstanceId: instId } });
     await mk(new Date(start.getTime() - 60_000)); // 23:59 SP de ontem: nao conta
-    expect((await getMobileSummary("7d", now)).sentToday.whatsapp.sent).toBe(before);
+    expect((await getMobileSummary(orgId, "7d", now)).sentToday.whatsapp.sent).toBe(before);
     await mk(new Date(start.getTime() + 60_000)); // 00:01 SP de hoje: conta (se ainda for hoje)
-    if (new Date(start.getTime() + 60_000) <= now) expect((await getMobileSummary("7d", now)).sentToday.whatsapp.sent).toBe(before + 1);
+    if (new Date(start.getTime() + 60_000) <= now) expect((await getMobileSummary(orgId, "7d", now)).sentToday.whatsapp.sent).toBe(before + 1);
   });
   it("/agents/queue e /scheduler: formato", async () => {
     const q = (await j(await agentsQueue(req()))).data;
@@ -272,7 +279,7 @@ describe("AC7 contagem real de queries e conformidade de schema", () => {
   };
   it("/whatsapp/instances: numero de queries constante (50 instancias) e /summary <= 8", async () => {
     const one = await countQueries(async () => { await instances(req()); });
-    const ids = (await prisma.whatsAppInstance.createManyAndReturn({ data: Array.from({ length: 50 }, (_, i) => ({ instanceName: `zz-bulk-inst-${i}`, number: `5511900${String(i).padStart(6, "0")}`, webhookToken: `zz-wh-${crypto.randomUUID()}`, warmupStartedAt: new Date() })), select: { id: true } })).map((x) => x.id);
+    const ids = (await prisma.whatsAppInstance.createManyAndReturn({ data: Array.from({ length: 50 }, (_, i) => ({ orgId, instanceName: `zz-bulk-inst-${i}`, number: `5511900${String(i).padStart(6, "0")}`, webhookToken: `zz-wh-${crypto.randomUUID()}`, warmupStartedAt: new Date() })), select: { id: true } })).map((x) => x.id);
     try {
       await prisma.instanceAlert.createMany({ data: ids.map((instanceId) => ({ instanceId, kind: "warning", message: "x" })) });
       const fifty = await countQueries(async () => { expect((await instances(req())).status).toBe(200); });

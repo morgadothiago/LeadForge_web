@@ -22,8 +22,8 @@ beforeAll(async () => {
   await signInAsSeedAdmin();
   const icp = await prisma.icpProfile.findFirstOrThrow();
   const user = await prisma.user.findFirstOrThrow();
-  campId = (await prisma.campaign.create({ data: { name: TAG, userId: user.id, icpId: icp.id } })).id;
-  campB = (await prisma.campaign.create({ data: { name: TAG + "-b", userId: user.id, icpId: icp.id } })).id;
+  campId = (await prisma.campaign.create({ data: { name: TAG, userId: user.id, icpId: icp.id, orgId: icp.orgId } })).id;
+  campB = (await prisma.campaign.create({ data: { name: TAG + "-b", userId: user.id, icpId: icp.id, orgId: icp.orgId } })).id;
 }, 30000);
 
 afterAll(async () => {
@@ -175,7 +175,7 @@ describe("leads: contato mínimo e bloqueio de exclusão", () => {
 
   it("deleteLead bloqueia com meeting", async () => {
     const l = await mk("meet");
-    await prisma.meeting.create({ data: { leadId: l.id, opportunityId: l.opportunityId, scheduledAt: new Date() } });
+    await prisma.meeting.create({ data: { leadId: l.id, opportunityId: l.opportunityId, campaignId: campB, startsAt: new Date(), endsAt: new Date() } });
     expect((await deleteLead(l.id)).ok).toBe(false);
     expect(await prisma.lead.count({ where: { id: l.id } })).toBe(1);
   });
@@ -230,7 +230,7 @@ describe("leads: queries", () => {
     const o = await prisma.opportunity.create({ data: { leadId: l.id, campaignId: campB, value: 500 } });
     await prisma.touch.create({ data: { leadId: l.id, channel: "email", createdAt: new Date(2024, 0, 1), content: "old" } });
     await prisma.touch.create({ data: { leadId: l.id, channel: "whatsapp", direction: "inbound", status: "replied", createdAt: new Date(2024, 0, 2), content: "new" } });
-    await prisma.meeting.create({ data: { opportunityId: o.id, leadId: l.id, scheduledAt: new Date() } });
+    await prisma.meeting.create({ data: { opportunityId: o.id, leadId: l.id, campaignId: campB, startsAt: new Date(), endsAt: new Date() } });
     await prisma.leadNote.create({ data: { leadId: l.id, body: "n" } });
     const d = await getLead(l.id);
     expect(d?.touches.map((t) => t.content)).toEqual(["new", "old"]);

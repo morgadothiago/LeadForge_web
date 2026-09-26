@@ -4,7 +4,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn(), revalidateTag: vi.fn(), updateTag: vi.fn() }));
 
 import { prisma } from "@/lib/prisma";
-import { seed } from "../../../prisma/seed";
+import { seed, SEED_IDS } from "../../../prisma/seed";
 import { runLeadSearch } from "./run";
 import type { LeadSource } from "./types";
 
@@ -19,8 +19,8 @@ beforeAll(async () => {
   process.env.LEAD_SEARCH_DAILY_MAX_REQUESTS = "1";
   await seed(prisma);
   const user = await prisma.user.findFirstOrThrow({ where: { email: "admin@leadforge.local" } });
-  icpId = (await prisma.icpProfile.create({ data: { name: TAG, niche: "x", signals: [], keywords: [], sources: [], desiredData: [] } })).id;
-  campaignId = (await prisma.campaign.create({ data: { name: TAG, userId: user.id, icpId } })).id;
+  icpId = (await prisma.icpProfile.create({ data: { orgId: SEED_IDS.org, name: TAG, niche: "x", signals: [], keywords: [], sources: [], desiredData: [] } })).id;
+  campaignId = (await prisma.campaign.create({ data: { name: TAG, userId: user.id, icpId, orgId: SEED_IDS.org } })).id;
 });
 afterAll(async () => {
   await prisma.searchRun.deleteMany({ where: { campaignId } });

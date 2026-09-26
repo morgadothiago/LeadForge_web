@@ -1,5 +1,5 @@
-import { prisma } from "@/lib/prisma";
-import { requireUser } from "@/lib/auth/require-user";
+import { requireProviderOrg } from "@/lib/auth/require-admin";
+import { scopedPrisma } from "@/lib/tenant/scoped-prisma";
 import { classifyStartable, REASON_LABEL, type IneligibleReason } from "@/lib/domain/sequence-start";
 import { campaignIdSchema } from "@/lib/schemas/sequence-start";
 
@@ -17,11 +17,11 @@ export interface StartableLeadsCount {
 
 /** Elegíveis x inelegíveis (por motivo) — mostrar ANTES de confirmar startCampaignSequences. Candidatos: not_started e paused_manual. */
 export async function countStartableLeads(campaignId: string): Promise<StartableLeadsCount | null> {
-  await requireUser();
+  const { orgId } = await requireProviderOrg();
   const id = campaignIdSchema.parse(campaignId);
-  const camp = await prisma.campaign.findUnique({ where: { id }, select: { status: true, sequenceId: true, autoStart: true } });
+  const camp = await scopedPrisma(orgId).campaign.findUnique({ where: { id }, select: { status: true, sequenceId: true, autoStart: true } });
   if (!camp) return null;
-  const s = await classifyStartable(id);
+  const s = await classifyStartable(id, orgId);
   if (!s) return null;
   return {
     campaignId: id,

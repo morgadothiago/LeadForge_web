@@ -21,14 +21,21 @@ import path from "node:path";
 const EMAIL = "zz-test-auth@leadforge.local";
 const PASS = "Senha-Forte-Teste-123";
 let userId = "";
+let orgId = "";
 
 beforeAll(async () => {
   await prisma.user.deleteMany({ where: { email: { startsWith: "zz-test-auth" } } });
   const u = await prisma.user.create({ data: { name: "T", email: EMAIL, passwordHash: await hashPassword(PASS) } });
   userId = u.id;
+  // SPEC-030: `provider` (papel default) só loga com sessão se tiver Membership/Organization (D-30-1: login resolve a org do usuário).
+  const org = await prisma.organization.create({ data: { name: "zz-test-auth org", slug: `zz-test-auth-org-${u.id.slice(0, 8)}`, status: "active" } });
+  orgId = org.id;
+  await prisma.membership.create({ data: { userId, orgId, orgRole: "owner" } });
 });
 afterAll(async () => {
+  await prisma.membership.deleteMany({ where: { userId } });
   await prisma.user.deleteMany({ where: { email: { startsWith: "zz-test-auth" } } });
+  if (orgId) await prisma.organization.deleteMany({ where: { id: orgId } });
   await prisma.$disconnect();
 });
 beforeEach(() => {
@@ -51,14 +58,14 @@ describe("senha", () => {
 
 describe("sessão", () => {
   it("token válido", async () => {
-    expect(await verifySessionToken(await signSessionToken("u1"))).toEqual({ userId: "u1" });
+    expect(await verifySessionToken(await signSessionToken("u1", null, "provider"))).toEqual({ userId: "u1", orgId: null, platformRole: "provider" });
   });
   it("expirado", async () => {
-    const t = await signSessionToken("u1", { now: new Date(Date.now() - 10_000), ttlSeconds: 1 });
+    const t = await signSessionToken("u1", null, "provider", { now: new Date(Date.now() - 10_000), ttlSeconds: 1 });
     expect(await verifySessionToken(t)).toBeNull();
   });
   it("adulterado / segredo diferente / ausente", async () => {
-    const t = await signSessionToken("u1");
+    const t = await signSessionToken("u1", null, "provider");
     const [h, p, s] = t.split(".");
     const forged = Buffer.from(JSON.stringify({ sub: "admin", exp: 9999999999 })).toString("base64url");
     expect(await verifySessionToken(`${h}.${forged}.${s}`)).toBeNull();
@@ -72,7 +79,7 @@ describe("sessão", () => {
     expect(await verifySessionToken(t)).toBeNull();
   });
   it("assinado com outro segredo rejeitado", async () => {
-    expect(await verifySessionToken(await signSessionToken("u", { secret: "z".repeat(48) }))).toBeNull();
+    expect(await verifySessionToken(await signSessionToken("u", null, "provider", { secret: "z".repeat(48) }))).toBeNull();
   });
   it("alg none rejeitado", async () => {
     const b = (o: object) => Buffer.from(JSON.stringify(o)).toString("base64url");
@@ -88,14 +95,20 @@ describe("requireUser", () => {
     await signInAs(userId);
     expect((await requireUser()).email).toBe(EMAIL);
   });
-  it("expõe o role do usuário (admin por padrão, member quando definido)", async () => {
-    await signInAs(userId);
-    expect((await requireUser()).role).toBe("admin");
-    await prisma.user.update({ where: { id: userId }, data: { role: "member" } });
-    expect((await requireUser()).role).toBe("member");
+  it("expõe o role de PLATAFORMA do usuário (provider por padrão, platform_admin quando definido) — SPEC-030", async () => {
+    // usuário dedicado (não o `userId` compartilhado do describe "login/logout", para não contaminá-lo).
+    const u = await prisma.user.create({ data: { name: "role-test", email: "zz-test-auth-role@leadforge.local" } });
+    try {
+      await signInAs(u.id, { orgId: null, platformRole: "provider" });
+      expect((await requireUser()).role).toBe("provider");
+      await prisma.user.update({ where: { id: u.id }, data: { role: "platform_admin" } });
+      expect((await requireUser()).role).toBe("platform_admin");
+    } finally {
+      await prisma.user.delete({ where: { id: u.id } });
+    }
   });
   it("usuário removido -> UnauthorizedError", async () => {
-    await signInAs("00000000-0000-4000-8000-00000000dead");
+    await signInAs("00000000-0000-4000-8000-00000000dead", { orgId: null, platformRole: "provider" });
     await expect(requireUser()).rejects.toBeInstanceOf(UnauthorizedError);
   });
 });
@@ -210,7 +223,7 @@ describe("proxy", () => {
   });
   it("token inválido redireciona; válido passa; /login passa", async () => {
     expect((await proxy(req("/", "lixo"))).status).toBe(307);
-    expect((await proxy(req("/", await signSessionToken("u")))).headers.get("location")).toBeNull();
+    expect((await proxy(req("/", await signSessionToken("u", null, "provider")))).headers.get("location")).toBeNull();
     expect((await proxy(req("/login"))).headers.get("location")).toBeNull();
   });
   it("matcher: só assets exatos passam; paths dinâmicos com extensão são protegidos", async () => {
@@ -232,7 +245,8 @@ describe("todas as Server Actions chamam requireUser (exceto auth.ts)", () => {
     const parts = src.split(/^(?=(?:export )?async function )/m).filter((c) => /^(export )?async function /.test(c));
     const fns = parts.map((c) => ({ name: /function (\w+)/.exec(c)![1], exported: c.startsWith("export"), body: c }));
     const ok = (fn: (typeof fns)[number], seen = new Set<string>()): boolean => {
-      if (/\brequireUser\(\)/.test(fn.body)) return true;
+      // SPEC-030: requireProviderOrg()/requirePlatformAdmin() chamam requireUser() por dentro.
+      if (/\brequireUser\(\)|\brequireProviderOrg\(\)|\brequirePlatformAdmin\(\)/.test(fn.body)) return true;
       seen.add(fn.name);
       return fns.some((o) => !seen.has(o.name) && new RegExp(`\\b${o.name}\\(`).test(fn.body) && ok(o, seen));
     };
@@ -252,7 +266,8 @@ describe("queries chamam requireUser antes do prisma", () => {
       const name = /function (\w+)/.exec(c)![1];
       const body = c.slice(c.indexOf("\n"));
       const iPrisma = body.search(/\bprisma\b|\bget\w+\(/);
-      const iReq = Math.max(body.indexOf("requireUser()"), body.indexOf("requireAdmin()")); // requireAdmin chama requireUser
+      // SPEC-030: requireProviderOrg()/requirePlatformAdmin() chamam requireUser() por dentro (substituem o antigo requireAdmin()).
+      const iReq = Math.max(body.indexOf("requireUser()"), body.indexOf("requireAdmin()"), body.indexOf("requireProviderOrg()"), body.indexOf("requirePlatformAdmin()"));
       if (iPrisma === -1 && !/\bprisma\b/.test(c)) continue;
       expect(iReq, `${f}:${name} sem requireUser`).toBeGreaterThan(-1);
       expect(iReq, `${f}:${name} requireUser depois do acesso`).toBeLessThan(iPrisma === -1 ? Infinity : iPrisma);

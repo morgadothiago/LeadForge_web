@@ -12,7 +12,7 @@ export const mobileRefreshSchema = z.object({
   refreshToken: z.string().min(20).max(128),
 });
 
-const pushKinds = ["wa_disconnected", "wa_paused", "mass_opt_out", "handoff", "budget_alert", "budget_exhausted", "scheduler_stale", "lead_replied"] as const;
+const pushKinds = ["wa_disconnected", "wa_paused", "mass_opt_out", "handoff", "budget_alert", "budget_exhausted", "scheduler_stale", "lead_replied", "meeting_reminder"] as const;
 export const pushTokenSchema = z.object({
   token: z.string().trim().regex(/^Expo(nent)?PushToken\[[A-Za-z0-9_-]+\]$/).max(200).nullable(),
   prefs: z.object(Object.fromEntries(pushKinds.map((k) => [k, z.boolean().optional()]))).strict().optional(),

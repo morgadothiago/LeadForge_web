@@ -79,7 +79,7 @@ describe("getDashboardData (seed)", () => {
     const d30 = await getDashboardData({ period: "30d" }, now);
     const r30 = getPeriodRanges(now, "30d").current;
     expect(d30.metrics.meetings.value).toBe(
-      await prisma.meeting.count({ where: { createdAt: { gte: r30.from, lt: r30.to } } }),
+      await prisma.meeting.count({ where: { status: { not: "cancelled" }, createdAt: { gte: r30.from, lt: r30.to } } }),
     );
     expect(d30.metrics.followUp.value).toBeGreaterThanOrEqual(3);
     expect(d30.activities.some((a) => a.kind === "stage_change")).toBe(true);

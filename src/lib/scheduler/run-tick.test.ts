@@ -8,7 +8,7 @@ process.env.ENCRYPTION_KEY = randomBytes(32).toString("base64");
 process.env.AUTH_URL = "http://app.test";
 
 import { prisma } from "@/lib/prisma";
-import { seed } from "../../../prisma/seed";
+import { seed, SEED_IDS } from "../../../prisma/seed";
 import { encrypt } from "@/lib/crypto/secret-box";
 import { AppError } from "@/lib/errors";
 import { sendEmail } from "@/lib/channels/email";
@@ -38,15 +38,15 @@ interface Fx { campId: string; instId: string; stepIds: string[] }
 async function mkCampaign(steps: { day: number; channel: Channel }[], over: Record<string, unknown> = {}): Promise<Fx> {
   n++;
   const name = `${TAG}-${n}`;
-  const seq = await prisma.sequence.create({ data: { name } });
+  const seq = await prisma.sequence.create({ data: { name, orgId: SEED_IDS.org } });
   seqs.push(seq.id);
   const inst = await prisma.whatsAppInstance.create({
-    data: { instanceName: name, number: "+5511999990000", webhookToken: `${name}-${Date.now()}-${Math.random()}`, status: "connected", warmupStartedAt: new Date("2026-01-01T00:00:00Z") },
+    data: { orgId: SEED_IDS.org, instanceName: name, number: "+5511999990000", webhookToken: `${name}-${Date.now()}-${Math.random()}`, status: "connected", warmupStartedAt: new Date("2026-01-01T00:00:00Z") },
   });
   insts.push(inst.id);
-  const camp = await prisma.campaign.create({ data: { name, userId, icpId, sequenceId: seq.id, whatsappInstanceId: inst.id, ...over } });
+  const camp = await prisma.campaign.create({ data: { name, userId, icpId, orgId: SEED_IDS.org, sequenceId: seq.id, whatsappInstanceId: inst.id, ...over } });
   camps.push(camp.id);
-  const tpl = await prisma.messageTemplate.create({ data: { campaignId: camp.id, channel: "email", name, subject: "Oi {{firstName}}", body: "Olá {{firstName}} da {{company}}" } });
+  const tpl = await prisma.messageTemplate.create({ data: { campaignId: camp.id, orgId: SEED_IDS.org, channel: "email", name, subject: "Oi {{firstName}}", body: "Olá {{firstName}} da {{company}}" } });
   const stepIds: string[] = [];
   for (const [i, s] of steps.entries()) {
     stepIds.push((await prisma.sequenceStep.create({ data: { sequenceId: seq.id, day: s.day, channel: s.channel, templateId: tpl.id, order: i + 1 } })).id);
@@ -82,7 +82,7 @@ beforeAll(async () => {
   await cleanup();
   userId = (await prisma.user.findFirstOrThrow({ where: { email: "admin@leadforge.local" } })).id;
   icpId = (await prisma.icpProfile.findFirstOrThrow()).id;
-  await prisma.emailAccount.create({ data: { userId, provider: "smtp", smtpHost: "smtp.interno.local", email: `a@${TAG}.com`, encryptedPassword: encrypt("x"), dailyLimit: 1000 } });
+  await prisma.emailAccount.create({ data: { orgId: SEED_IDS.org, userId, provider: "smtp", smtpHost: "smtp.interno.local", email: `a@${TAG}.com`, encryptedPassword: encrypt("x"), dailyLimit: 1000 } });
 }, 30000);
 
 async function cleanup() {
@@ -162,7 +162,7 @@ describe("quem não dispara", () => {
     const c = await mkLead(fx, { ...due, optedOutAt: START });
     const d = await mkLead(fx, { ...due, repliedAt: START });
     const e = await mkLead(fx, { ...due, email: `sup@${TAG}.com` });
-    await prisma.suppression.create({ data: { kind: "email", value: `sup@${TAG}.com`, reason: "bounce" } });
+    await prisma.suppression.create({ data: { orgId: SEED_IDS.org, kind: "email", value: `sup@${TAG}.com`, reason: "bounce" } });
     const r = await tick(START, fx);
     for (const l of [a, b, c, d]) expect(await touches(l.id)).toHaveLength(0);
     expect(await touches(e.id)).toHaveLength(0);
@@ -182,7 +182,7 @@ describe("quem não dispara", () => {
     fake = new FakeWhatsAppProvider();
     const fx = await mkCampaign([{ day: 0, channel: "email" }, { day: 1, channel: "email" }]);
     const l = await mkLead(fx, { sequenceStatus: "active", email: `optout@${TAG}.com` });
-    await prisma.suppression.create({ data: { kind: "email", value: `optout@${TAG}.com`, reason: "opt_out_link" } });
+    await prisma.suppression.create({ data: { orgId: SEED_IDS.org, kind: "email", value: `optout@${TAG}.com`, reason: "opt_out_link" } });
     const t = await prisma.touch.create({ data: { leadId: l.id, stepId: fx.stepIds[0], channel: "email", status: "scheduled", scheduledAt: START } });
     await tick(START, fx);
     expect((await prisma.touch.findUniqueOrThrow({ where: { id: t.id } })).status).toBe("skipped");

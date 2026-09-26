@@ -1,10 +1,10 @@
 import { cookies } from "next/headers";
 import { SESSION_COOKIE, SESSION_TTL_SECONDS } from "./config";
-import { signSessionToken, verifySessionToken, type SessionPayload } from "./session-token";
+import { signSessionToken, verifySessionToken, type PlatformRole, type SessionPayload } from "./session-token";
 
-/** Cria a sessão: cookie httpOnly, sameSite=lax, secure em produção, path=/, 7 dias. */
-export async function createSession(userId: string): Promise<void> {
-  const token = await signSessionToken(userId);
+/** Cria a sessão: cookie httpOnly, sameSite=lax, secure em produção, path=/, 7 dias. `orgId` null só para platform_admin (D-30-1). */
+export async function createSession(userId: string, orgId: string | null, platformRole: PlatformRole): Promise<void> {
+  const token = await signSessionToken(userId, orgId, platformRole);
   (await cookies()).set(SESSION_COOKIE, token, {
     httpOnly: true,
     sameSite: "lax",

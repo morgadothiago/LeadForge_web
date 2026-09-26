@@ -56,7 +56,7 @@ async function applyMessageStatus(tx: Prisma.TransactionClient, instanceId: stri
   }
 }
 
-async function persist(instance: { id: string }, ev: Exclude<WebhookEvent, { kind: "connection" | "qrcode" }>, now: Date): Promise<string> {
+async function persist(instance: { id: string; orgId: string }, ev: Exclude<WebhookEvent, { kind: "connection" | "qrcode" }>, now: Date): Promise<string> {
   const eventId = ev.kind === "inbound" ? `wa:${instance.id}:upsert:${ev.externalId}` : `wa:${instance.id}:update:${ev.externalId}:${ev.status}`;
   try {
     return await withSerializableRetry(
@@ -64,7 +64,7 @@ async function persist(instance: { id: string }, ev: Exclude<WebhookEvent, { kin
         async (tx) => {
           // Sem texto, telefone ou token: só o necessário para auditoria/idempotência.
           await tx.webhookEvent.create({
-            data: { source: SOURCE, eventId, processedAt: now, payload: { kind: ev.kind, instance: ev.instanceName, externalId: ev.externalId } },
+            data: { source: SOURCE, orgId: instance.orgId, eventId, processedAt: now, payload: { kind: ev.kind, instance: ev.instanceName, externalId: ev.externalId } },
           });
           if (ev.kind === "message_status") {
             await applyMessageStatus(tx, instance.id, ev);
@@ -126,7 +126,7 @@ export async function handleWhatsAppWebhook(request: Request, token: string, opt
       const wait = invalidAttemptRetry(now.getTime());
       return wait === null ? unauthorized() : tooManyRequests(wait);
     }
-    const provider = opts.provider ?? getWhatsAppProvider(instance.provider);
+    const provider = opts.provider ?? getWhatsAppProvider(instance.orgId, instance.provider);
     let apiKey: string | null = null;
     if (instance.apiKey) {
       try { apiKey = decrypt(instance.apiKey); } catch { log(`apiKey da instância ${instance.instanceName} ilegível; 2º fator ignorado`); }

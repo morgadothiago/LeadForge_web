@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth/require-user";
+import { requireProviderOrg } from "@/lib/auth/require-admin";
 import { encrypt } from "@/lib/crypto/secret-box";
 import { buildTransport, sanitizeError } from "@/lib/channels/email";
 import { normalizeSmtpError } from "@/lib/channels/smtp-errors";
@@ -22,13 +23,13 @@ const isDup = (e: unknown): boolean => e instanceof Prisma.PrismaClientKnownRequ
 
 export async function createEmailAccount(input: unknown): Promise<ActionResult<{ id: string }>> {
   return safeAction(async () => {
-    const user = await requireUser();
+    const { user, orgId } = await requireProviderOrg();
     const parsed = emailAccountCreateSchema.safeParse(input);
     if (!parsed.success) return failure(zodErrors(parsed.error));
     const { password, ...data } = parsed.data;
     try {
       const a = await prisma.emailAccount.create({
-        data: { ...data, userId: user.id, encryptedPassword: encrypt(password) },
+        data: { ...data, orgId, userId: user.id, encryptedPassword: encrypt(password) },
         select: { id: true },
       });
       revalidate();

@@ -5,6 +5,7 @@ import { budgetState, monthStart } from "@/lib/agents/budget";
 import { SCHEDULER_EXPECTED_INTERVAL_MS } from "@/lib/scheduler/config";
 import { redactText } from "./sanitize";
 import { sendPushForAlert, type PushAlert } from "./expo-push";
+import { collectMeetingReminders, REMINDER_KIND } from "./meeting-reminders";
 
 /**
  * SPEC-023: emissor isolado de alertas. Varredura idempotente sobre o estado existente (instancias, leads, orcamento, scheduler, toques).
@@ -21,7 +22,7 @@ const REPLY_BUCKET_MS = 5 * 60_000;
 export type Severity = "critica" | "alta" | "media" | "baixa";
 export interface Candidate {
   kind: string; severity: Severity; dedupeKey: string; title: string; body: string;
-  refType: "instance" | "lead" | "draft" | "scheduler" | "budget"; refId: string | null; link?: string | null;
+  refType: "instance" | "lead" | "draft" | "scheduler" | "budget" | "meeting"; refId: string | null; link?: string | null;
 }
 
 const TEXT = {
@@ -33,8 +34,12 @@ const TEXT = {
   budget_exhausted: { severity: "alta", title: "Orçamento esgotado", body: "O orçamento de agentes de IA atingiu 100% do teto mensal." },
   scheduler_stale: { severity: "alta", title: "Scheduler parado", body: "O scheduler não executa há mais tempo que o esperado. Abra o app para ver os detalhes." },
   lead_replied: { severity: "baixa", title: "Lead respondeu", body: "Você recebeu novas respostas de leads." },
+  // SPEC-028: titulo real varia por antecedencia (meeting-reminders.ts); aqui vale o texto-base fixo (sem PII).
+  meeting_reminder: { severity: "media", title: "Reunião em breve", body: "Você tem uma reunião agendada. Abra o app para ver os detalhes." },
 } as const satisfies Record<string, { severity: Severity; title: string; body: string }>;
 type Kind = keyof typeof TEXT;
+/** Todos os kinds emitidos (SPEC-028: base do teste de cobertura do mapa kind->area). */
+export const ALERT_KINDS: string[] = Object.keys(TEXT);
 
 const cand = (kind: Kind, key: string, refType: Candidate["refType"], refId: string | null, link?: string | null): Candidate => ({
   kind, severity: TEXT[kind].severity, dedupeKey: `${kind}:${key}`, title: TEXT[kind].title, body: TEXT[kind].body, refType, refId, link,
@@ -162,6 +167,10 @@ export async function sweepAlerts(now: Date = new Date()): Promise<{ raised: num
       for (const c of list) if (await raiseAlert(c, opts)) raised++;
       await resolveInactive(kind, list.map((c) => c.dedupeKey), now);
     }
+    // SPEC-028: lembretes de reuniao (janelas/offsets); resolve os que deixaram de valer (cancelada, reagendada, passada).
+    const reminders = await collectMeetingReminders(now);
+    for (const c of reminders.candidates) if (await raiseAlert(c, { ...opts, silent: opts.silent || c.silent })) raised++;
+    await prisma.mobileAlert.updateMany({ where: { kind: REMINDER_KIND, resolvedAt: null, dedupeKey: { notIn: reminders.activeKeys } }, data: { resolvedAt: now } });
     const bucket = Math.floor(now.getTime() / REPLY_BUCKET_MS);
     const replies = await prisma.touch.count({ where: { direction: "inbound", createdAt: { gte: new Date(bucket * REPLY_BUCKET_MS), lte: now } } });
     if (replies > 0 && (await raiseAlert(cand("lead_replied", String(bucket), "lead", null), opts))) raised++;

@@ -1,5 +1,5 @@
-import { prisma } from "@/lib/prisma";
-import { requireUser } from "@/lib/auth/require-user";
+import { requireProviderOrg } from "@/lib/auth/require-admin";
+import { scopedPrisma } from "@/lib/tenant/scoped-prisma";
 
 export interface EmailAccountView {
   id: string;
@@ -28,12 +28,12 @@ function view(a: { encryptedPassword: string } & Omit<EmailAccountView, "hasPass
 }
 
 export async function listEmailAccounts(): Promise<EmailAccountView[]> {
-  const user = await requireUser();
-  return (await prisma.emailAccount.findMany({ where: { userId: user.id }, select, orderBy: { createdAt: "asc" } })).map(view);
+  const { user, orgId } = await requireProviderOrg();
+  return (await scopedPrisma(orgId).emailAccount.findMany({ where: { userId: user.id }, select, orderBy: { createdAt: "asc" } })).map(view);
 }
 
 export async function getEmailAccount(id: string): Promise<EmailAccountView | null> {
-  const user = await requireUser();
-  const a = await prisma.emailAccount.findFirst({ where: { id, userId: user.id }, select });
+  const { user, orgId } = await requireProviderOrg();
+  const a = await scopedPrisma(orgId).emailAccount.findFirst({ where: { id, userId: user.id }, select });
   return a ? view(a) : null;
 }

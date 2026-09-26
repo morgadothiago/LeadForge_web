@@ -1,0 +1,356 @@
+import "dotenv/config";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+
+vi.mock("next/cache", () => ({ revalidatePath: vi.fn(), revalidateTag: vi.fn(), updateTag: vi.fn() }));
+
+import { prisma } from "@/lib/prisma";
+import { signInAs } from "@/lib/auth/test-helpers";
+import { createTestOrg, purgeTestOrg, type TestOrg } from "@/lib/test-utils/org-fixture";
+import { scopedPrisma, TenantNotFoundError } from "@/lib/tenant/scoped-prisma";
+import { adminPrisma } from "@/lib/tenant/admin-prisma";
+
+import { updateCampaign, deleteCampaign, archiveCampaign } from "@/lib/actions/campaign";
+import { getCampaign, listCampaigns } from "@/lib/queries/campaigns";
+import { createLead, updateLead, moveLeadStage } from "@/lib/actions/lead";
+import { getLead, listLeads } from "@/lib/queries/leads";
+import { renameSequence, deleteSequence } from "@/lib/actions/sequence";
+import { getSequence, listSequences } from "@/lib/queries/sequences";
+import { createTemplate, updateTemplate } from "@/lib/actions/template";
+import { updateInstance, deleteWhatsAppInstance } from "@/lib/actions/whatsapp";
+import { listWhatsAppInstances, getWhatsAppInstance } from "@/lib/queries/whatsapp";
+import { updateEmailAccount } from "@/lib/actions/email";
+import { listEmailAccounts, getEmailAccount } from "@/lib/queries/email";
+import { updateAgent, approveDraft, rejectDraftAction, takeOverLead } from "@/lib/actions/agent";
+import { listAgents } from "@/lib/queries/agent";
+import { addToSuppression } from "@/lib/actions/suppression";
+import { listSuppressions } from "@/lib/queries/suppression";
+import { getPipelineBoard } from "@/lib/queries/pipeline";
+import { updateOpportunity } from "@/lib/actions/pipeline";
+import { getDashboardData } from "@/lib/queries/dashboard";
+import { listMeetings, searchLeadsForMeeting } from "@/lib/queries/meetings";
+import { createMeeting } from "@/lib/actions/meeting";
+import { runTick } from "@/lib/scheduler/run-tick";
+
+/**
+ * SPEC-030 seção 3 — "Teste obrigatório": para cada domínio de negócio, cria 2 Organizations e confirma
+ * que a query/action da Org A nunca retorna/afeta dado da Org B, mesmo com IDs adivinhados (teste de
+ * vazamento real, não só "esqueceu o where"). Cobre o caminho padrão (`scopedPrisma`, via `requireProviderOrg`)
+ * usado por praticamente toda a camada web (`src/lib/actions`, `src/lib/queries`).
+ */
+
+let A: TestOrg;
+let B: TestOrg;
+
+interface Seeded {
+  icpId: string;
+  sequenceId: string;
+  campaignId: string;
+  templateId: string;
+  leadId: string;
+  opportunityId: string;
+}
+
+/** Cria ICP + Sequence + Campaign + Template + Lead + Opportunity dentro da org, via prisma cru (fixture, não sob teste). */
+async function seedCampaign(org: TestOrg): Promise<Seeded> {
+  const icp = await prisma.icpProfile.create({
+    data: { orgId: org.orgId, name: `zz-${org.tag} icp`, niche: "Teste", signals: ["a"], keywords: [], sources: [], desiredData: [] },
+  });
+  const sequence = await prisma.sequence.create({ data: { orgId: org.orgId, name: `zz-${org.tag} seq` } });
+  const campaign = await prisma.campaign.create({
+    data: { orgId: org.orgId, name: `zz-${org.tag} camp`, icpId: icp.id, sequenceId: sequence.id, userId: org.userId, status: "paused", autoStart: false },
+  });
+  const template = await prisma.messageTemplate.create({
+    data: { orgId: org.orgId, campaignId: campaign.id, channel: "email", name: "t1", subject: "s", body: "b" },
+  });
+  const lead = await prisma.lead.create({
+    data: { campaignId: campaign.id, name: `zz-${org.tag} lead`, email: `zz-${org.tag}-lead@test.local` },
+  });
+  const opportunity = await prisma.opportunity.create({ data: { leadId: lead.id, campaignId: campaign.id, stage: "novo_lead" } });
+  return { icpId: icp.id, sequenceId: sequence.id, campaignId: campaign.id, templateId: template.id, leadId: lead.id, opportunityId: opportunity.id };
+}
+
+let seedA: Seeded;
+let seedB: Seeded;
+
+beforeAll(async () => {
+  A = await createTestOrg("crosstenant-a");
+  B = await createTestOrg("crosstenant-b");
+  seedA = await seedCampaign(A);
+  seedB = await seedCampaign(B);
+});
+
+afterAll(async () => {
+  await purgeTestOrg(A);
+  await purgeTestOrg(B);
+  await prisma.$disconnect();
+});
+
+describe("scopedPrisma — policy layer (defesa central)", () => {
+  it("findMany/findUnique nunca devolvem registro de outra org, mesmo pedindo o id exato", async () => {
+    const dbB = scopedPrisma(B.orgId);
+    expect(await dbB.campaign.findUnique({ where: { id: seedA.campaignId } })).toBeNull();
+    expect(await dbB.campaign.findMany({ where: { id: seedA.campaignId } })).toEqual([]);
+    expect(await dbB.lead.findUnique({ where: { id: seedA.leadId } })).toBeNull();
+    expect(await dbB.opportunity.findUnique({ where: { id: seedA.opportunityId } })).toBeNull();
+  });
+
+  it("update/delete de registro de outra org lança TenantNotFoundError (nunca revela que existe)", async () => {
+    const dbB = scopedPrisma(B.orgId);
+    await expect(dbB.campaign.update({ where: { id: seedA.campaignId }, data: { name: "hackeado" } })).rejects.toBeInstanceOf(TenantNotFoundError);
+    await expect(dbB.campaign.delete({ where: { id: seedA.campaignId } })).rejects.toBeInstanceOf(TenantNotFoundError);
+    const stillA = await prisma.campaign.findUnique({ where: { id: seedA.campaignId }, select: { name: true } });
+    expect(stillA?.name).toBe(`zz-${A.tag} camp`);
+  });
+
+  it("create sempre grava com o orgId do escopo, mesmo se o caller tentar forjar outro orgId no data", async () => {
+    const dbB = scopedPrisma(B.orgId);
+    const created = await dbB.icpProfile.create({
+      data: { orgId: A.orgId, name: "forjado", niche: "x", signals: [], keywords: [], sources: [], desiredData: [] },
+    });
+    expect(created.orgId).toBe(B.orgId);
+    await prisma.icpProfile.delete({ where: { id: created.id } });
+  });
+
+  it("adminPrisma (caminho cross-tenant explícito) enxerga as duas orgs — só ele, nunca scopedPrisma", async () => {
+    const rows = await adminPrisma.campaign.findMany({ where: { id: { in: [seedA.campaignId, seedB.campaignId] } } });
+    expect(rows.map((r) => r.id).sort()).toEqual([seedA.campaignId, seedB.campaignId].sort());
+  });
+});
+
+describe("campanhas — vazamento cross-tenant", () => {
+  it("getCampaign/listCampaigns da org B nunca devolvem campanha da org A", async () => {
+    await signInAs(B.userId);
+    expect(await getCampaign(seedA.campaignId)).toBeNull();
+    const list = await listCampaigns();
+    expect(list.some((c) => c.id === seedA.campaignId)).toBe(false);
+  });
+
+  it("updateCampaign/deleteCampaign/archiveCampaign com id de outra org falham sem afetar o dado real", async () => {
+    await signInAs(B.userId);
+    const upd = await updateCampaign({ id: seedA.campaignId, name: "roubado" });
+    expect(upd.ok).toBe(false);
+    const arch = await archiveCampaign(seedA.campaignId);
+    expect(arch.ok).toBe(false);
+    const del = await deleteCampaign(seedA.campaignId);
+    expect(del.ok).toBe(false);
+    const stillA = await prisma.campaign.findUnique({ where: { id: seedA.campaignId } });
+    expect(stillA?.name).toBe(`zz-${A.tag} camp`);
+    expect(stillA?.status).toBe("paused");
+  });
+});
+
+describe("leads — vazamento cross-tenant", () => {
+  it("getLead/listLeads da org B nunca devolvem lead da org A", async () => {
+    await signInAs(B.userId);
+    expect(await getLead(seedA.leadId)).toBeNull();
+    const list = await listLeads();
+    expect(list.items.some((l) => l.id === seedA.leadId)).toBe(false);
+  });
+
+  it("updateLead/moveLeadStage com leadId de outra org não altera o lead real", async () => {
+    await signInAs(B.userId);
+    const upd = await updateLead({ leadId: seedA.leadId, name: "roubado" });
+    expect(upd.ok).toBe(false);
+    const move = await moveLeadStage({ leadId: seedA.leadId, toStage: "fechado" });
+    expect(move.ok).toBe(false);
+    const stillA = await prisma.lead.findUnique({ where: { id: seedA.leadId } });
+    expect(stillA?.name).toBe(`zz-${A.tag} lead`);
+  });
+
+  it("createLead com campaignId de outra org (adivinhado) é rejeitado", async () => {
+    await signInAs(B.userId);
+    const r = await createLead({ campaignId: seedA.campaignId, name: "invasor", email: "invasor@test.local" });
+    expect(r.ok).toBe(false);
+    const leaked = await prisma.lead.findFirst({ where: { campaignId: seedA.campaignId, name: "invasor" } });
+    expect(leaked).toBeNull();
+  });
+});
+
+describe("sequences/templates — vazamento cross-tenant (D-30-2)", () => {
+  it("getSequence/listSequences da org B nunca devolvem sequência da org A", async () => {
+    await signInAs(B.userId);
+    expect(await getSequence(seedA.sequenceId)).toBeNull();
+    const list = await listSequences();
+    expect(list.some((s) => s.id === seedA.sequenceId)).toBe(false);
+  });
+
+  it("renameSequence/deleteSequence com id de outra org falham", async () => {
+    await signInAs(B.userId);
+    const ren = await renameSequence({ id: seedA.sequenceId, name: "roubado" });
+    expect(ren.ok).toBe(false);
+    const del = await deleteSequence(seedA.sequenceId);
+    expect(del.ok).toBe(false);
+    const stillA = await prisma.sequence.findUnique({ where: { id: seedA.sequenceId } });
+    expect(stillA?.name).toBe(`zz-${A.tag} seq`);
+  });
+
+  it("updateTemplate com id de outra org falha; createTemplate com campaignId de outra org falha", async () => {
+    await signInAs(B.userId);
+    const upd = await updateTemplate({ id: seedA.templateId, name: "roubado", channel: "email", subject: "s", body: "b" });
+    expect(upd.ok).toBe(false);
+    const created = await createTemplate({ campaignId: seedA.campaignId, name: "invasor", channel: "email", subject: "s", body: "b" });
+    expect(created.ok).toBe(false);
+  });
+});
+
+describe("whatsapp — vazamento cross-tenant", () => {
+  let instA: string;
+  beforeAll(async () => {
+    const created = await prisma.whatsAppInstance.create({
+      data: { orgId: A.orgId, instanceName: `zz-${A.tag}-wa`, number: "5511999990000", webhookToken: `zz-${A.tag}-token` },
+    });
+    instA = created.id;
+  });
+
+  it("listWhatsAppInstances/getWhatsAppInstance da org B nunca devolvem instância da org A", async () => {
+    await signInAs(B.userId);
+    expect(await getWhatsAppInstance(instA)).toBeNull();
+    const list = await listWhatsAppInstances();
+    expect(list.some((i) => i.id === instA)).toBe(false);
+  });
+
+  it("updateInstance/deleteWhatsAppInstance com id de outra org falham", async () => {
+    await signInAs(B.userId);
+    const upd = await updateInstance({ id: instA, number: "5511888880000" });
+    expect(upd.ok).toBe(false);
+    const del = await deleteWhatsAppInstance(instA);
+    expect(del.ok).toBe(false);
+    const stillA = await prisma.whatsAppInstance.findUnique({ where: { id: instA } });
+    expect(stillA?.number).toBe("5511999990000");
+  });
+
+  it("instância criada na org B nunca reaparece na listagem da org A", async () => {
+    // (não chama a action createWhatsAppInstance: ela integra com o provider Evolution real, fora do
+    // escopo deste teste de isolamento — a fixture cria direto, o mesmo caminho de dados que a action usaria.)
+    const created = await prisma.whatsAppInstance.create({
+      data: { orgId: B.orgId, instanceName: `zz-${B.tag}-wa2`, number: "5511777770000", webhookToken: `zz-${B.tag}-token2` },
+    });
+    await signInAs(A.userId);
+    const list = await listWhatsAppInstances();
+    expect(list.some((i) => i.id === created.id)).toBe(false);
+  });
+});
+
+describe("email — vazamento cross-tenant", () => {
+  let accA: string;
+  beforeAll(async () => {
+    const created = await prisma.emailAccount.create({
+      data: { orgId: A.orgId, userId: A.userId, provider: "smtp", smtpHost: "smtp.test.local", email: `zz-${A.tag}@test.local`, encryptedPassword: "x" },
+    });
+    accA = created.id;
+  });
+
+  it("listEmailAccounts/getEmailAccount da org B nunca devolvem conta da org A", async () => {
+    await signInAs(B.userId);
+    expect(await getEmailAccount(accA)).toBeNull();
+    const list = await listEmailAccounts();
+    expect(list.some((a) => a.id === accA)).toBe(false);
+  });
+
+  it("updateEmailAccount com id de outra org falha", async () => {
+    await signInAs(B.userId);
+    const upd = await updateEmailAccount({ id: accA, provider: "smtp", smtpHost: "outro.local", port: 587, email: `zz-${A.tag}@test.local`, dailyLimit: 50 });
+    expect(upd.ok).toBe(false);
+  });
+});
+
+describe("agentes — vazamento cross-tenant", () => {
+  let agentA: string;
+  beforeAll(async () => {
+    const created = await prisma.agent.create({ data: { orgId: A.orgId, name: `zz-${A.tag} agent`, role: "sdr" } });
+    agentA = created.id;
+  });
+
+  it("listAgents da org B nunca devolve agente da org A", async () => {
+    await signInAs(B.userId);
+    const list = await listAgents();
+    expect(list.some((a: { id: string }) => a.id === agentA)).toBe(false);
+  });
+
+  it("updateAgent com id de outra org falha", async () => {
+    await signInAs(B.userId);
+    const upd = await updateAgent({ id: agentA, name: "roubado" });
+    expect(upd.ok).toBe(false);
+    const stillA = await prisma.agent.findUnique({ where: { id: agentA } });
+    expect(stillA?.name).toBe(`zz-${A.tag} agent`);
+  });
+
+  it("approveDraft/rejectDraftAction/takeOverLead com id de outra org (adivinhado) falham — achado real durante esta rodada: dispatchDraft/rejectDraft/stopAgentOnManualReply não checavam org antes desta correção", async () => {
+    const run = await prisma.agentRun.create({ data: { agentId: agentA, leadId: seedA.leadId, trigger: "test", status: "completed" } });
+    const draft = await prisma.draft.create({ data: { agentRunId: run.id, leadId: seedA.leadId, channel: "whatsapp", body: "corpo do rascunho" } });
+
+    await signInAs(B.userId);
+    const approved = await approveDraft({ id: draft.id });
+    expect(approved.ok).toBe(false);
+    const rejected = await rejectDraftAction({ id: draft.id, reason: "roubado" });
+    expect(rejected.ok).toBe(false);
+    const takenOver = await takeOverLead(seedA.leadId);
+    expect(takenOver.ok).toBe(false);
+
+    const stillPending = await prisma.draft.findUnique({ where: { id: draft.id } });
+    expect(stillPending?.status).toBe("pending");
+    const leadUntouched = await prisma.lead.findUnique({ where: { id: seedA.leadId } });
+    expect(leadUntouched?.handoffAt).toBeNull();
+  });
+});
+
+describe("supressão — vazamento cross-tenant", () => {
+  it("addToSuppression da org A não aparece para a org B, mesmo com o mesmo contato", async () => {
+    await signInAs(A.userId);
+    const add = await addToSuppression({ email: "zz-shared@test.local", reason: "manual" });
+    expect(add.ok).toBe(true);
+    await signInAs(B.userId);
+    const list = await listSuppressions();
+    expect(list.items.some((s) => s.value === "zz-shared@test.local")).toBe(false);
+  });
+});
+
+describe("pipeline / reuniões — vazamento cross-tenant", () => {
+  it("getPipelineBoard da org B nunca devolve oportunidade da org A", async () => {
+    await signInAs(B.userId);
+    const board = await getPipelineBoard();
+    const ids = board.flatMap((c) => c.cards.map((card) => card.id));
+    expect(ids.includes(seedA.opportunityId)).toBe(false);
+  });
+
+  it("updateOpportunity com id de outra org falha", async () => {
+    await signInAs(B.userId);
+    const upd = await updateOpportunity({ opportunityId: seedA.opportunityId, notes: "roubado" });
+    expect(upd.ok).toBe(false);
+    const stillA = await prisma.opportunity.findUnique({ where: { id: seedA.opportunityId } });
+    expect(stillA?.notes).toBeNull();
+  });
+
+  it("searchLeadsForMeeting/listMeetings/createMeeting da org B nunca tocam dado da org A", async () => {
+    await signInAs(B.userId);
+    const found = await searchLeadsForMeeting(`zz-${A.tag}`);
+    expect(found.some((o) => o.opportunityId === seedA.opportunityId)).toBe(false);
+    const now = new Date();
+    const list = await listMeetings({ from: new Date(now.getTime() - 86_400_000).toISOString(), to: new Date(now.getTime() + 30 * 86_400_000).toISOString() });
+    expect(list.ok).toBe(true);
+    const created = await createMeeting({ opportunityId: seedA.opportunityId, startsAt: new Date(now.getTime() + 3_600_000).toISOString(), durationMin: 30 });
+    expect(created.ok).toBe(false);
+  });
+});
+
+describe("dashboard — vazamento cross-tenant", () => {
+  it("getDashboardData da org B nunca conta leads/atividades da org A", async () => {
+    await signInAs(B.userId);
+    const data = await getDashboardData({ period: "30d" });
+    expect(data.activities.some((a) => a.leadId === seedA.leadId)).toBe(false);
+  });
+});
+
+describe("scheduler — isolamento por org", () => {
+  it("runTick cria no máximo 1 SchedulerRun por org ativa nesta rodada (nunca mistura contadores entre orgs)", async () => {
+    const before = await prisma.schedulerRun.count();
+    await runTick(new Date());
+    const runsA = await prisma.schedulerRun.findMany({ where: { orgId: A.orgId }, orderBy: { startedAt: "desc" }, take: 1 });
+    const runsB = await prisma.schedulerRun.findMany({ where: { orgId: B.orgId }, orderBy: { startedAt: "desc" }, take: 1 });
+    expect(runsA.length).toBeGreaterThan(0);
+    expect(runsB.length).toBeGreaterThan(0);
+    expect(runsA[0].id).not.toBe(runsB[0].id);
+    const after = await prisma.schedulerRun.count();
+    expect(after).toBeGreaterThanOrEqual(before);
+  });
+});

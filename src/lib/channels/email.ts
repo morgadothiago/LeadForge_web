@@ -138,7 +138,7 @@ export async function sendEmail(touchId: string, opts: SendEmailOptions = {}): P
 async function doSend(touchId: string, now: Date, opts: SendEmailOptions): Promise<SendEmailResult> {
   const touch = await prisma.touch.findUnique({
     where: { id: touchId },
-    include: { lead: { include: { campaign: { select: { userId: true } } } }, step: { include: { template: true } } },
+    include: { lead: { include: { campaign: { select: { userId: true, orgId: true } } } }, step: { include: { template: true } } },
   });
   if (!touch) throw new AppError({ code: "not_found", userMessage: "Envio não encontrado." });
   if (touch.channel !== "email") return fail(touchId, new AppError({ code: "validation", userMessage: "Este envio não é do canal e-mail." }));
@@ -153,7 +153,7 @@ async function doSend(touchId: string, now: Date, opts: SendEmailOptions): Promi
   const closerBypass = await isCloserTouch(touch);
   if (repliedOrEnded(lead, touch.createdAt, closerBypass)) return skip("replied");
   // SPEC-017: supressão global (e-mail ou telefone) antes de reservar conta/transport.
-  if (await findSuppression({ email: lead.email, phone: lead.phone })) return skip("suppressed");
+  if (await findSuppression({ email: lead.email, phone: lead.phone }, lead.campaign.orgId)) return skip("suppressed");
 
   if (!lead.email) return fail(touchId, new AppError({ code: "validation", userMessage: "O lead não possui e-mail." }));
   const template = touch.step?.template;

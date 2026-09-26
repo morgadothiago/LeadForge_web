@@ -15,7 +15,7 @@ export async function simulateAgent(input: { agentId: string; leadId?: string; i
   const agent = await prisma.agent.findUnique({ where: { id: input.agentId }, include: { knowledge: true } });
   if (!agent) throw new AppError({ code: "not_found", userMessage: "Agente não encontrado." });
   // Mesmas travas do fluxo real: kill switch global e orcamento (agente e global) valem tambem para o dry-run (gasta tokens de verdade).
-  const settings = await prisma.agentSettings.findUnique({ where: { id: "global" } });
+  const settings = await prisma.agentSettings.findUnique({ where: { orgId: agent.orgId } });
   if (settings?.killSwitch !== false) throw new AppError({ code: "conflict", userMessage: "O kill switch global está ligado. Desligue-o para simular." });
   const now = new Date();
   if (agent.monthlyBudgetCents === null) throw new AppError({ code: "conflict", userMessage: "Defina o teto de gasto mensal do agente para simular." });
@@ -24,9 +24,9 @@ export async function simulateAgent(input: { agentId: string; leadId?: string; i
     throw new AppError({ code: "conflict", userMessage: "O orçamento mensal foi atingido. A simulação está bloqueada." });
   }
   const lead = input.leadId ? await prisma.lead.findUnique({ where: { id: input.leadId }, include: { campaign: { include: { icp: true } } } }) : null;
-  const globals = await prisma.knowledgeDocument.findMany({ where: { agentId: null } });
+  const globals = await prisma.knowledgeDocument.findMany({ where: { agentId: null, orgId: agent.orgId } });
   const knowledge = packKnowledge([...agent.knowledge, ...globals].map((k) => ({ id: k.id, title: k.title, content: k.content })));
-  const p = provider ?? (await getLlmProvider());
+  const p = provider ?? (await getLlmProvider(agent.orgId));
   const res = await p.generate({
     model: agent.model,
     system: buildSystemPrompt(agent),

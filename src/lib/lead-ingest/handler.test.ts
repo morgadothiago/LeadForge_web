@@ -1,7 +1,7 @@
 import "dotenv/config";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { prisma } from "@/lib/prisma";
-import { seed } from "../../../prisma/seed";
+import { seed, SEED_IDS } from "../../../prisma/seed";
 import { purgeTestCampaigns } from "@/lib/test-utils/purge";
 import * as route from "@/app/api/integrations/leads/route";
 import { _resetIngestRateLimit, _setIngestClock, AUDIT_SOURCE, IDEMPOTENCY_PROCESSING_TTL_MS, readBodyLimited } from "./handler";
@@ -41,9 +41,9 @@ beforeAll(async () => {
   await cleanup();
   const userId = (await prisma.user.findFirstOrThrow({ where: { email: "admin@leadforge.local" } })).id;
   const icpId = (await prisma.icpProfile.findFirstOrThrow()).id;
-  const seq = await prisma.sequence.create({ data: { name: `${TAG}-seq` } });
+  const seq = await prisma.sequence.create({ data: { name: `${TAG}-seq`, orgId: SEED_IDS.org } });
   seqId = seq.id;
-  const tpl = await prisma.campaign.create({ data: { name: `${TAG}-c`, userId, icpId, sequenceId: seq.id } });
+  const tpl = await prisma.campaign.create({ data: { name: `${TAG}-c`, userId, icpId, orgId: SEED_IDS.org, sequenceId: seq.id } });
   campaignId = tpl.id;
 }, 30000);
 afterAll(async () => {
@@ -170,7 +170,7 @@ describe("criação em lote", () => {
     const dupEmail = `dup@${TAG}.com`;
     await post({ campaignId, leads: [{ name: "Existente", email: dupEmail }] });
     const supEmail = `sup@${TAG}.com`;
-    await prisma.suppression.create({ data: { kind: "email", value: supEmail, reason: "manual" } });
+    await prisma.suppression.create({ data: { orgId: SEED_IDS.org, kind: "email", value: supEmail, reason: "manual" } });
     const r = await post({
       campaignId,
       leads: [
@@ -218,7 +218,7 @@ describe("criação em lote", () => {
   it("o mesmo contato pode existir em outra campanha", async () => {
     const userId = (await prisma.user.findFirstOrThrow({ where: { email: "admin@leadforge.local" } })).id;
     const icpId = (await prisma.icpProfile.findFirstOrThrow()).id;
-    const c2 = await prisma.campaign.create({ data: { name: `${TAG}-c2`, userId, icpId } });
+    const c2 = await prisma.campaign.create({ data: { name: `${TAG}-c2`, userId, icpId, orgId: SEED_IDS.org } });
     const email = `multi@${TAG}.com`;
     expect((await (await post({ campaignId, leads: [{ name: "M", email }] })).json()).created).toBe(1);
     expect((await (await post({ campaignId: c2.id, leads: [{ name: "M", email }] })).json()).created).toBe(1);
@@ -342,7 +342,7 @@ describe("SPEC-014 QA: idempotência, arquivada, caracteres, auditoria", () => {
   it("F3: arquivada => 409 PT-BR sem criar (chave liberada); pausada aceita sem envio", async () => {
     const userId = (await prisma.user.findFirstOrThrow({ where: { email: "admin@leadforge.local" } })).id;
     const icpId = (await prisma.icpProfile.findFirstOrThrow()).id;
-    const c = await prisma.campaign.create({ data: { name: `${TAG}-arq`, userId, icpId, sequenceId: seqId, status: "archived" } });
+    const c = await prisma.campaign.create({ data: { name: `${TAG}-arq`, userId, icpId, orgId: SEED_IDS.org, sequenceId: seqId, status: "archived" } });
     const key = `${TAG}-f3`;
     const r = await post({ campaignId: c.id, leads: [lead()] }, { key });
     expect(r.status).toBe(409);

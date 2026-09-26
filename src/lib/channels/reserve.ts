@@ -26,8 +26,8 @@ export function reservableWhere(touchId: string, staleMs: number, autoRetryFaile
 
 /** SPEC-017: supressão consultada ANTES de reservar. Se suprimido, marca skipped direto (Touch nunca passa por `sending`). */
 export async function skipSuppressedBeforeReserve(touchId: string, where: Prisma.TouchWhereInput): Promise<boolean> {
-  const t = await prisma.touch.findUnique({ where: { id: touchId }, select: { lead: { select: { email: true, phone: true } } } });
-  if (!t || !(await findSuppression(t.lead))) return false;
+  const t = await prisma.touch.findUnique({ where: { id: touchId }, select: { lead: { select: { email: true, phone: true, campaign: { select: { orgId: true } } } } } });
+  if (!t || !(await findSuppression(t.lead, t.lead.campaign.orgId))) return false;
   const r = await prisma.touch.updateMany({ where, data: { status: "skipped", error: SUPPRESSED_MESSAGE } });
   return r.count > 0;
 }

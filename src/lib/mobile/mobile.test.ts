@@ -232,7 +232,7 @@ describe("AC7 varredura + AC8 contrato OpenAPI", () => {
       expect(conforms(doc.content!["application/json"].schema, body), `${method} ${path}`).toEqual([]);
     }
   });
-  it("OpenAPI lista apenas rotas mobile (sem actions/endpoints web) e nada de campos internos", () => {
+  it("OpenAPI: contrato mobile + (SPEC-028) rotas de sessao/webhook declaradas por path e nada de campos internos", () => {
     const s = JSON.stringify(spec);
     for (const k of ["passwordHash", "refreshHash", "apiKey", "webhookToken", "/api/actions"]) expect(s).not.toContain(k);
     expect(Object.keys(spec.paths!).length).toBeGreaterThanOrEqual(15);

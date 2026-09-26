@@ -3,7 +3,8 @@
 import { revalidatePath } from "next/cache";
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { requireUser } from "@/lib/auth/require-user";
+import { requireProviderOrg } from "@/lib/auth/require-admin";
+import { scopedPrisma } from "@/lib/tenant/scoped-prisma";
 import { idSchema } from "@/lib/schemas/campaign";
 import {
   reorderSchema,
@@ -21,16 +22,18 @@ function revalidate(id?: string): void {
 }
 
 /**
- * Regras: template existe, canal do step == canal do template, e todos os templates da
+ * Regras: template existe (e é DESTA org), canal do step == canal do template, e todos os templates da
  * sequência pertencem à MESMA campanha (Sequence não tem campaignId; ver SPEC, seção Backend).
  */
-async function validateSteps(steps: StepInput[]): Promise<FieldErrors | null> {
+async function validateSteps(orgId: string, steps: StepInput[]): Promise<FieldErrors | null> {
   const ids = [...new Set(steps.map((s) => s.templateId))];
-  const templates = await prisma.messageTemplate.findMany({
+  const templates = await scopedPrisma(orgId).messageTemplate.findMany({
     where: { id: { in: ids } },
     select: { id: true, channel: true, campaignId: true },
   });
-  const byId = new Map(templates.map((t) => [t.id, t]));
+  const byId = new Map<string, { id: string; channel: string; campaignId: string }>(
+    templates.map((t: { id: string; channel: string; campaignId: string }) => [t.id, t]),
+  );
   const errors: FieldErrors = {};
   const add = (k: string, m: string) => (errors[k] ??= []).push(m);
   steps.forEach((s, i) => {
@@ -38,14 +41,14 @@ async function validateSteps(steps: StepInput[]): Promise<FieldErrors | null> {
     if (!t) return add(`steps.${i}.templateId`, "Template não encontrado.");
     if (t.channel !== s.channel) add(`steps.${i}.templateId`, "O canal do passo é diferente do canal do template.");
   });
-  if (new Set(templates.map((t) => t.campaignId)).size > 1) {
+  if (new Set(templates.map((t: { campaignId: string }) => t.campaignId)).size > 1) {
     add("steps", "Todos os templates da sequência devem pertencer à mesma campanha.");
   }
   return Object.keys(errors).length ? errors : null;
 }
 
-async function activeCampaignCount(sequenceId: string): Promise<number> {
-  return prisma.campaign.count({ where: { sequenceId, status: "active" } });
+async function activeCampaignCount(orgId: string, sequenceId: string): Promise<number> {
+  return scopedPrisma(orgId).campaign.count({ where: { sequenceId, status: "active" } });
 }
 
 export interface SequenceSaved {
@@ -56,12 +59,12 @@ export interface SequenceSaved {
 
 export async function createSequence(input: unknown): Promise<ActionResult<SequenceSaved>> {
   return safeAction(async () => {
-  await requireUser();
+  const { orgId } = await requireProviderOrg();
   const parsed = sequenceCreateSchema.safeParse(input);
   if (!parsed.success) return failure(zodErrors(parsed.error));
-  const errs = await validateSteps(parsed.data.steps);
+  const errs = await validateSteps(orgId, parsed.data.steps);
   if (errs) return failure(errs);
-  const seq = await prisma.sequence.create({
+  const seq = await scopedPrisma(orgId).sequence.create({
     data: {
       name: parsed.data.name,
       steps: { create: parsed.data.steps.map((s, order) => ({ ...s, order })) },
@@ -75,13 +78,14 @@ export async function createSequence(input: unknown): Promise<ActionResult<Seque
 
 export async function renameSequence(input: unknown): Promise<ActionResult<SequenceSaved>> {
   return safeAction(async () => {
-  await requireUser();
+  const { orgId } = await requireProviderOrg();
+  const db = scopedPrisma(orgId);
   const parsed = sequenceRenameSchema.safeParse(input);
   if (!parsed.success) return failure(zodErrors(parsed.error));
-  if (!(await prisma.sequence.count({ where: { id: parsed.data.id } }))) return formError("Sequência não encontrada.");
-  await prisma.sequence.update({ where: { id: parsed.data.id }, data: { name: parsed.data.name } });
+  if (!(await db.sequence.count({ where: { id: parsed.data.id } }))) return formError("Sequência não encontrada.");
+  await db.sequence.update({ where: { id: parsed.data.id }, data: { name: parsed.data.name } });
   revalidate(parsed.data.id);
-  return success({ id: parsed.data.id, activeCampaigns: await activeCampaignCount(parsed.data.id) });
+  return success({ id: parsed.data.id, activeCampaigns: await activeCampaignCount(orgId, parsed.data.id) });
   });
 }
 
@@ -97,22 +101,24 @@ async function applyOrders(tx: Prisma.TransactionClient, ids: string[]): Promise
  */
 export async function saveSequenceSteps(input: unknown): Promise<ActionResult<SequenceSaved>> {
   return safeAction(async () => {
-  await requireUser();
+  const { orgId } = await requireProviderOrg();
+  const db = scopedPrisma(orgId);
   const parsed = sequenceStepsSchema.safeParse(input);
   if (!parsed.success) return failure(zodErrors(parsed.error));
   const { sequenceId, steps } = parsed.data;
-  const existing = await prisma.sequenceStep.findMany({ where: { sequenceId }, select: { id: true } });
-  if (!existing.length && !(await prisma.sequence.count({ where: { id: sequenceId } }))) {
+  const existing = await db.sequenceStep.findMany({ where: { sequenceId }, select: { id: true } });
+  if (!existing.length && !(await db.sequence.count({ where: { id: sequenceId } }))) {
     return formError("Sequência não encontrada.");
   }
-  const own = new Set(existing.map((e) => e.id));
+  const own = new Set(existing.map((e: { id: string }) => e.id));
   const keptIds = steps.flatMap((s) => (s.id ? [s.id] : []));
   if (keptIds.some((id) => !own.has(id)) || new Set(keptIds).size !== keptIds.length) {
     return failure({ steps: ["Passo inválido para esta sequência."] });
   }
-  const errs = await validateSteps(steps);
+  const errs = await validateSteps(orgId, steps);
   if (errs) return failure(errs);
 
+  // Sequence/SequenceStep já foram validados como desta org acima; a transação em si roda no client cru (fora do scopedPrisma).
   await prisma.$transaction(async (tx) => {
     await tx.sequenceStep.deleteMany({ where: { sequenceId, id: { notIn: keptIds } } });
     await applyOrders(tx, keptIds);
@@ -138,19 +144,20 @@ export async function saveSequenceSteps(input: unknown): Promise<ActionResult<Se
     await applyOrders(tx, all.map((a) => a.id));
   });
   revalidate(sequenceId);
-  return success({ id: sequenceId, activeCampaigns: await activeCampaignCount(sequenceId) });
+  return success({ id: sequenceId, activeCampaigns: await activeCampaignCount(orgId, sequenceId) });
   });
 }
 
 /** Reordena passos existentes (permutação completa). Dias resultantes precisam continuar não decrescentes. */
 export async function reorderSteps(input: unknown): Promise<ActionResult<SequenceSaved>> {
   return safeAction(async () => {
-  await requireUser();
+  const { orgId } = await requireProviderOrg();
+  const db = scopedPrisma(orgId);
   const parsed = reorderSchema.safeParse(input);
   if (!parsed.success) return failure(zodErrors(parsed.error));
   const { sequenceId, stepIds } = parsed.data;
-  const steps = await prisma.sequenceStep.findMany({ where: { sequenceId }, select: { id: true, day: true } });
-  const byId = new Map(steps.map((s) => [s.id, s]));
+  const steps = await db.sequenceStep.findMany({ where: { sequenceId }, select: { id: true, day: true } });
+  const byId = new Map(steps.map((s: { id: string; day: number }) => [s.id, s]));
   if (steps.length !== stepIds.length || new Set(stepIds).size !== stepIds.length || stepIds.some((id) => !byId.has(id))) {
     return formError("A lista de passos deve conter exatamente os passos da sequência.");
   }
@@ -161,22 +168,23 @@ export async function reorderSteps(input: unknown): Promise<ActionResult<Sequenc
   }
   await prisma.$transaction((tx) => applyOrders(tx, stepIds));
   revalidate(sequenceId);
-  return success({ id: sequenceId, activeCampaigns: await activeCampaignCount(sequenceId) });
+  return success({ id: sequenceId, activeCampaigns: await activeCampaignCount(orgId, sequenceId) });
   });
 }
 
 /** Nova sequência independente (ids novos); templates são compartilhados (mesma campanha). */
 export async function duplicateSequence(id: unknown): Promise<ActionResult<{ id: string }>> {
   return safeAction(async () => {
-  await requireUser();
+  const { orgId } = await requireProviderOrg();
+  const db = scopedPrisma(orgId);
   const parsed = idSchema.safeParse(id);
   if (!parsed.success) return formError("ID inválido.");
-  const src = await prisma.sequence.findUnique({
+  const src = await db.sequence.findUnique({
     where: { id: parsed.data },
     select: { name: true, steps: { orderBy: { order: "asc" }, select: { day: true, channel: true, templateId: true, order: true } } },
   });
   if (!src) return formError("Sequência não encontrada.");
-  const copy = await prisma.sequence.create({
+  const copy = await db.sequence.create({
     data: { name: `${src.name} (cópia)`.slice(0, 120), steps: { create: src.steps } },
     select: { id: true },
   });
@@ -188,10 +196,11 @@ export async function duplicateSequence(id: unknown): Promise<ActionResult<{ id:
 /** Bloqueia exclusão se campanha ativa usa a sequência; demais campanhas ficam sem sequência (SetNull). */
 export async function deleteSequence(id: unknown): Promise<ActionResult<{ id: string }>> {
   return safeAction(async () => {
-  await requireUser();
+  const { orgId } = await requireProviderOrg();
   const parsed = idSchema.safeParse(id);
   if (!parsed.success) return formError("ID inválido.");
   const sid = parsed.data;
+  if (!(await scopedPrisma(orgId).sequence.findUnique({ where: { id: sid }, select: { id: true } }))) return formError("Sequência não encontrada.");
   // checagem + escrita na mesma transação; P2025 (já removida) é tratado por safeAction
   const active = await prisma.$transaction(async (tx) => {
     const n = await tx.campaign.count({ where: { sequenceId: sid, status: "active" } });

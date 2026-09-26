@@ -1,21 +1,20 @@
-import { prisma } from "@/lib/prisma";
-import { requireUser } from "@/lib/auth/require-user";
-import { requireAdmin } from "@/lib/auth/require-admin";
+import { requireProviderOrg } from "@/lib/auth/require-admin";
+import { scopedPrisma } from "@/lib/tenant/scoped-prisma";
 
 /** Leituras para a UI de agentes/aprovações (o frontend consome; sem segredos, sem telefone/e-mail). */
 export async function listAgents() {
-  await requireAdmin();
-  return prisma.agent.findMany({ orderBy: [{ role: "asc" }, { createdAt: "asc" }], include: { knowledge: { select: { id: true, title: true, version: true } } } });
+  const { orgId } = await requireProviderOrg();
+  return scopedPrisma(orgId).agent.findMany({ orderBy: [{ role: "asc" }, { createdAt: "asc" }], include: { knowledge: { select: { id: true, title: true, version: true } } } });
 }
 
 export async function getAgentSettings() {
-  await requireAdmin();
-  return (await prisma.agentSettings.findUnique({ where: { id: "global" } })) ?? { id: "global", killSwitch: true, monthlyBudgetCents: null };
+  const { orgId } = await requireProviderOrg();
+  return (await scopedPrisma(orgId).agentSettings.findUnique({ where: { orgId } })) ?? { id: null, orgId, killSwitch: true, monthlyBudgetCents: null };
 }
 
 export async function listDrafts(status: "pending" | "all" = "pending", take = 100) {
-  await requireUser();
-  return prisma.draft.findMany({
+  const { orgId } = await requireProviderOrg();
+  return scopedPrisma(orgId).draft.findMany({
     where: status === "pending" ? { status: "pending" } : {},
     orderBy: { createdAt: "asc" },
     take,
@@ -24,14 +23,14 @@ export async function listDrafts(status: "pending" | "all" = "pending", take = 1
 }
 
 export async function listAgentRuns(agentId?: string, take = 100) {
-  await requireAdmin();
-  return prisma.agentRun.findMany({
+  const { orgId } = await requireProviderOrg();
+  return scopedPrisma(orgId).agentRun.findMany({
     where: agentId ? { agentId } : {}, orderBy: { createdAt: "desc" }, take,
     select: { id: true, agentId: true, leadId: true, trigger: true, status: true, model: true, tokensIn: true, tokensOut: true, costMicros: true, latencyMs: true, guardrailsViolated: true, error: true, createdAt: true },
   });
 }
 
 export async function listNeedsHuman(take = 100) {
-  await requireUser();
-  return prisma.lead.findMany({ where: { needsHuman: true }, orderBy: { handoffAt: "desc" }, take, select: { id: true, name: true, company: true, handoffAt: true, handoffReason: true } });
+  const { orgId } = await requireProviderOrg();
+  return scopedPrisma(orgId).lead.findMany({ where: { needsHuman: true }, orderBy: { handoffAt: "desc" }, take, select: { id: true, name: true, company: true, handoffAt: true, handoffReason: true } });
 }

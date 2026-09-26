@@ -12,8 +12,8 @@ export default async function Page() {
         <p className="text-sm text-muted-foreground">Revise o que os agentes propuseram. Aprovar não garante o envio: a política de envio ainda decide.</p>
       </div>
       <DraftQueue
-        drafts={drafts.map((d) => ({ id: d.id, body: d.editedBody ?? d.body, channel: d.channel, leadName: d.lead.name, company: d.lead.company, agentName: d.agentRun.agent.name, role: d.agentRun.agent.role, createdAt: d.createdAt.toISOString() }))}
-        needsHuman={needs.map((l) => ({ id: l.id, name: l.name, company: l.company, reason: l.handoffReason }))}
+        drafts={drafts.map((d: (typeof drafts)[number]) => ({ id: d.id, body: d.editedBody ?? d.body, channel: d.channel, leadName: d.lead.name, company: d.lead.company, agentName: d.agentRun.agent.name, role: d.agentRun.agent.role, createdAt: d.createdAt.toISOString() }))}
+        needsHuman={needs.map((l: (typeof needs)[number]) => ({ id: l.id, name: l.name, company: l.company, reason: l.handoffReason }))}
       />
     </div>
   );

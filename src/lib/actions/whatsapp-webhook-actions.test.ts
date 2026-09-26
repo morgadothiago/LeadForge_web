@@ -30,9 +30,9 @@ beforeAll(async () => {
   await signInAsSeedAdmin();
   const user = await prisma.user.findFirstOrThrow({ where: { email: "admin@leadforge.local" } });
   const icp = await prisma.icpProfile.findFirstOrThrow();
-  const seq = await prisma.sequence.create({ data: { name: TAG } });
-  instId = (await prisma.whatsAppInstance.create({ data: { instanceName: TAG, number: "+5511999990002", webhookToken: OLD } })).id;
-  campId = (await prisma.campaign.create({ data: { name: TAG, userId: user.id, icpId: icp.id, sequenceId: seq.id, whatsappInstanceId: instId } })).id;
+  const seq = await prisma.sequence.create({ data: { name: TAG, orgId: icp.orgId } });
+  instId = (await prisma.whatsAppInstance.create({ data: { orgId: icp.orgId, instanceName: TAG, number: "+5511999990002", webhookToken: OLD } })).id;
+  campId = (await prisma.campaign.create({ data: { name: TAG, userId: user.id, icpId: icp.id, orgId: icp.orgId, sequenceId: seq.id, whatsappInstanceId: instId } })).id;
 }, 30000);
 afterAll(async () => {
   await purgeTestCampaigns(TAG).catch(() => {});

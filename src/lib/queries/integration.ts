@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/prisma";
-import { requireUser } from "@/lib/auth/require-user";
-import { requireAdmin } from "@/lib/auth/require-admin";
+import { requireProviderOrg } from "@/lib/auth/require-admin";
+import { scopedPrisma } from "@/lib/tenant/scoped-prisma";
 import { auditQuerySchema } from "@/lib/schemas/integration";
 import { INTEGRATIONS, type IntegrationKindName } from "@/lib/integrations/types";
 import { SELECT_ITEM, summarize, toItemView, type IntegrationSummary } from "@/lib/integrations/view";
@@ -10,12 +10,11 @@ export const AUDIT_PAGE_SIZE = 20;
 
 /** Uma entrada por integração (sempre as 4). Sem valor cifrado/decifrado; origem env não revela nada do valor. */
 export async function listIntegrations(): Promise<IntegrationSummary[]> {
-  await requireUser();
-  await requireAdmin();
-  const rows = await prisma.integrationSecret.findMany({ orderBy: [{ integration: "asc" }, { name: "asc" }], select: SELECT_ITEM });
+  const { orgId } = await requireProviderOrg();
+  const rows = await scopedPrisma(orgId).integrationSecret.findMany({ orderBy: [{ integration: "asc" }, { name: "asc" }], select: SELECT_ITEM });
   const envEvolution = !!process.env.EVOLUTION_API_URL?.trim() && !!process.env.EVOLUTION_API_KEY?.trim();
   return INTEGRATIONS.map((i) =>
-    summarize(i, rows.filter((r) => r.integration === i).map(toItemView), i === "evolution" && envEvolution),
+    summarize(i, rows.filter((r: { integration: IntegrationKindName }) => r.integration === i).map(toItemView), i === "evolution" && envEvolution),
   );
 }
 
@@ -38,18 +37,19 @@ export interface IntegrationAuditPage {
 }
 
 export async function listIntegrationAudit(input: unknown = {}): Promise<IntegrationAuditPage> {
-  await requireUser();
-  await requireAdmin();
+  const { orgId } = await requireProviderOrg();
+  const db = scopedPrisma(orgId);
   const { integration, page } = auditQuerySchema.parse(input ?? {});
   const where = integration ? { integration } : {};
   const [total, rows] = await Promise.all([
-    prisma.integrationAuditLog.count({ where }),
-    prisma.integrationAuditLog.findMany({ where, orderBy: [{ at: "desc" }, { id: "desc" }], skip: (page - 1) * AUDIT_PAGE_SIZE, take: AUDIT_PAGE_SIZE }),
+    db.integrationAuditLog.count({ where }),
+    db.integrationAuditLog.findMany({ where, orderBy: [{ at: "desc" }, { id: "desc" }], skip: (page - 1) * AUDIT_PAGE_SIZE, take: AUDIT_PAGE_SIZE }),
   ]);
-  const users = await prisma.user.findMany({ where: { id: { in: [...new Set(rows.map((r) => r.userId))] } }, select: { id: true, name: true } });
+  // User não é tenant-scoped (é a própria infra de conta) — busca direta por id é segura aqui (só nomes, sem PII sensível, e os ids já vieram filtrados por orgId acima).
+  const users = await prisma.user.findMany({ where: { id: { in: [...new Set<string>(rows.map((r: { userId: string }) => r.userId))] } }, select: { id: true, name: true } });
   const names = new Map(users.map((u) => [u.id, u.name]));
   return {
-    items: rows.map((r) => ({
+    items: rows.map((r: IntegrationAuditEntry) => ({
       id: r.id, userId: r.userId, userName: names.get(r.userId) ?? null, integration: r.integration, action: r.action,
       hostMasked: r.hostMasked, allowPrivateHost: r.allowPrivateHost, at: r.at,
     })),

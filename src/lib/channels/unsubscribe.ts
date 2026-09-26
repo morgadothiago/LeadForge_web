@@ -46,13 +46,13 @@ export function buildUnsubscribeUrl(leadId: string, now = new Date()): string {
 
 /** Idempotente: marca opt-out e encerra touches pendentes/agendados como skipped. Devolve false se o lead não existe. */
 export async function unsubscribeLead(leadId: string, now = new Date()): Promise<boolean> {
-  const lead = await prisma.lead.findUnique({ where: { id: leadId }, select: { id: true, optedOutAt: true, email: true, phone: true } });
+  const lead = await prisma.lead.findUnique({ where: { id: leadId }, select: { id: true, optedOutAt: true, email: true, phone: true, campaign: { select: { orgId: true } } } });
   if (!lead) return false;
-  // Lead + touches + supressão global (e-mail + telefone, SPEC-017) na MESMA transação: nunca opt-out sem supressão.
+  // Lead + touches + supressão (por-org, SPEC-017/030) na MESMA transação: nunca opt-out sem supressão.
   await prisma.$transaction(async (tx) => {
     await tx.lead.update({ where: { id: leadId }, data: { optedOutAt: lead.optedOutAt ?? now, sequenceStatus: "opted_out", nextTouchAt: null } });
     await tx.touch.updateMany({ where: { leadId, direction: "outbound", status: { in: ["pending", "scheduled"] } }, data: { status: "skipped" } });
-    await addSuppression(tx, { email: lead.email, phone: lead.phone, reason: "opt_out_link", leadId });
+    await addSuppression(tx, lead.campaign.orgId, { email: lead.email, phone: lead.phone, reason: "opt_out_link", leadId });
   });
   return true;
 }

@@ -198,7 +198,9 @@ describe("estático: envio só via sendEmail/sendWhatsApp", () => {
     }
     expect(readFileSync(path.join(dir, "drafts.ts"), "utf8")).toMatch(/sendWhatsApp\(/);
   });
-  it("actions de agentes exigem requireUser antes de acessar dados; config exige requireAdmin", () => {
+  // SPEC-030: requireAdmin() foi removido — todo recurso de agente é por-org (requireProviderOrg(), que já
+  // exige sessão E org/papel de provider numa única chamada; ver src/lib/auth/require-admin.ts).
+  it("actions de agentes exigem requireUser antes de acessar dados; config exige requireProviderOrg", () => {
     const src = readFileSync(path.resolve(process.cwd(), "src/lib/actions/agent.ts"), "utf8");
     const re = /export async function (\w+)[^{]*\{/g;
     const starts: { name: string; at: number }[] = [];
@@ -206,24 +208,24 @@ describe("estático: envio só via sendEmail/sendWhatsApp", () => {
     expect(starts.length).toBeGreaterThan(8);
     starts.forEach((s, i) => {
       const body = src.slice(s.at, starts[i + 1]?.at ?? src.length);
-      expect(body, `${s.name} requireUser`).toMatch(/await requireUser\(\)/);
-      expect(body.indexOf("await requireUser()"), s.name).toBeLessThan(body.search(/prisma\.|\b(listAgentRuns|dispatchDraft|rejectDraft|simulateAgent|stopAgentOnManualReply|monthlySpend)\(/));
+      expect(body, `${s.name} requireUser`).toMatch(/await requireUser\(\)|await requireProviderOrg\(\)/);
+      const iGuard = Math.max(body.indexOf("await requireUser()"), body.indexOf("await requireProviderOrg()"));
+      expect(iGuard, s.name).toBeLessThan(body.search(/\bprisma\.|scopedPrisma\(|\b(listAgentRuns|dispatchDraft|rejectDraft|simulateAgent|stopAgentOnManualReply|monthlySpend)\(/));
     });
     for (const n of ["createAgent", "updateAgent", "setAgentActive", "setAgentAutonomy", "updateAgentSettings", "saveKnowledge", "deleteKnowledge", "simulateAgentAction", "getAgentRuns"]) {
       const s = starts.find((x) => x.name === n)!;
       const body = src.slice(s.at, starts[starts.indexOf(s) + 1]?.at ?? src.length);
-      expect(body, n).toMatch(/await requireAdmin\(\)/);
+      expect(body, n).toMatch(/await requireProviderOrg\(\)/);
     }
   });
-  it("queries de agentes exigem requireUser", () => {
+  it("queries de agentes exigem requireProviderOrg", () => {
     const src = readFileSync(path.resolve(process.cwd(), "src/lib/queries/agent.ts"), "utf8");
     const n = (src.match(/export async function/g) ?? []).length;
-    const admin = ["listAgents", "getAgentSettings", "listAgentRuns"];
     const parts = src.split(/export async function /).slice(1);
     expect(parts.length).toBe(n);
     for (const p of parts) {
       const name = p.slice(0, p.indexOf("("));
-      expect(p, name).toMatch(admin.includes(name) ? /await requireAdmin\(\)/ : /await requireUser\(\)/);
+      expect(p, name).toMatch(/await requireProviderOrg\(\)/);
     }
   });
 });

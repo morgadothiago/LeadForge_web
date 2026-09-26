@@ -1,5 +1,5 @@
-import { prisma } from "@/lib/prisma";
-import { requireUser } from "@/lib/auth/require-user";
+import { requireProviderOrg } from "@/lib/auth/require-admin";
+import { scopedPrisma } from "@/lib/tenant/scoped-prisma";
 import type { WaStatus, WhatsAppProviderKind } from "@prisma/client";
 
 /** Sem segredos: apiKey vira `hasApiKey`; webhookToken só os 4 últimos (URL/token completos: action getInstanceWebhookConfig). */
@@ -33,12 +33,12 @@ function view(r: Row): WhatsAppInstanceView {
 }
 
 export async function listWhatsAppInstances(): Promise<WhatsAppInstanceView[]> {
-  await requireUser();
-  return (await prisma.whatsAppInstance.findMany({ select, orderBy: { createdAt: "asc" } })).map(view);
+  const { orgId } = await requireProviderOrg();
+  return (await scopedPrisma(orgId).whatsAppInstance.findMany({ select, orderBy: { createdAt: "asc" } })).map(view);
 }
 
 export async function getWhatsAppInstance(id: string): Promise<WhatsAppInstanceView | null> {
-  await requireUser();
-  const r = await prisma.whatsAppInstance.findUnique({ where: { id }, select });
+  const { orgId } = await requireProviderOrg();
+  const r = await scopedPrisma(orgId).whatsAppInstance.findUnique({ where: { id }, select });
   return r ? view(r) : null;
 }

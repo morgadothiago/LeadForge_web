@@ -7,5 +7,5 @@ export const dynamic = "force-dynamic";
 export async function POST(req: Request, ctx: { params: Promise<{ leadId: string }> }): Promise<Response> {
   const id = await paramId(ctx);
   if (!id) return fail(404, "not_found", "Lead não encontrado.");
-  return mobileAction(req, { action: "handoff.take", target: id, run: () => takeHandoff(id) });
+  return mobileAction(req, { action: "handoff.take", target: id, run: (a) => takeHandoff(a, id) });
 }

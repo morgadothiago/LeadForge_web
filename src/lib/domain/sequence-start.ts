@@ -43,6 +43,8 @@ export interface StartCampaignCtx {
   status: string;
   sequenceId: string | null;
   firstChannel: Channel | null;
+  /** SPEC-030: dono do tenant — todo chamador que recebe `orgId` de fora (sessão) deve conferir contra isto. */
+  orgId: string;
 }
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -73,10 +75,10 @@ export function ineligibleReason(lead: StartLead, camp: StartCampaignCtx, suppre
 export async function loadCampaignCtx(campaignId: string, db: Db = prisma): Promise<StartCampaignCtx | null> {
   const c = await db.campaign.findUnique({
     where: { id: campaignId },
-    select: { status: true, sequenceId: true, sequence: { select: { steps: { orderBy: { order: "asc" }, take: 1, select: { channel: true } } } } },
+    select: { status: true, sequenceId: true, orgId: true, sequence: { select: { steps: { orderBy: { order: "asc" }, take: 1, select: { channel: true } } } } },
   });
   if (!c) return null;
-  return { status: c.status, sequenceId: c.sequenceId, firstChannel: c.sequence?.steps[0]?.channel ?? null };
+  return { status: c.status, sequenceId: c.sequenceId, firstChannel: c.sequence?.steps[0]?.channel ?? null, orgId: c.orgId };
 }
 
 export const START_LEAD_SELECT = {
@@ -90,10 +92,16 @@ export interface StartableSummary {
 }
 
 /** Candidatos = leads da campanha em not_started/paused_manual (`onlyNotStarted`: só not_started; usado pelo autoStart, que nunca reinicia quem o usuário pausou). Separa elegíveis dos inelegíveis (contagem por motivo). */
-export async function classifyStartable(campaignId: string, opts: { limit?: number; db?: Db; onlyNotStarted?: boolean } = {}): Promise<StartableSummary | null> {
+export async function classifyStartable(
+  campaignId: string,
+  orgId: string,
+  opts: { limit?: number; db?: Db; onlyNotStarted?: boolean } = {},
+): Promise<StartableSummary | null> {
   const db = opts.db ?? prisma;
   const ctx = await loadCampaignCtx(campaignId, db);
-  if (!ctx) return null;
+  // SPEC-030: `db` pode ser tx cru (não passa pelo scopedPrisma) — confere o dono aqui para nunca operar
+  // sobre uma campanha de outra org, mesmo que o campaignId tenha sido "adivinhado".
+  if (!ctx || ctx.orgId !== orgId) return null;
   const leads = await db.lead.findMany({
     where: { campaignId, sequenceStatus: opts.onlyNotStarted ? "not_started" : { in: [...STARTABLE_STATUSES] } },
     orderBy: [{ createdAt: "asc" }, { id: "asc" }],
@@ -104,7 +112,7 @@ export async function classifyStartable(campaignId: string, opts: { limit?: numb
   for (const l of leads) {
     // Curto-circuito: só consulta supressão quando o resto já passaria.
     let reason = ineligibleReason(l, ctx, false);
-    if (!reason && (await findSuppression({ email: l.email, phone: l.phone }, db))) reason = "suppressed";
+    if (!reason && (await findSuppression({ email: l.email, phone: l.phone }, orgId, db))) reason = "suppressed";
     if (!reason) out.eligibleIds.push(l.id);
     else {
       out.ineligible[reason] = (out.ineligible[reason] ?? 0) + 1;

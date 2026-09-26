@@ -1,6 +1,6 @@
 import type { Channel, Prisma, Stage } from "@prisma/client";
-import { prisma } from "@/lib/prisma";
-import { requireUser } from "@/lib/auth/require-user";
+import { requireProviderOrg } from "@/lib/auth/require-admin";
+import { scopedPrisma } from "@/lib/tenant/scoped-prisma";
 import { getLastInboundByLead } from "@/lib/whatsapp/last-inbound";
 import { boardParamsSchema, STAGES, type BoardParams } from "@/lib/schemas/pipeline";
 
@@ -46,7 +46,8 @@ export const STAGE_LABELS: Record<Stage, string> = {
  * Contadores e soma de valor refletem filtro de campanha e busca.
  */
 export async function getPipelineBoard(params: BoardParams = {}): Promise<BoardColumn[]> {
-  await requireUser();
+  const { orgId } = await requireProviderOrg();
+  const db = scopedPrisma(orgId);
   const { campaignId, q } = boardParamsSchema.parse(params);
   const where: Prisma.OpportunityWhereInput = {
     ...(campaignId ? { campaignId } : {}),
@@ -62,7 +63,12 @@ export async function getPipelineBoard(params: BoardParams = {}): Promise<BoardC
         }
       : {}),
   };
-  const rows = await prisma.opportunity.findMany({
+  interface Row {
+    id: string; stage: Stage; position: number; value: number | null; notes: string | null; lostReason: string | null;
+    campaign: { id: string; name: string };
+    lead: { id: string; name: string; company: string | null; score: number; possibleOptOut: boolean; touches: { channel: Channel }[] };
+  }
+  const rows: Row[] = await db.opportunity.findMany({
     where,
     orderBy: [{ position: "asc" }, { createdAt: "asc" }, { id: "asc" }],
     select: {

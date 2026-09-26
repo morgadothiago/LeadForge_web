@@ -7,7 +7,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn(), revalidateTag: vi.fn(), updateTag: vi.fn() }));
 
 import { prisma } from "@/lib/prisma";
-import { seed } from "../../../prisma/seed";
+import { seed, SEED_IDS } from "../../../prisma/seed";
 import { signInAsSeedAdmin, signInAs, signOut } from "@/lib/auth/test-helpers";
 import { removeIntegration, saveIntegration, testIntegration } from "./integration";
 import { listIntegrationAudit, listIntegrations } from "@/lib/queries/integration";
@@ -106,7 +106,7 @@ describe("salvar / resolver / cache / fallback", () => {
     _setCacheTtl(60_000);
     process.env.EVOLUTION_API_URL = base;
     process.env.EVOLUTION_API_KEY = ENV_KEY;
-    expect((await getIntegrationConfig("evolution")).origin).toBe("env");
+    expect((await getIntegrationConfig(SEED_IDS.org, "evolution")).origin).toBe("env");
 
     const r1 = await saveIntegration({ integration: "evolution", value: KEY_A, baseUrl: base, allowPrivateHost: true });
     expect(r1.ok).toBe(true);
@@ -115,7 +115,7 @@ describe("salvar / resolver / cache / fallback", () => {
     expect(row.encryptedValue).toMatch(/^v1:/);
     expect(row.encryptedValue).not.toContain(KEY_A);
     expect(row.hint).toBe("1234");
-    let cfg = await getIntegrationConfig("evolution");
+    let cfg = await getIntegrationConfig(SEED_IDS.org, "evolution");
     expect(cfg.origin).toBe("db");
     expect(cfg.reveal()).toBe(KEY_A);
     expect(dump(cfg)).not.toContain(KEY_A);
@@ -127,9 +127,9 @@ describe("salvar / resolver / cache / fallback", () => {
 
     // troca vale sem reiniciar, mesmo com cache longo (invalidado ao salvar) e chega ao provider
     await saveIntegration({ integration: "evolution", value: KEY_B, baseUrl: base, allowPrivateHost: true });
-    cfg = await getIntegrationConfig("evolution");
+    cfg = await getIntegrationConfig(SEED_IDS.org, "evolution");
     expect(cfg.reveal()).toBe(KEY_B);
-    await getWhatsAppProvider("evolution").ping!();
+    await getWhatsAppProvider(SEED_IDS.org, "evolution").ping!();
     expect(seenKey).toBe(KEY_B);
 
     const list = await listIntegrations();
@@ -142,18 +142,18 @@ describe("salvar / resolver / cache / fallback", () => {
     // remover -> fallback env
     const rm = await removeIntegration({ id: row.id, confirm: true });
     expect(rm.ok).toBe(true);
-    cfg = await getIntegrationConfig("evolution");
+    cfg = await getIntegrationConfig(SEED_IDS.org, "evolution");
     expect(cfg.origin).toBe("env");
     expect(cfg.reveal()).toBe(ENV_KEY);
     expect((await listIntegrations()).find((i) => i.integration === "evolution")!.origin).toBe("env");
-    await getWhatsAppProvider("evolution").ping!();
+    await getWhatsAppProvider(SEED_IDS.org, "evolution").ping!();
     expect(seenKey).toBe(ENV_KEY);
   });
 
   it("sem banco e sem env -> erro PT-BR config; validações Zod", async () => {
     await signInAsSeedAdmin();
     delete process.env.EVOLUTION_API_KEY;
-    await expect(getIntegrationConfig("evolution")).rejects.toMatchObject({ code: "config", userMessage: expect.stringMatching(/não configurada/) });
+    await expect(getIntegrationConfig(SEED_IDS.org, "evolution")).rejects.toMatchObject({ code: "config", userMessage: expect.stringMatching(/não configurada/) });
     const r = await saveIntegration({ integration: "llm", value: "curta" });
     expect(r.ok === false && r.errors?.value?.[0]).toMatch(/ao menos 12/);
     const r2 = await saveIntegration({ integration: "llm" });
@@ -201,10 +201,10 @@ describe("SSRF ao salvar e ao conectar", () => {
     expect((await saveIntegration({ integration: "evolution", value: KEY_A, baseUrl: `http://evo.exemplo.test:${new URL(base).port}`, allowPrivateHost: true })).ok).toBe(true);
     _setIntegrationResolver(async () => ["169.254.169.254"]);
     hits = 0;
-    await expect(getWhatsAppProvider("evolution").ping!()).rejects.toMatchObject({ code: "config" });
+    await expect(getWhatsAppProvider(SEED_IDS.org, "evolution").ping!()).rejects.toMatchObject({ code: "config" });
     expect(hits).toBe(0);
     _setIntegrationResolver(async () => ["127.0.0.1"]);
-    await getWhatsAppProvider("evolution").ping!(); // conecta no IP checado (host fictício não resolve de fato)
+    await getWhatsAppProvider(SEED_IDS.org, "evolution").ping!(); // conecta no IP checado (host fictício não resolve de fato)
     expect(hits).toBe(1);
     await prisma.integrationSecret.deleteMany();
   });
@@ -317,7 +317,7 @@ describe("remoção", () => {
     await signInAsSeedAdmin();
     await saveIntegration({ integration: "evolution", value: KEY_A, baseUrl: base, allowPrivateHost: true });
     const id = (await secret("evolution")).id;
-    await prisma.whatsAppInstance.create({ data: { instanceName: `${TAG}-w`, number: "+5511912340000", webhookToken: `${TAG}-tok`, provider: "evolution" } as never });
+    await prisma.whatsAppInstance.create({ data: { orgId: SEED_IDS.org, instanceName: `${TAG}-w`, number: "+5511912340000", webhookToken: `${TAG}-tok`, provider: "evolution" } as never });
     const n = await prisma.whatsAppInstance.count({ where: { provider: "evolution" } });
     const r = await removeIntegration({ id, confirm: true });
     expect(r.ok === false && r.errors?._form?.[0]).toContain(`${n} instância`);

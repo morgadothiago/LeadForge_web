@@ -6,7 +6,7 @@ vi.mock("next/cache", () => ({ revalidatePath: vi.fn(), revalidateTag: vi.fn(), 
 process.env.ENCRYPTION_KEY = randomBytes(32).toString("base64");
 
 import { prisma } from "@/lib/prisma";
-import { seed } from "../../../prisma/seed";
+import { seed, SEED_IDS } from "../../../prisma/seed";
 import { AppError } from "@/lib/errors";
 import { runAgentTask } from "./run-agent";
 import { processAgentQueue, enqueueAgentRun } from "./queue";
@@ -41,12 +41,12 @@ beforeAll(async () => {
   await cleanup();
   const userId = (await prisma.user.findFirstOrThrow({ where: { email: "admin@leadforge.local" } })).id;
   const icpId = (await prisma.icpProfile.findFirstOrThrow()).id;
-  campId = (await prisma.campaign.create({ data: { name: `${TAG}-c`, userId, icpId } })).id;
-  agentId = (await prisma.agent.create({ data: { role: "sdr", name: `${TAG}-sdr`, active: true, monthlyBudgetCents: 1000, allowedTools: [] } })).id;
-  await prisma.knowledgeDocument.create({ data: { agentId, title: `${TAG}-kb`, content: "Plano Pro custa R$ 99 por mês." } });
+  campId = (await prisma.campaign.create({ data: { name: `${TAG}-c`, userId, icpId, orgId: SEED_IDS.org } })).id;
+  agentId = (await prisma.agent.create({ data: { orgId: SEED_IDS.org, role: "sdr", name: `${TAG}-sdr`, active: true, monthlyBudgetCents: 1000, allowedTools: [] } })).id;
+  await prisma.knowledgeDocument.create({ data: { orgId: SEED_IDS.org, agentId, title: `${TAG}-kb`, content: "Plano Pro custa R$ 99 por mês." } });
 }, 30000);
 beforeEach(async () => {
-  await prisma.agentSettings.upsert({ where: { id: "global" }, create: { id: "global", killSwitch: false }, update: { killSwitch: false, monthlyBudgetCents: null } });
+  await prisma.agentSettings.upsert({ where: { orgId: SEED_IDS.org }, create: { orgId: SEED_IDS.org, killSwitch: false }, update: { killSwitch: false, monthlyBudgetCents: null } });
   await prisma.agent.update({ where: { id: agentId }, data: { active: true, autonomy: "draft", monthlyBudgetCents: 1000, dailyMessageLimit: 1000 } });
 });
 afterAll(async () => {
@@ -70,9 +70,9 @@ describe("runAgentTask (requer banco de testes)", () => {
   });
   it("kill switch global e agente inativo: não chama o provedor", async () => {
     const fake = new FakeLlmProvider([{}]);
-    await prisma.agentSettings.update({ where: { id: "global" }, data: { killSwitch: true } });
+    await prisma.agentSettings.update({ where: { orgId: SEED_IDS.org }, data: { killSwitch: true } });
     expect((await runAgentTask({ runId: (await mkRun((await mkLead()).id)).id, provider: fake })).status).toBe("deferred");
-    await prisma.agentSettings.update({ where: { id: "global" }, data: { killSwitch: false } });
+    await prisma.agentSettings.update({ where: { orgId: SEED_IDS.org }, data: { killSwitch: false } });
     await prisma.agent.update({ where: { id: agentId }, data: { active: false } });
     expect((await runAgentTask({ runId: (await mkRun((await mkLead()).id)).id, provider: fake })).status).toBe("skipped");
     expect(fake.calls).toHaveLength(0);

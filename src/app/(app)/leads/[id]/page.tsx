@@ -127,7 +127,7 @@ export default async function Page({ params }: { params: Promise<{ id: string }>
               <ul className="space-y-2 text-sm">
                 {lead.meetings.map((m) => (
                   <li key={m.id} className="flex justify-between gap-2">
-                    <time dateTime={m.scheduledAt.toISOString()}>{formatDateTime(m.scheduledAt)}</time>
+                    <time dateTime={m.startsAt.toISOString()}>{formatDateTime(m.startsAt)}</time>
                     <span className="text-muted-foreground">{m.duration} min · {m.status}</span>
                   </li>
                 ))}
