@@ -25,29 +25,25 @@ export interface ReminderCandidate extends Candidate {
  */
 /**
  * SPEC-030: `MeetingSettings` deixou de ser singleton global (1 linha por Organization) — a varredura
- * precisa respeitar a configuração DA ORG DONA de cada reunião, nunca uma única config global. `MobileAlert`
- * em si continua sem `orgId` (fora de escopo da SPEC-030, ver `src/lib/tenant/scoped-prisma.ts`), mas a
- * decisão de "está habilitado / quais offsets" é sempre resolvida por org, nunca por uma linha "global"
- * inexistente (o antigo `where: { id: "global" }` nunca mais bate — regressão real corrigida aqui).
+ * precisa respeitar a configuração DA ORG DONA de cada reunião, nunca uma única config global.
+ * `MobileAlert.orgId` agora e obrigatorio (vazamento cross-tenant corrigido nesta rodada da SPEC-030) —
+ * esta funcao roda 1x por org ATIVA (chamada por `sweepOrg`, `src/lib/mobile/alerts.ts`) e so consulta
+ * reunioes DAQUELA org (nunca cruza tenant).
  */
-export async function collectMeetingReminders(now: Date): Promise<{ candidates: ReminderCandidate[]; activeKeys: string[] }> {
-  const allSettings = await prisma.meetingSettings.findMany();
-  const byOrg = new Map(allSettings.map((s) => [s.orgId, s]));
-  const maxOff = allSettings.length
-    ? Math.max(DEFAULT_OFFSETS[0], ...allSettings.map((s) => Math.max(0, ...s.offsetsMin)))
-    : DEFAULT_OFFSETS[0];
+export async function collectMeetingReminders(now: Date, orgId: string): Promise<{ candidates: ReminderCandidate[]; activeKeys: string[] }> {
+  const settings = await prisma.meetingSettings.findUnique({ where: { orgId } });
+  const maxOff = settings ? Math.max(DEFAULT_OFFSETS[0], ...settings.offsetsMin) : DEFAULT_OFFSETS[0];
   const meetings = await prisma.meeting.findMany({
-    where: { status: "scheduled", startsAt: { gt: now, lte: new Date(now.getTime() + maxOff * 60_000) } },
+    where: { status: "scheduled", startsAt: { gt: now, lte: new Date(now.getTime() + maxOff * 60_000) }, campaign: { orgId } },
     orderBy: { startsAt: "asc" },
     take: MAX_MEETINGS,
-    select: { id: true, startsAt: true, updatedAt: true, campaign: { select: { orgId: true } } },
+    select: { id: true, startsAt: true, updatedAt: true },
   });
   const candidates: ReminderCandidate[] = [];
   const activeKeys: string[] = [];
   for (const m of meetings) {
-    const s = byOrg.get(m.campaign.orgId);
-    const enabled = s?.remindersEnabled ?? true;
-    const offsets = (s ? s.offsetsMin : DEFAULT_OFFSETS).filter((n) => Number.isInteger(n) && n > 0).sort((a, b) => a - b);
+    const enabled = settings?.remindersEnabled ?? true;
+    const offsets = (settings ? settings.offsetsMin : DEFAULT_OFFSETS).filter((n) => Number.isInteger(n) && n > 0).sort((a, b) => a - b);
     if (!enabled || !offsets.length) continue;
     const t = m.startsAt.getTime();
     const open = offsets.filter((o) => now.getTime() >= t - o * 60_000);
@@ -56,7 +52,7 @@ export async function collectMeetingReminders(now: Date): Promise<{ candidates: 
     const off = open[0]; // menor offset aberto
     const windowStart = t - off * 60_000;
     // Baseline: reuniao criada/editada ou configuracao ligada/alterada DENTRO da janela nao gera push retroativo.
-    const silent = m.updatedAt.getTime() > windowStart || (s ? s.updatedAt.getTime() > windowStart : false);
+    const silent = m.updatedAt.getTime() > windowStart || (settings ? settings.updatedAt.getTime() > windowStart : false);
     candidates.push({
       kind: REMINDER_KIND, severity: off <= 15 ? "alta" : "media", dedupeKey: reminderKey(m.id, t, off),
       title: reminderTitle(off), body: REMINDER_BODY, refType: "meeting", refId: m.id, link: null, silent,

@@ -252,7 +252,7 @@ describe("handoff: assumir (AC5)", () => {
   it("agente para no lead, rascunhos pendentes expiram, sem telefone/e-mail, devolve link da call", async () => {
     const lead = await mkLead();
     const d = await mkDraft(lead.id);
-    await prisma.mobileAlert.create({ data: { kind: "handoff", severity: "alta", dedupeKey: `${TAG}:h:${lead.id}`, title: "t", body: "b", refType: "lead", refId: lead.id, link: "https://meet.example.com/call" } });
+    await prisma.mobileAlert.create({ data: { orgId, kind: "handoff", severity: "alta", dedupeKey: `${TAG}:h:${lead.id}`, title: "t", body: "b", refType: "lead", refId: lead.id, link: "https://meet.example.com/call" } });
     const r = await take(req("POST", tokA), lctx(lead.id));
     const txt = await r.text();
     const j = JSON.parse(txt).data;

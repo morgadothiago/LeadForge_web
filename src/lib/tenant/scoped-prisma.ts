@@ -11,10 +11,20 @@ import { prisma } from "@/lib/prisma";
  *
  * Uso: `const db = scopedPrisma(orgId); await db.campaign.findMany({...});`
  *
- * Modelos fora desta lista (User, Membership, Organization, Mobile*) não são tenant-scoped por esta
- * SPEC e continuam acessados via `prisma` direto (`User`/`Membership`/`Organization` são a própria
- * infraestrutura de tenant; `Mobile*` é escopo por usuário, não por org, e não está no escopo da
- * SPEC-030 — ver seção 1 do spec.md).
+ * Modelos fora desta lista (User, Membership, Organization, MobileDevice, MobileActionLog) não são
+ * tenant-scoped por esta SPEC e continuam acessados via `prisma` direto (`User`/`Membership`/
+ * `Organization` são a própria infraestrutura de tenant; `MobileDevice`/`MobileActionLog` são escopo
+ * por usuário, não por org).
+ *
+ * `MobileAlert` GANHOU `orgId` na 3ª rodada da SPEC-030 (vazamento cross-tenant real corrigido — o app
+ * mobile/o painel web liam/marcavam-como-lido alertas de QUALQUER organização). Não está listado em
+ * DIRECT_ORG_MODELS porque a varredura que o cria (`sweepAlerts`/`collectForOrg`,
+ * `src/lib/mobile/alerts.ts`) e os 7 endpoints que o leem/escrevem (`api/mobile/v1/alerts/*`,
+ * `api/notifications/*`) já resolvem e filtram `orgId` explicitamente em toda query (verificado pelos
+ * testes de vazamento em `src/lib/tenant/cross-tenant-leak.test.ts` e `notifications.test.ts`) — migrar
+ * esses call sites para `scopedPrisma` também é possível, mas não foi feito aqui por não ser necessário
+ * para corrigir o vazamento (fica como possível trabalho de consistência futuro, não uma lacuna de
+ * segurança conhecida).
  */
 
 /** Modelos com coluna `orgId` própria. */

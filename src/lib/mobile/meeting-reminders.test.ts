@@ -5,7 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { createHttpClient } from "@/lib/http/client";
 import { mkMeetingFixture, type MeetingFixture } from "@/lib/test-utils/meeting-fixture";
 import { updateMeeting } from "@/lib/domain/meeting";
-import { BASELINE_KEY, sweepAlerts, _resetSweepThrottle } from "./alerts";
+import { baselineKey, sweepAlerts, _resetSweepThrottle } from "./alerts";
 import { _setExpoClient } from "./expo-push";
 import { REMINDER_BODY, reminderKey, reminderTitle } from "./meeting-reminders";
 
@@ -26,7 +26,7 @@ const sweepAt = async (now: Date) => {
   _resetSweepThrottle();
   await sweepAlerts(now);
 };
-const seedBaseline = () => prisma.mobileAlert.create({ data: { kind: "baseline", severity: "baixa", dedupeKey: BASELINE_KEY, title: "baseline", body: "baseline", refType: "scheduler", readAt: new Date(), resolvedAt: new Date() } });
+const seedBaseline = () => prisma.mobileAlert.create({ data: { orgId: fx.orgId, kind: "baseline", severity: "baixa", dedupeKey: baselineKey(fx.orgId), title: "baseline", body: "baseline", refType: "scheduler", readAt: new Date(), resolvedAt: new Date() } });
 
 beforeAll(async () => {
   fx = await mkMeetingFixture("zz-test-mrem");

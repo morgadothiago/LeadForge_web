@@ -1,5 +1,5 @@
 # SPEC-030 — Migracao multi-tenant + ReBAC (Organization, orgId, guards)
-- status: IN_PROGRESS (dev-backend, 2026-09-25 — fundação completa e aplicada; migração de TODAS as queries/actions/rotas ainda não terminada; ver Implementation Notes) | domain: backend | depende de: 009 (auth), 001 (schema base)
+- status: IN_PROGRESS (dev-backend, 2026-09-26 — 3ª rodada: vazamento cross-tenant do MobileAlert corrigido, testes de vazamento por domínio escritos e passando; PERMANECE IN_PROGRESS por um novo achado nesta rodada — `/api/integrations/meetings` — ver Implementation Notes 2026-09-26) | domain: backend | depende de: 009 (auth), 001 (schema base)
 
 ## Objetivo
 Transformar o LeadForge de single-tenant (1 unico "workspace" implicito, todos os `User` compartilhando os mesmos dados) para multi-tenant: cada assinante ("Provider") opera dentro do proprio tenant (`Organization`), sem visibilidade de dados de outro tenant; um papel de plataforma (`Administrador`) enxerga e administra todos os tenants. Esta e a SPEC-base — nenhuma outra frente (billing, admin UI, landing) pode ser implementada antes dela, pois billing cobra por Organization e o admin cross-tenant lista Organizations.
@@ -82,7 +82,15 @@ Transformar o LeadForge de single-tenant (1 unico "workspace" implicito, todos o
 ## Ordem de execucao
 Somente dev-backend. APPROVED em 2026-09-25 — dev-backend ja acionado pelo orquestrador (nao aguarda novo pedido). Ao concluir, qa-reviewer revisa antes de IMPLEMENTED. Bloqueia todas as demais SPECs desta rodada (031-035), que seguem DRAFT ate o usuario decidir D-33-x/D-35-x.
 
-## Implementation Notes — Backend (2026-09-25, parcial — status IN_PROGRESS, não IMPLEMENTED)
+## Implementation Notes — Backend
+
+Três rodadas de implementação, nesta ordem. As duas primeiras estão resumidas abaixo (a 1ª com o relatório
+original de 2026-09-25; a 2ª reconstruída por inspeção de código nesta 3ª rodada, porque o agente da 2ª
+rodada caiu em rate limit antes de reportar — o texto abaixo é o que foi CONFIRMADO existir no código, não
+uma transcrição do que a 2ª rodada disse ter feito). A 3ª rodada (2026-09-26) é a mais detalhada porque foi
+escrita ao vivo, com evidência de teste para cada afirmação.
+
+### Rodada 1 (2026-09-25) — fundação: schema, sessão, policy layer, scheduler
 
 Esta é a maior mudança de superfície do projeto (confirmado durante a implementação). A fundação inteira
 foi construída, migrada e validada; a migração exaustiva de "toda query/action/rota" (critério de aceite
@@ -223,7 +231,7 @@ de marcar IMPLEMENTED: vários critérios de aceite ainda falham (ver tabela).
 - **`admin-prisma.ts`/`requirePlatformAdmin()`**: existem mas não são usados por nenhum endpoint (fora de
   escopo desta SPEC — SPEC-031/032 consomem).
 
-### Critérios de aceitação (status real)
+### Critérios de aceitação — snapshot ao FIM DA RODADA 1 (histórico; ver tabela atualizada no fim do arquivo)
 | Critério | Status | Evidência |
 |---|---|---|
 | `Organization`/`Membership` no schema, migration + backfill | PASS | migrations aplicadas, `backfill-org.ts`, dados verificados no Postgres de dev |
@@ -253,3 +261,176 @@ listados em "O que falta"; (2) escrever os testes de vazamento cross-tenant por 
 e atualizar os testes estáticos de auth para aceitar `requireProviderOrg`/`requirePlatformAdmin` como prova de
 autenticação); (4) decidir com o usuário o que fazer com a quebra de contrato do `role` no login mobile antes
 de considerar isso resolvido.
+
+### Rodada 2 (entre 2026-09-25 e 2026-09-26) — migração do restante do domínio + correção dos testes
+
+O agente desta rodada caiu em rate limit antes de reportar; não existe relatório original dela. O texto
+abaixo é reconstruído por INSPEÇÃO DIRETA do código/testes no início da 3ª rodada (grep, leitura de arquivo,
+`npm test`), não uma transcrição — por isso é mais curto e não tem números exatos de "antes/depois" por
+commit. O que se pôde confirmar que a 2ª rodada entregou, comparado ao estado da Rodada 1:
+
+- **Migração completa (confirmada) dos itens listados como pendentes na Rodada 1**: `src/lib/actions/pipeline.ts`,
+  `meeting-search.ts`, `whatsapp-health.ts`, `src/lib/queries/dashboard.ts`, `queries/meetings.ts`,
+  `queries/pipeline.ts` — todos usando `requireProviderOrg()`/`scopedPrisma(orgId)` no início da 3ª rodada
+  (única exceção residual: `src/lib/actions/meeting.ts` ainda tinha 2 chamadas de `prisma.meetingSettings`
+  cru com `where:{orgId}` explícito — não era vazamento, só inconsistência de estilo; corrigido na Rodada 3).
+- **Todas as rotas `/api/mobile/v1/**` de negócio** (exceto `alerts/*`, corrigidas na Rodada 3) já resolviam
+  `orgId` via `src/lib/mobile/org.ts` (`resolveOrgId(userId)`, por `Membership`) — `campaigns`, `drafts`,
+  `pipeline`, `scheduler`, `summary`, `whatsapp/instances`, `agents/queue`, `lead-search/runs` confirmados.
+  `src/lib/mobile/actions.ts` (ações leves: kill switch, pausar/retomar campanha, aprovar/rejeitar draft,
+  assumir handoff) também resolve `orgId` e escopa corretamente (cobertas por
+  `src/lib/tenant/cross-tenant-leak.test.ts`, describe "agentes").
+- **`src/lib/mobile/meeting-reminders.ts`**: `MeetingSettings` deixou de ser singleton global (Rodada 1) —
+  a Rodada 2 corrigiu a varredura de lembretes para resolver a config POR org da reunião (`campaign.orgId`),
+  em vez de um único `where:{id:"global"}` que nunca mais batia (regressão real, corrigida).
+- **Suíte de testes**: a Rodada 1 fechou com 755 passando / 55 falhando / 303 puladas. No início da Rodada 3
+  a suíte estava em **1139 passando / 0 falhando** (confirmado por `npm test` antes de qualquer edição desta
+  rodada) — ou seja, a Rodada 2 corrigiu as 55 falhas herdadas (fixtures sem `orgId`/`Organization`, testes
+  estáticos de auth desatualizados para `requireProviderOrg`) e ainda adicionou testes novos (o total de
+  1139 é maior que os 1113 da Rodada 1, incluindo o arquivo `src/lib/tenant/cross-tenant-leak.test.ts` e
+  `src/lib/test-utils/org-fixture.ts`, que não existiam na Rodada 1).
+- **`src/lib/tenant/cross-tenant-leak.test.ts` (achado real corrigido pela própria Rodada 2, documentado no
+  arquivo)**: durante a escrita dos testes de vazamento, a Rodada 2 encontrou que `dispatchDraft`/`rejectDraft`/
+  `stopAgentOnManualReply` (usados por `approveDraft`/`rejectDraftAction`/`takeOverLead`) não checavam a org
+  do draft/lead antes de agir — corrigido na própria rodada (ver describe "agentes" nesse arquivo de teste).
+- **Lint/typecheck**: confirmados limpos (`npm run lint`, `npx tsc --noEmit`) no início da Rodada 3, antes de
+  qualquer edição — logo, também entregues/mantidos pela Rodada 2.
+
+O que a Rodada 2 **não** cobriu (confirmado no início da Rodada 3, ver "O que falta" da Rodada 1 replicado
+aqui porque continuava valendo): o vazamento cross-tenant real do `MobileAlert` (sem `orgId` nenhum) e a
+falta de teste de vazamento para o domínio "integrações". Ambos endereçados na Rodada 3 abaixo.
+
+### Rodada 3 (2026-09-26) — vazamento do `MobileAlert`, testes de vazamento restantes, achado novo não resolvido
+
+**Ponto de partida verificado antes de qualquer edição**: `npm test` 1139/1139 passando, 0 falhando;
+`npm run lint` e `npx tsc --noEmit` limpos (confirma o que a Rodada 2 entregou, acima).
+
+**1) Vazamento cross-tenant real do `MobileAlert` — CORRIGIDO.** O model não tinha `orgId`: qualquer usuário
+mobile autenticado (e qualquer usuário web logado, via `/api/notifications/*`, que lê o MESMO model) lia e
+marcava como lido alertas de TODAS as organizações. Correção:
+- Schema: `MobileAlert.orgId` (obrigatório, FK `Organization`, `onDelete: Cascade`) + índices
+  `[orgId,createdAt,id]`/`[orgId,kind,resolvedAt]`. Migrations: `prisma/migrations/
+  20260926025922_mobile_alert_org_structure/` (coluna nullable + índices + FK) e `.../
+  20260926030011_mobile_alert_org_notnull/` (NOT NULL). Entre as duas, `src/scripts/backfill-org.ts` ganhou
+  um passo novo: apaga as linhas pré-existentes de `MobileAlert` (só 2, no Postgres de dev: a sentinela de
+  baseline e um `scheduler_stale` antigo — nenhuma tem como resolver org de forma segura, e ambas são estado
+  DERIVADO/efêmero, sempre recriado pela próxima varredura — nunca dado de negócio do usuário). Decisão
+  documentada no próprio script: apagar em vez de inventar uma org "default" para essas linhas, porque
+  inventar seria repetir o mesmo tipo de erro que este backfill existe para corrigir.
+- **A criação também foi corrigida, não só a leitura** (como pedido): `src/lib/mobile/alerts.ts` — a
+  varredura (`sweepAlerts`) deixou de ser uma única passada global e agora roda 1x por `Organization` ATIVA
+  (`collectForOrg(orgId, now)`, mesmo padrão do `run-tick.ts`). Cada tipo de alerta resolve a org do evento:
+  `wa_disconnected`/`wa_paused` via `WhatsAppInstance.orgId`; `handoff` via `Lead.campaign.orgId`;
+  `budget_alert`/`budget_exhausted` por org (o bucket "global" virou um bucket por org, contra o teto de
+  `AgentSettings` DAQUELA org — antes de existir `orgId` em `AgentSettings`/`Agent`, esse bucket já estava
+  quebrado silenciosamente, porque comparava contra um `AgentSettings.findUnique({where:{id:"global"}})` que
+  não existe mais desde a Rodada 1; agora usa `AgentSettings.findUnique({where:{orgId}})` corretamente);
+  `scheduler_stale` via `SchedulerRun.orgId` (1 checagem por org, não uma checagem global — mais correto:
+  antes, uma org ativa mascarava a inatividade de outra); `mass_opt_out`/`lead_replied` (antes agregados
+  globalmente) agora contam só supressões/touches DAQUELA org. `src/lib/mobile/meeting-reminders.ts`
+  (`collectMeetingReminders`) passou a receber `orgId` e filtrar reuniões por `campaign.orgId`. A sentinela
+  de baseline (`ensureBaseline`) também é por org (`baselineKey(orgId)` — dedupeKey global-único carrega o
+  orgId, já que `MobileAlert.dedupeKey` continua `@unique` sem escopo de org).
+- **Os 4 endpoints `/api/mobile/v1/alerts/**` corrigidos**: passaram a resolver `orgId` via
+  `resolveOrgId(a.userId)` (mesmo padrão de `campaigns`/`drafts`) e filtrar/escopar toda leitura/escrita por
+  ele; `403 forbidden` se o usuário não tiver org (platform_admin). `POST /{id}/read` agora devolve 404 para
+  id de alerta de outra org (nunca revela que existe).
+- **Achado adicional durante a correção (mesma vulnerabilidade, consumidor diferente do mesmo model)**: as
+  rotas web `/api/notifications/**` (SPEC-028, sessão de cookie, não Bearer mobile) leem/escrevem o MESMO
+  `MobileAlert` e tinham o MESMO vazamento — qualquer provider logado no painel via sessão via alertas de
+  qualquer organização. Corrigidas junto (mesmo padrão: `requireSession()` já devolve `orgId` da sessão,
+  sem precisar de `resolveOrgId`; `403` se `orgId` nulo). `getNotificationSummary(orgId)` também passou a
+  filtrar `Draft` pendentes (aba "aprovações") por `lead.campaign.orgId`.
+- **`src/lib/actions/meeting.ts`**: as 2 chamadas residuais a `prisma.meetingSettings` cru (inconsistência
+  de estilo apontada no pedido, não vazamento — já tinham `where:{orgId}` explícito) migradas para
+  `scopedPrisma(orgId).meetingSettings`.
+
+**2) Testes de vazamento cross-tenant por domínio — completados.** `src/lib/tenant/cross-tenant-leak.test.ts`
+(criado pela Rodada 2) já cobria campanhas, leads, sequences/templates, whatsapp, email, agentes, supressão,
+pipeline/reuniões, dashboard e scheduler com 2 `Organization`s + IDs adivinhados. Faltavam "integrações" e
+o `MobileAlert` (que na Rodada 2 nem tinha `orgId` para testar). Adicionados nesta rodada:
+- `describe("integrações — vazamento cross-tenant")`: `saveIntegration`/`testIntegration`/`removeIntegration`/
+  `listIntegrations`/`listIntegrationAudit` com secret criado pela org A, acessado pela org B (id adivinhado)
+  — confirma 404/lista vazia/nenhuma alteração no dado real.
+- `describe("MobileAlert — vazamento cross-tenant")`: 2 dispositivos mobile (org A e org B), alerta criado
+  para a org A; confirma que `GET /alerts`, `GET /unread-count`, `POST /{id}/read` (404) e `POST /read-all`
+  da org B nunca veem/tocam o alerta da org A, e que `sweepAlerts()` nunca cria alerta cruzando org.
+- `src/app/api/notifications/notifications.test.ts`: novo `describe("vazamento cross-tenant")` com uma 2ª
+  `Organization` (via `mkMeetingFixture`), confirmando o mesmo para as rotas de sessão web.
+- Suíte completa após as adições: **1146 passando / 0 falhando** (1139 + 7 testes novos: 2 em integrações,
+  4 em MobileAlert via Bearer, 1 em notifications via sessão web). `npm run lint`, `npx tsc --noEmit` e
+  `npm run build` limpos.
+
+**3) Achado NOVO desta rodada, NÃO corrigido — motivo de continuar `IN_PROGRESS`.** Durante a auditoria dos
+domínios "reuniões/notificações" (pedida explicitamente no ciclo 2 desta rodada), foi encontrado que
+`POST /api/integrations/meetings` (`src/lib/meetings/webhook.ts`, SPEC-028) e, por herança de design,
+`POST /api/integrations/leads` (SPEC-014) autenticam com um **único segredo global** (`INGEST_SECRET`, 1
+para a plataforma inteira — não há segredo por org). O endpoint de leads é seguro porque o `campaignId` vem
+explícito no payload e a org é resolvida A PARTIR dele (`Campaign.orgId`) antes de qualquer efeito — não há
+ambiguidade. **O endpoint de reuniões não é seguro**: quando o payload não traz `leadId` explícito, ele busca
+o lead por telefone com `prisma.lead.findMany({ where: { phone: { in: [...] } } })` **sem nenhum filtro de
+`orgId`** — se dois tenants diferentes tiverem um lead com o mesmo telefone, o webhook pode resolver o lead
+da org ERRADA. Mesmo quando `leadId` vem explícito, `prisma.lead.findUnique({ where: { id: leadId } })`
+também não filtra por org, e `createMeeting()` (`src/lib/domain/meeting.ts`) só valida
+`opp.campaign.orgId === p.orgId` **quando `p.orgId` é passado** — o webhook nunca passa `orgId` (ele não
+tem como saber qual org é, dado o segredo global), então essa validação é pulada inteiramente. Ou seja: quem
+tiver o `INGEST_SECRET` (pensado originalmente, SPEC-014/028, para 1 integrador por instalação, não por
+tenant) pode criar reuniões em oportunidades de QUALQUER organização, adivinhando um `leadId` (UUID) ou
+acertando um telefone que também exista como lead em outro tenant.
+- **Por que não foi corrigido nesta rodada**: a correção correta é uma decisão de produto/arquitetura, não
+  um "esqueceu o where" — options plausíveis (não avaliadas a fundo, só citadas): (a) segredo de ingestão
+  por-org (mudaria o contrato do endpoint, que hoje é 1 segredo/instalação, para exigir identificar a org na
+  request); (b) exigir sempre `campaignId`/`opportunityId` explícito no payload do webhook de reuniões (como
+  já é o caso do de leads) em vez de aceitar busca por telefone sem escopo; (c) alguma outra amarração
+  (webhook por org com token próprio, tabela de mapeamento telefone->org por integração). Implementar
+  qualquer uma dessas sem aprovação seria inventar regra de negócio/contrato de API nova — parei aqui e
+  reporto como achado, não como resolvido.
+- **Nenhum código foi alterado para este achado.** Nenhum teste de vazamento foi escrito para ele (escrever
+  o teste é fácil; a correção real depende da decisão acima, e um teste "vermelho" permanente não parecia
+  ajudar mais que este registro explícito).
+- **Este achado é DIFERENTE do risco já sinalizado do contrato mobile** (`role` em `/api/mobile/v1/auth/*`,
+  que o usuário já decidiu tratar como "documentar e aguardar decisão", não bloqueante para `IMPLEMENTED`).
+  Este é um vazamento cross-tenant real e ainda ativo em código de produção, dentro do critério de aceite
+  "nenhuma query roda sem o helper de escopo" — por isso MANTÉM a SPEC em `IN_PROGRESS`.
+
+### Critérios de aceitação — estado ATUAL (fim da Rodada 3, 2026-09-26)
+
+| Critério | Status | Evidência |
+|---|---|---|
+| `Organization`/`Membership` no schema, migration + backfill | PASS | Rodada 1 (inalterado) |
+| Sessão carrega `orgId`+`platformRole`; login resolve org | PASS | Rodada 1 (inalterado) |
+| Nenhuma query/action de domínio de negócio roda sem passar pelo helper de escopo | **FAIL** | quase todo o domínio migrado (Rodadas 1-3, incl. `MobileAlert`/`api/notifications`/`api/mobile/v1/alerts` nesta rodada) — MAS `POST /api/integrations/meetings` continua sem escopo de org (achado novo desta rodada, não corrigido, ver acima) |
+| Testes de vazamento cross-tenant cobrindo cada domínio da seção 3, todos passando | PASS | `src/lib/tenant/cross-tenant-leak.test.ts` (campanhas, leads, sequences/templates, whatsapp, email, agentes, supressão, pipeline/reuniões, dashboard, scheduler, integrações, MobileAlert) + `notifications.test.ts` (web) — todos verdes; nenhum teste cobre o achado de `integrations/meetings` (não corrigido, ver acima) |
+| `platform_admin` só roda cross-tenant pelo caminho explícito (`admin-prisma`) | PASS | testado em `cross-tenant-leak.test.ts` ("adminPrisma... só ele, nunca scopedPrisma") |
+| Cron respeita `Organization.status` | PASS | Rodada 1 (inalterado) |
+| Contrato `/api/mobile/v1` sem quebra | FAIL (risco sinalizado, NÃO bloqueante — decisão do usuário pendente, não mexer sem pedido) | `role` do login/`/auth/me` mobile continua `"provider"`/`"platform_admin"` em vez de `"admin"`/`"member"` |
+| build/lint/typecheck/testes OK | PASS | `npm run lint` limpo; `npx tsc --noEmit` limpo; `npm run build` conclui; `npm test` 1146 passando / 0 falhando / 0 pulados |
+
+**Por que a SPEC continua `IN_PROGRESS` e não `IMPLEMENTED`**: só o critério do contrato mobile (`role`) está
+em FAIL por decisão explícita do usuário de não bloquear nisso. Mas o critério "nenhuma query roda sem o
+helper de escopo" tem um FAIL adicional, real e não coberto por essa decisão: `/api/integrations/meetings`
+(achado nesta rodada). Por instrução explícita, nenhuma correção de contrato/arquitetura foi inventada para
+esse achado sem aprovação — então o critério permanece FAIL de fato, e a SPEC não pode ser marcada
+`IMPLEMENTED` enquanto ele não for corrigido (ou o usuário decidir formalmente tratá-lo como risco sinalizado
+não-bloqueante, do mesmo jeito que já decidiu para o `role` mobile).
+
+### Próximo passo recomendado (fim da Rodada 3)
+Não marcar `IMPLEMENTED`. Antes de prosseguir para as SPECs 031-035 (que dependem desta): (1) o usuário decide
+o que fazer com `POST /api/integrations/meetings` (segredo por-org? exigir `campaignId`/`opportunityId`
+explícito no payload em vez de busca por telefone sem escopo? outra amarração?) — a implementação segue depois
+dessa decisão, dentro desta mesma SPEC-030; (2) só então reavaliar `IMPLEMENTED`, junto com a decisão pendente
+(separada) do `role` no contrato mobile.
+
+### Arquivos alterados/criados nesta rodada (3ª rodada, 2026-09-26)
+Schema/migration: `prisma/schema.prisma` (`MobileAlert.orgId`), `prisma/migrations/
+20260926025922_mobile_alert_org_structure/`, `.../20260926030011_mobile_alert_org_notnull/`,
+`src/scripts/backfill-org.ts` (passo 15, apaga `MobileAlert` pré-existente). Domínio de alertas:
+`src/lib/mobile/alerts.ts`, `src/lib/mobile/meeting-reminders.ts`. Rotas: `src/app/api/mobile/v1/alerts/
+route.ts`, `.../unread-count/route.ts`, `.../read-all/route.ts`, `.../[id]/read/route.ts`,
+`src/app/api/notifications/route.ts`, `.../summary/route.ts`, `.../read-all/route.ts`, `.../[id]/read/
+route.ts`, `src/lib/notifications/summary.ts`, `src/app/(app)/layout.tsx` (ajuste de assinatura). Estilo/
+consistência: `src/lib/actions/meeting.ts` (2 chamadas para `scopedPrisma`), `src/lib/tenant/
+scoped-prisma.ts` (comentário atualizado). Testes: `src/lib/tenant/cross-tenant-leak.test.ts` (+integrações,
++MobileAlert), `src/app/api/notifications/notifications.test.ts` (+vazamento cross-tenant), `src/lib/mobile/
+alerts.test.ts`, `src/lib/mobile/meeting-reminders.test.ts`, `src/lib/mobile/actions.test.ts`,
+`src/lib/domain/meeting.test.ts` (fixtures atualizadas para `orgId` obrigatório em `MobileAlert`).

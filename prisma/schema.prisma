@@ -124,6 +124,7 @@ model Organization {
   icpProfiles          IcpProfile[]
   sequences            Sequence[]
   messageTemplates     MessageTemplate[]
+  mobileAlerts         MobileAlert[]
 
   @@index([status])
 }
@@ -790,21 +791,27 @@ model MobileDevice {
 }
 
 /// SPEC-023: alerta de monitoramento deduplicado (dedupeKey unico por episodio). Sem PII em title/body.
+/// SPEC-030: `orgId` obrigatorio (vazamento cross-tenant corrigido — a varredura de `src/lib/mobile/alerts.ts`
+/// agora roda por Organization ATIVA e cada candidato resolve a org dona do evento antes de criar o alerta).
 model MobileAlert {
-  id         String    @id @default(uuid())
+  id         String       @id @default(uuid())
+  orgId      String
+  org        Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
   kind       String
   severity   String
-  dedupeKey  String    @unique
+  dedupeKey  String       @unique
   title      String
   body       String
   refType    String
   refId      String?
   /// Link https da call (handoff do Closer); so trafega na API autenticada, nunca no push.
   link       String?
-  createdAt  DateTime  @default(now())
+  createdAt  DateTime     @default(now())
   readAt     DateTime?
   resolvedAt DateTime?
 
+  @@index([orgId, createdAt, id])
+  @@index([orgId, kind, resolvedAt])
   @@index([createdAt, id])
   @@index([kind, resolvedAt])
 }

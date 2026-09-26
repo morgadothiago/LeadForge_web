@@ -8,7 +8,7 @@ import { signSessionToken } from "@/lib/auth/session-token";
 import { createHttpClient } from "@/lib/http/client";
 import { spec } from "@/lib/openapi";
 import { signAccessToken } from "./token";
-import { ALERT_RETENTION_MS, BASELINE_KEY, PUSH_WAIT_CAP_MS, cleanupMobile, raiseAlert, sweepAlerts, sweepThrottled, _resetSweepThrottle, type Candidate } from "./alerts";
+import { ALERT_RETENTION_MS, PUSH_WAIT_CAP_MS, baselineKey, cleanupMobile, raiseAlert, sweepAlerts, sweepThrottled, _resetSweepThrottle, type Candidate } from "./alerts";
 import { _setExpoClient, prefAllows } from "./expo-push";
 import { runTick } from "@/lib/scheduler/run-tick";
 import { GET as listAlerts } from "@/app/api/mobile/v1/alerts/route";
@@ -38,7 +38,7 @@ const send = (method: string, t: string | null, body?: unknown, url = "http://x/
   new Request(url, { method, ...(body !== undefined ? { body: JSON.stringify(body), headers: { "content-type": "application/json", ...(t ? { authorization: `Bearer ${t}` } : {}) } as Record<string, string> } : hdr(t)) });
 const ctx = (id: string) => ({ params: Promise.resolve({ id }) });
 const cleanAlerts = () => prisma.mobileAlert.deleteMany({});
-const seedBaseline = () => prisma.mobileAlert.create({ data: { kind: "baseline", severity: "baixa", dedupeKey: BASELINE_KEY, title: "baseline", body: "baseline", refType: "scheduler", readAt: new Date(), resolvedAt: new Date() } });
+const seedBaseline = () => prisma.mobileAlert.create({ data: { orgId, kind: "baseline", severity: "baixa", dedupeKey: baselineKey(orgId), title: "baseline", body: "baseline", refType: "scheduler", readAt: new Date(), resolvedAt: new Date() } });
 
 async function mkDevice(name: string, extra: object = {}) {
   return (await prisma.mobileDevice.create({ data: { userId, name, platform: "android", refreshHash: `h-${crypto.randomUUID()}`, refreshExpiresAt: new Date(Date.now() + 1e9), ...extra } })).id;
@@ -121,12 +121,12 @@ describe("gatilhos, severidade, dedupe e resolucao (AC1-3)", () => {
     await prisma.suppression.createMany({ data: vals.map((value) => ({ orgId, kind: "email", value, reason: "opt_out_reply" })) });
     try {
       await sweepAlerts();
-      const rows = await prisma.mobileAlert.findMany({ where: { kind: "mass_opt_out" } });
+      const rows = await prisma.mobileAlert.findMany({ where: { orgId, kind: "mass_opt_out" } });
       expect(rows).toHaveLength(1);
       expect(rows[0].severity).toBe("alta");
       await prisma.suppression.deleteMany({ where: { value: { in: vals } } });
       await sweepAlerts();
-      expect((await prisma.mobileAlert.findMany({ where: { kind: "mass_opt_out" } })).every((r) => r.resolvedAt)).toBe(true);
+      expect((await prisma.mobileAlert.findMany({ where: { orgId, kind: "mass_opt_out" } })).every((r) => r.resolvedAt)).toBe(true);
     } finally {
       await prisma.suppression.deleteMany({ where: { value: { in: vals } } });
     }
@@ -150,7 +150,7 @@ describe("gatilhos, severidade, dedupe e resolucao (AC1-3)", () => {
   });
 
   it("link nao-https nunca e gravado", async () => {
-    await raiseAlert({ kind: "handoff", severity: "alta", dedupeKey: "handoff:zz-js", title: "t", body: "b", refType: "lead", refId: null, link: "javascript:alert(1)" });
+    await raiseAlert(orgId, { kind: "handoff", severity: "alta", dedupeKey: "handoff:zz-js", title: "t", body: "b", refType: "lead", refId: null, link: "javascript:alert(1)" });
     expect((await prisma.mobileAlert.findUniqueOrThrow({ where: { dedupeKey: "handoff:zz-js" } })).link).toBeNull();
   });
 
@@ -173,14 +173,14 @@ describe("gatilhos, severidade, dedupe e resolucao (AC1-3)", () => {
   });
 
   it("scheduler parado: alta com relogio injetado; resolve quando volta a rodar", async () => {
-    const run = await prisma.schedulerRun.create({ data: { startedAt: new Date(), finishedAt: new Date(), status: "ok" } });
+    const run = await prisma.schedulerRun.create({ data: { orgId, startedAt: new Date(), finishedAt: new Date(), status: "ok" } });
     try {
       await sweepAlerts(new Date(Date.now() + 3600_000));
-      const st = await prisma.mobileAlert.findMany({ where: { kind: "scheduler_stale", resolvedAt: null } });
+      const st = await prisma.mobileAlert.findMany({ where: { orgId, kind: "scheduler_stale", resolvedAt: null } });
       expect(st).toHaveLength(1);
       expect(st[0].severity).toBe("alta");
       await sweepAlerts();
-      expect(await prisma.mobileAlert.count({ where: { kind: "scheduler_stale", resolvedAt: null } })).toBe(0);
+      expect(await prisma.mobileAlert.count({ where: { orgId, kind: "scheduler_stale", resolvedAt: null } })).toBe(0);
     } finally {
       await prisma.schedulerRun.delete({ where: { id: run.id } });
     }
@@ -190,7 +190,7 @@ describe("gatilhos, severidade, dedupe e resolucao (AC1-3)", () => {
     await prisma.touch.create({ data: { leadId, channel: "whatsapp", direction: "inbound", status: "replied", content: MSG } });
     await sweepAlerts(new Date(Date.now() + 1000));
     await sweepAlerts(new Date(Date.now() + 2000));
-    const rows = await prisma.mobileAlert.findMany({ where: { kind: "lead_replied" } });
+    const rows = await prisma.mobileAlert.findMany({ where: { orgId, kind: "lead_replied" } });
     expect(rows.length).toBeGreaterThanOrEqual(1);
     expect(rows.length).toBeLessThanOrEqual(2); // limite de bucket no cruzamento de janela
     expect(rows[0].severity).toBe("baixa");
@@ -235,7 +235,7 @@ describe("push Expo (AC4-6, 8)", () => {
 
   it("AC6: flag desligada = nenhuma chamada externa; polling continua", async () => {
     const f = fakeExpo(() => ({ status: 200, data: { data: [] } }));
-    await raiseAlert(candidate("off"));
+    await raiseAlert(orgId, candidate("off"));
     expect(f.sent).toHaveLength(0);
     const r = await listAlerts(get(tokA));
     expect((await r.json()).data.some((a: { dedupeKey?: string; kind: string }) => a.kind === "wa_disconnected")).toBe(true);
@@ -248,8 +248,8 @@ describe("push Expo (AC4-6, 8)", () => {
     await prisma.touch.create({ data: { leadId, channel: "whatsapp", direction: "inbound", status: "replied", content: MSG } });
     const f = fakeExpo((_n, cfg) => ({ status: 200, data: { data: JSON.parse(cfg.data as string).map(() => ({ status: "ok", id: "t" })) } }));
     try {
-      await raiseAlert(candidate("push"));
-      await raiseAlert(candidate("push")); // mesmo episodio: sem novo push
+      await raiseAlert(orgId, candidate("push"));
+      await raiseAlert(orgId, candidate("push")); // mesmo episodio: sem novo push
       expect(f.sent).toHaveLength(1);
       const tos = f.sent[0].body.map((m) => m.to).sort();
       expect(tos).toContain(TOKEN_A);
@@ -278,7 +278,7 @@ describe("push Expo (AC4-6, 8)", () => {
   it("AC5: DeviceNotRegistered limpa pushToken (so do dispositivo afetado)", async () => {
     process.env.MOBILE_PUSH_ENABLED = "true";
     fakeExpo((_n, cfg) => ({ status: 200, data: { data: JSON.parse(cfg.data as string).map((m: { to: string }) => (m.to === TOKEN_B ? { status: "error", details: { error: "DeviceNotRegistered" } } : { status: "ok" })) } }));
-    await raiseAlert(candidate("dnr"));
+    await raiseAlert(orgId, candidate("dnr"));
     expect((await prisma.mobileDevice.findUniqueOrThrow({ where: { id: devB } })).pushToken).toBeNull();
     expect((await prisma.mobileDevice.findUniqueOrThrow({ where: { id: devA } })).pushToken).toBe(TOKEN_A);
     await prisma.mobileDevice.update({ where: { id: devB }, data: { pushToken: TOKEN_B } });
@@ -287,17 +287,17 @@ describe("push Expo (AC4-6, 8)", () => {
   it("429 com Retry-After: espera o indicado e faz retry; sem Retry-After: backoff; esgota sem lancar e sem vazar token", async () => {
     process.env.MOBILE_PUSH_ENABLED = "true";
     const f1 = fakeExpo((n) => (n === 0 ? { status: 429, headers: { "retry-after": "2" } } : { status: 200, data: { data: [{ status: "ok" }, { status: "ok" }] } }));
-    await raiseAlert(candidate("r1"));
+    await raiseAlert(orgId, candidate("r1"));
     expect(f1.sent).toHaveLength(2);
     expect(f1.sleeps).toEqual([2000]);
     const f2 = fakeExpo((n) => (n === 0 ? { status: 429 } : { status: 200, data: { data: [] } }));
-    await raiseAlert(candidate("r2"));
+    await raiseAlert(orgId, candidate("r2"));
     expect(f2.sent).toHaveLength(2);
     expect(f2.sleeps).toHaveLength(1);
     expect(f2.sleeps[0]).toBeGreaterThan(0);
     const f3 = fakeExpo(() => ({ status: 503 }));
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    await expect(raiseAlert(candidate("r3"))).resolves.toBe(true); // alerta criado; falha do Expo nao derruba
+    await expect(raiseAlert(orgId, candidate("r3"))).resolves.toBe(true); // alerta criado; falha do Expo nao derruba
     expect(f3.sent).toHaveLength(3); // retry limitado
     expect(warn.mock.calls.flat().join(" ")).not.toContain("ExponentPushToken");
   });
@@ -326,7 +326,7 @@ describe("API (AC7, authz, IDOR)", () => {
   });
 
   it("AC7: paginacao por cursor sem duplicar, unread, read/read-all idempotentes, contagem correta, no-store", async () => {
-    for (let i = 0; i < 7; i++) await raiseAlert({ kind: "scheduler_stale", severity: "alta", dedupeKey: `scheduler_stale:zz-${i}`, title: "Scheduler parado", body: "b", refType: "scheduler", refId: null });
+    for (let i = 0; i < 7; i++) await raiseAlert(orgId, { kind: "scheduler_stale", severity: "alta", dedupeKey: `scheduler_stale:zz-${i}`, title: "Scheduler parado", body: "b", refType: "scheduler", refId: null });
     const seen: string[] = [];
     let cursor: string | null = null;
     do {
@@ -410,7 +410,7 @@ describe("API (AC7, authz, IDOR)", () => {
   });
 
   it("respostas REAIS validam contra o OpenAPI (sem x-status planned)", async () => {
-    await raiseAlert({ kind: "handoff", severity: "alta", dedupeKey: "handoff:zz-oa", title: "Precisa de você", body: "b", refType: "lead", refId: leadId, link: "https://cal.example.com/x" });
+    await raiseAlert(orgId, { kind: "handoff", severity: "alta", dedupeKey: "handoff:zz-oa", title: "Precisa de você", body: "b", refType: "lead", refId: leadId, link: "https://cal.example.com/x" });
     const ajv = new Ajv({ allErrors: true, unknownFormats: "ignore" });
     const schemaOf = (path: string, method: string) => (spec.paths as never as Record<string, Record<string, { responses: { "200": { content: { "application/json": { schema: object } } } } }>>)[path][method].responses["200"].content["application/json"].schema;
     const check = async (path: string, method: string, res: Response) => {
@@ -436,7 +436,7 @@ describe("retencao (AC7)", () => {
   it("remove alertas > 30 dias e dispositivos inativos; preserva recentes e ativos", async () => {
     const now = new Date();
     const old = new Date(now.getTime() - ALERT_RETENTION_MS - 1000);
-    const base = { kind: "scheduler_stale", severity: "alta", title: "t", body: "b", refType: "scheduler" };
+    const base = { orgId, kind: "scheduler_stale", severity: "alta", title: "t", body: "b", refType: "scheduler" };
     await prisma.mobileAlert.createMany({ data: [{ ...base, dedupeKey: "zz-old", createdAt: old, resolvedAt: new Date() }, { ...base, dedupeKey: "zz-old-active", createdAt: old }, { ...base, dedupeKey: "zz-new", createdAt: new Date(now.getTime() - 29 * 24 * 3600_000) }] });
     const dOld = await mkDevice("old", { revokedAt: old });
     const dExp = await mkDevice("exp", { refreshExpiresAt: old });
@@ -446,7 +446,7 @@ describe("retencao (AC7)", () => {
     expect(keys).toContain("zz-new");
     expect(keys).not.toContain("zz-old");
     expect(keys).toContain("zz-old-active"); // L1: episodio continuo nao e apagado (evita recriar com novo push)
-    expect(keys).toContain(BASELINE_KEY);
+    expect(keys).toContain(baselineKey(orgId));
     const ids = (await prisma.mobileDevice.findMany({ where: { userId }, select: { id: true } })).map((d) => d.id);
     expect(ids).toEqual(expect.arrayContaining([devA, devB, dRecent]));
     expect(ids).not.toContain(dOld);
@@ -472,7 +472,7 @@ describe("baseline e push fora do caminho critico (M1)", () => {
       await sweepAlerts();
       expect(calls.n).toBe(0);
       expect(await prisma.mobileAlert.count({ where: { readAt: null } })).toBe(0);
-      expect(await prisma.mobileAlert.count({ where: { kind: "handoff" } })).toBe(50);
+      expect(await prisma.mobileAlert.count({ where: { orgId, kind: "handoff" } })).toBe(50);
       _resetSweepThrottle();
       await prisma.lead.update({ where: { id: leads[0].id }, data: { handoffAt: new Date() } }); // novo episodio
       await sweepAlerts();

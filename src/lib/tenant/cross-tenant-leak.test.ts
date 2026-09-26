@@ -1,4 +1,5 @@
 import "dotenv/config";
+import { randomBytes } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn(), revalidateTag: vi.fn(), updateTag: vi.fn() }));
@@ -30,6 +31,14 @@ import { getDashboardData } from "@/lib/queries/dashboard";
 import { listMeetings, searchLeadsForMeeting } from "@/lib/queries/meetings";
 import { createMeeting } from "@/lib/actions/meeting";
 import { runTick } from "@/lib/scheduler/run-tick";
+import { saveIntegration, removeIntegration, testIntegration } from "@/lib/actions/integration";
+import { listIntegrations, listIntegrationAudit } from "@/lib/queries/integration";
+import { sweepAlerts, raiseAlert, _resetSweepThrottle } from "@/lib/mobile/alerts";
+import { signAccessToken } from "@/lib/mobile/token";
+import { GET as listAlerts } from "@/app/api/mobile/v1/alerts/route";
+import { GET as unreadCount } from "@/app/api/mobile/v1/alerts/unread-count/route";
+import { POST as readOneAlert } from "@/app/api/mobile/v1/alerts/[id]/read/route";
+import { POST as readAllAlerts } from "@/app/api/mobile/v1/alerts/read-all/route";
 
 /**
  * SPEC-030 seção 3 — "Teste obrigatório": para cada domínio de negócio, cria 2 Organizations e confirma
@@ -71,15 +80,19 @@ async function seedCampaign(org: TestOrg): Promise<Seeded> {
 
 let seedA: Seeded;
 let seedB: Seeded;
+const savedEnc = process.env.ENCRYPTION_KEY;
 
 beforeAll(async () => {
   A = await createTestOrg("crosstenant-a");
   B = await createTestOrg("crosstenant-b");
   seedA = await seedCampaign(A);
   seedB = await seedCampaign(B);
+  process.env.ENCRYPTION_KEY = randomBytes(32).toString("base64"); // chave falsa, só em memória (SPEC-018)
 });
 
 afterAll(async () => {
+  if (savedEnc === undefined) delete process.env.ENCRYPTION_KEY;
+  else process.env.ENCRYPTION_KEY = savedEnc;
   await purgeTestOrg(A);
   await purgeTestOrg(B);
   await prisma.$disconnect();
@@ -352,5 +365,83 @@ describe("scheduler — isolamento por org", () => {
     expect(runsA[0].id).not.toBe(runsB[0].id);
     const after = await prisma.schedulerRun.count();
     expect(after).toBeGreaterThanOrEqual(before);
+  });
+});
+
+describe("integrações — vazamento cross-tenant (SPEC-018/030)", () => {
+  it("saveIntegration da org A não aparece em listIntegrations/listIntegrationAudit da org B", async () => {
+    await signInAs(A.userId);
+    const saved = await saveIntegration({ integration: "llm", name: "default", value: "sk-zz-crosstenant-a" });
+    expect(saved.ok).toBe(true);
+    await signInAs(B.userId);
+    const listB = await listIntegrations();
+    const llmB = listB.find((i) => i.integration === "llm");
+    expect(llmB?.items.length ?? 0).toBe(0);
+    const auditB = await listIntegrationAudit({ integration: "llm" });
+    expect(auditB.items).toHaveLength(0);
+  });
+
+  it("testIntegration/removeIntegration com id de outra org (adivinhado) falham sem afetar o dado real", async () => {
+    await signInAs(A.userId);
+    const saved = await saveIntegration({ integration: "llm", name: "zz-second", value: "sk-zz-crosstenant-a2" });
+    if (!saved.ok) throw new Error("fixture falhou");
+    const id = saved.data.id;
+    await signInAs(B.userId);
+    const tested = await testIntegration(id);
+    expect(tested.ok).toBe(false);
+    const removed = await removeIntegration({ id, confirm: true });
+    expect(removed.ok).toBe(false);
+    const stillA = await prisma.integrationSecret.findUnique({ where: { id } });
+    expect(stillA).not.toBeNull();
+    expect(stillA?.orgId).toBe(A.orgId);
+  });
+});
+
+describe("MobileAlert — vazamento cross-tenant (achado real corrigido nesta rodada da SPEC-030)", () => {
+  let devA: string, devB: string, tokA: string, tokB: string, alertA: string;
+
+  beforeAll(async () => {
+    devA = (await prisma.mobileDevice.create({ data: { userId: A.userId, name: "zz-ct-a", platform: "android", refreshHash: `h-${crypto.randomUUID()}`, refreshExpiresAt: new Date(Date.now() + 1e9) } })).id;
+    devB = (await prisma.mobileDevice.create({ data: { userId: B.userId, name: "zz-ct-b", platform: "android", refreshHash: `h-${crypto.randomUUID()}`, refreshExpiresAt: new Date(Date.now() + 1e9) } })).id;
+    tokA = await signAccessToken(A.userId, devA);
+    tokB = await signAccessToken(B.userId, devB);
+    _resetSweepThrottle();
+    await raiseAlert(A.orgId, { kind: "handoff", severity: "alta", dedupeKey: `zz-ct:handoff:${A.orgId}`, title: "Precisa de você", body: "b", refType: "lead", refId: seedA.leadId });
+    alertA = (await prisma.mobileAlert.findUniqueOrThrow({ where: { dedupeKey: `zz-ct:handoff:${A.orgId}` } })).id;
+  });
+
+  const get = (t: string, url = "http://x/api") => new Request(url, { headers: { authorization: `Bearer ${t}` } });
+  const post = (t: string, url = "http://x/api") => new Request(url, { method: "POST", headers: { authorization: `Bearer ${t}` } });
+  const ctx = (id: string) => ({ params: Promise.resolve({ id }) });
+
+  it("GET /alerts e /unread-count da org B nunca devolvem/contam alerta da org A", async () => {
+    const list = await (await listAlerts(get(tokB))).json();
+    expect(list.data.some((a: { id: string }) => a.id === alertA)).toBe(false);
+    const cntA = await (await unreadCount(get(tokA))).json();
+    const cntB = await (await unreadCount(get(tokB))).json();
+    expect(cntA.data.count).toBeGreaterThan(0);
+    expect(cntB.data.count).toBe(0);
+  });
+
+  it("POST /alerts/{id}/read com id de outra org (adivinhado) = 404, nunca marca como lido", async () => {
+    const r = await readOneAlert(post(tokB, `http://x/api/${alertA}/read`), ctx(alertA));
+    expect(r.status).toBe(404);
+    const stillUnread = await prisma.mobileAlert.findUniqueOrThrow({ where: { id: alertA } });
+    expect(stillUnread.readAt).toBeNull();
+  });
+
+  it("POST /alerts/read-all da org B nunca marca o alerta da org A como lido", async () => {
+    const r = await readAllAlerts(post(tokB));
+    expect(r.status).toBe(200);
+    const stillUnread = await prisma.mobileAlert.findUniqueOrThrow({ where: { id: alertA } });
+    expect(stillUnread.readAt).toBeNull();
+  });
+
+  it("sweepAlerts nunca cria alerta de uma org para outra: cada org só vê os próprios episódios", async () => {
+    await sweepAlerts();
+    const rowA = await prisma.mobileAlert.findUniqueOrThrow({ where: { id: alertA } });
+    expect(rowA.orgId).toBe(A.orgId);
+    const crossed = await prisma.mobileAlert.findFirst({ where: { orgId: B.orgId, refId: seedA.leadId } });
+    expect(crossed).toBeNull();
   });
 });

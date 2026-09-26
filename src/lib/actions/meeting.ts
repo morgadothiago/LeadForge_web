@@ -1,8 +1,8 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { prisma } from "@/lib/prisma";
 import { requireProviderOrg } from "@/lib/auth/require-admin";
+import { scopedPrisma } from "@/lib/tenant/scoped-prisma";
 import {
   createMeeting as createMeetingDomain, transitionMeeting, updateMeeting as updateMeetingDomain, writeMeetingAudit,
   type MeetingConflict, type MeetingErr, type MeetingTransition,
@@ -102,7 +102,7 @@ export interface MeetingSettingsView { remindersEnabled: boolean; offsetsMin: nu
 export async function getMeetingSettings(): Promise<ActionResult<MeetingSettingsView>> {
   return safeAction(async () => {
     const { orgId } = await requireProviderOrg();
-    const s = await prisma.meetingSettings.findUnique({ where: { orgId } });
+    const s = await scopedPrisma(orgId).meetingSettings.findUnique({ where: { orgId } });
     return success({ remindersEnabled: s?.remindersEnabled ?? true, offsetsMin: s?.offsetsMin ?? DEFAULT_OFFSETS });
   });
 }
@@ -113,7 +113,7 @@ export async function saveMeetingSettings(input: unknown): Promise<ActionResult<
     const { user, orgId } = await requireProviderOrg();
     const p = meetingSettingsSchema.safeParse(input);
     if (!p.success) return failure(zodErrors(p.error));
-    const s = await prisma.meetingSettings.upsert({
+    const s = await scopedPrisma(orgId).meetingSettings.upsert({
       where: { orgId },
       create: { orgId, ...p.data },
       update: p.data,

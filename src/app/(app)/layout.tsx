@@ -23,7 +23,7 @@ export default async function AppLayout({ children }: LayoutProps<"/">) {
     throw e;
   }
   const defaultOpen = parseSidebarDefaultOpen((await cookies()).get("sidebar_state")?.value);
-  const summary = await getNotificationSummary().catch(() => EMPTY_SUMMARY);
+  const summary = user.orgId ? await getNotificationSummary(user.orgId).catch(() => EMPTY_SUMMARY) : EMPTY_SUMMARY;
   return (
     <SidebarProvider defaultOpen={defaultOpen} className="h-svh min-h-0 overflow-hidden">
       <NotificationsProvider initial={summary}>

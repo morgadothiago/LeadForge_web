@@ -47,12 +47,17 @@ const cand = (kind: Kind, key: string, refType: Candidate["refType"], refId: str
 
 /** Cria o alerta se o episodio (dedupeKey) ainda nao existe. Devolve true se criou. Concorrencia: unique + P2002. Push so na criacao. */
 export interface RaiseOpts { silent?: boolean; deferred?: PushAlert[] }
-export async function raiseAlert(c: Candidate, opts: RaiseOpts = {}): Promise<boolean> {
+/**
+ * SPEC-030: `orgId` obrigatorio (achado real de vazamento cross-tenant: o app mobile de QUALQUER
+ * organizacao lia/marcava-como-lido alertas de TODAS as organizacoes). Todo chamador precisa resolver
+ * a org dona do evento ANTES de chamar (ver `collectForOrg`/`collectMeetingReminders`).
+ */
+export async function raiseAlert(orgId: string, c: Candidate, opts: RaiseOpts = {}): Promise<boolean> {
   let created;
   try {
     created = await prisma.mobileAlert.create({
       data: {
-        kind: c.kind, severity: c.severity, dedupeKey: c.dedupeKey, title: redactText(c.title) ?? c.title, body: redactText(c.body) ?? c.body,
+        orgId, kind: c.kind, severity: c.severity, dedupeKey: c.dedupeKey, title: redactText(c.title) ?? c.title, body: redactText(c.body) ?? c.body,
         refType: c.refType, refId: c.refId, link: c.link && /^https:\/\/\S+$/.test(c.link) ? c.link.slice(0, 500) : null,
         ...(opts.silent ? { readAt: new Date() } : {}), // baseline: estado historico nasce lido e sem push
       },
@@ -68,53 +73,64 @@ export async function raiseAlert(c: Candidate, opts: RaiseOpts = {}): Promise<bo
   return true;
 }
 
-async function resolveInactive(kind: Kind, activeKeys: string[], now: Date): Promise<void> {
-  await prisma.mobileAlert.updateMany({ where: { kind, resolvedAt: null, dedupeKey: { notIn: activeKeys } }, data: { resolvedAt: now } });
+async function resolveInactive(orgId: string, kind: Kind, activeKeys: string[], now: Date): Promise<void> {
+  await prisma.mobileAlert.updateMany({ where: { orgId, kind, resolvedAt: null, dedupeKey: { notIn: activeKeys } }, data: { resolvedAt: now } });
 }
 
-async function collect(now: Date): Promise<Map<Kind, Candidate[]>> {
+/**
+ * SPEC-030: a varredura roda 1x por Organization ATIVA (mesmo padrao do scheduler, `run-tick.ts`) —
+ * cada candidato ja nasce com a org dona do evento resolvida (via a instancia/lead/agente/scheduler
+ * run daquela org), nunca uma consulta global misturando tenants. `budget`/`scheduler_stale`/
+ * `mass_opt_out`/`lead_replied` eram agregados globais antes da SPEC-030; agora sao agregados POR org.
+ */
+async function collectForOrg(orgId: string, now: Date): Promise<Map<Kind, Candidate[]>> {
   const out = new Map<Kind, Candidate[]>();
   const add = (c: Candidate) => out.set(c.kind as Kind, [...(out.get(c.kind as Kind) ?? []), c]);
   for (const k of ["wa_disconnected", "wa_paused", "mass_opt_out", "handoff", "budget_alert", "budget_exhausted", "scheduler_stale"] as Kind[]) out.set(k, []);
 
   const [insts, pausedAlerts] = await Promise.all([
-    prisma.whatsAppInstance.findMany({ select: { id: true, status: true, disconnectedAt: true, health: true, pausedUntil: true } }),
-    prisma.instanceAlert.findMany({ where: { kind: "paused" }, orderBy: { createdAt: "desc" }, select: { instanceId: true, id: true }, take: 200 }),
+    prisma.whatsAppInstance.findMany({ where: { orgId }, select: { id: true, status: true, disconnectedAt: true, health: true, pausedUntil: true } }),
+    prisma.instanceAlert.findMany({ where: { kind: "paused", instance: { orgId } }, orderBy: { createdAt: "desc" }, select: { instanceId: true, id: true }, take: 200 }),
   ]);
   for (const i of insts) {
-    if (i.status !== "connected" && i.disconnectedAt) add(cand("wa_disconnected", `${i.id}:${i.disconnectedAt.getTime()}`, "instance", i.id));
+    if (i.status !== "connected" && i.disconnectedAt) add(cand("wa_disconnected", `${orgId}:${i.id}:${i.disconnectedAt.getTime()}`, "instance", i.id));
     if (i.health === "paused") {
       const last = pausedAlerts.find((a) => a.instanceId === i.id);
-      add(cand("wa_paused", `${i.id}:${last?.id ?? i.pausedUntil?.getTime() ?? "x"}`, "instance", i.id));
+      add(cand("wa_paused", `${orgId}:${i.id}:${last?.id ?? i.pausedUntil?.getTime() ?? "x"}`, "instance", i.id));
     }
   }
 
-  const optOuts = await prisma.suppression.count({ where: { reason: { in: ["opt_out_reply", "opt_out_link", "opt_out_manual"] }, createdAt: { gte: new Date(now.getTime() - DAY) } } });
-  if (optOuts >= OPT_OUT_BURST) add(cand("mass_opt_out", now.toISOString().slice(0, 10), "instance", null));
+  const optOuts = await prisma.suppression.count({ where: { orgId, reason: { in: ["opt_out_reply", "opt_out_link", "opt_out_manual"] }, createdAt: { gte: new Date(now.getTime() - DAY) } } });
+  if (optOuts >= OPT_OUT_BURST) add(cand("mass_opt_out", `${orgId}:${now.toISOString().slice(0, 10)}`, "instance", null));
 
   const [handoffs, closer] = await Promise.all([
-    prisma.lead.findMany({ where: { needsHuman: true, handoffAt: { not: null } }, orderBy: { handoffAt: "desc" }, take: 50, select: { id: true, handoffAt: true } }),
-    prisma.agent.findFirst({ where: { role: "closer", callLink: { not: null } }, select: { callLink: true } }),
+    prisma.lead.findMany({ where: { needsHuman: true, handoffAt: { not: null }, campaign: { orgId } }, orderBy: { handoffAt: "desc" }, take: 50, select: { id: true, handoffAt: true } }),
+    prisma.agent.findFirst({ where: { orgId, role: "closer", callLink: { not: null } }, select: { callLink: true } }),
   ]);
-  for (const l of handoffs) add(cand("handoff", `${l.id}:${l.handoffAt!.getTime()}`, "lead", l.id, closer?.callLink));
+  for (const l of handoffs) add(cand("handoff", `${orgId}:${l.id}:${l.handoffAt!.getTime()}`, "lead", l.id, closer?.callLink));
 
   const [settings, agents, spend] = await Promise.all([
-    prisma.agentSettings.findUnique({ where: { id: "global" } }),
-    prisma.agent.findMany({ select: { id: true, monthlyBudgetCents: true } }),
-    prisma.agentRun.groupBy({ by: ["agentId"], where: { createdAt: { gte: monthStart(now) } }, _sum: { costMicros: true } }),
+    prisma.agentSettings.findUnique({ where: { orgId } }),
+    prisma.agent.findMany({ where: { orgId }, select: { id: true, monthlyBudgetCents: true } }),
+    prisma.agentRun.groupBy({ by: ["agentId"], where: { createdAt: { gte: monthStart(now) }, agent: { orgId } }, _sum: { costMicros: true } }),
   ]);
   const spentBy = new Map(spend.map((s) => [s.agentId, s._sum.costMicros ?? 0]));
   const month = now.toISOString().slice(0, 7);
-  const budgets: [string, number, number | null][] = [["global", spend.reduce((a, s) => a + (s._sum.costMicros ?? 0), 0), settings?.monthlyBudgetCents ?? null], ...agents.map((a) => [a.id, spentBy.get(a.id) ?? 0, a.monthlyBudgetCents] as [string, number, number | null])];
-  for (const [id, micros, cap] of budgets) {
+  // "org" (antes "global"): soma de TODOS os agentes DESTA org, contra o teto de AgentSettings desta org (nunca cross-tenant).
+  const orgTotal = spend.reduce((a, s) => a + (s._sum.costMicros ?? 0), 0);
+  const budgets: [string, string | null, number, number | null][] = [
+    [`org:${orgId}`, null, orgTotal, settings?.monthlyBudgetCents ?? null],
+    ...agents.map((a) => [a.id, a.id, spentBy.get(a.id) ?? 0, a.monthlyBudgetCents] as [string, string | null, number, number | null]),
+  ];
+  for (const [id, refId, micros, cap] of budgets) {
     const st = budgetState(micros, cap);
-    if (st === "alert") add(cand("budget_alert", `${id}:${month}`, "budget", id));
-    if (st === "exhausted") add(cand("budget_exhausted", `${id}:${month}`, "budget", id));
+    if (st === "alert") add(cand("budget_alert", `${orgId}:${id}:${month}`, "budget", refId));
+    if (st === "exhausted") add(cand("budget_exhausted", `${orgId}:${id}:${month}`, "budget", refId));
   }
 
-  const lastOk = await prisma.schedulerRun.findFirst({ where: { status: "ok" }, orderBy: { startedAt: "desc" }, select: { finishedAt: true, startedAt: true } });
+  const lastOk = await prisma.schedulerRun.findFirst({ where: { orgId, status: "ok" }, orderBy: { startedAt: "desc" }, select: { finishedAt: true, startedAt: true } });
   const okAt = lastOk ? (lastOk.finishedAt ?? lastOk.startedAt) : null;
-  if (okAt && now.getTime() - okAt.getTime() > 2 * SCHEDULER_EXPECTED_INTERVAL_MS) add(cand("scheduler_stale", String(okAt.getTime()), "scheduler", null));
+  if (okAt && now.getTime() - okAt.getTime() > 2 * SCHEDULER_EXPECTED_INTERVAL_MS) add(cand("scheduler_stale", `${orgId}:${String(okAt.getTime())}`, "scheduler", null));
   return out;
 }
 
@@ -129,11 +145,15 @@ export async function cleanupMobile(now: Date): Promise<{ alerts: number; device
   return { alerts: a.count, devices: d.count };
 }
 
-/** Linha de controle: existe = a primeira varredura (baseline) ja rodou. Nao aparece na API (lida+resolvida e filtrada por kind). */
-async function ensureBaseline(now: Date): Promise<boolean> {
-  if (await prisma.mobileAlert.findUnique({ where: { dedupeKey: BASELINE_KEY }, select: { id: true } })) return false;
+/** SPEC-030: 1 baseline por Organization (a varredura agora e por org; dedupeKey e global-unico, entao a chave carrega o orgId). */
+export const baselineKey = (orgId: string): string => `${BASELINE_KEY}:${orgId}`;
+
+/** Linha de controle: existe = a primeira varredura (baseline) daquela org ja rodou. Nao aparece na API (lida+resolvida e filtrada por kind). */
+async function ensureBaseline(orgId: string, now: Date): Promise<boolean> {
+  const key = baselineKey(orgId);
+  if (await prisma.mobileAlert.findUnique({ where: { dedupeKey: key }, select: { id: true } })) return false;
   try {
-    await prisma.mobileAlert.create({ data: { kind: "baseline", severity: "baixa", dedupeKey: BASELINE_KEY, title: "baseline", body: "baseline", refType: "scheduler", readAt: now, resolvedAt: now } });
+    await prisma.mobileAlert.create({ data: { orgId, kind: "baseline", severity: "baixa", dedupeKey: key, title: "baseline", body: "baseline", refType: "scheduler", readAt: now, resolvedAt: now } });
     return true;
   } catch (e) {
     if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") return false;
@@ -153,27 +173,45 @@ async function dispatchPushes(list: PushAlert[]): Promise<void> {
 }
 
 /**
- * Varredura: gera novos episodios, resolve os que terminaram, agrupa "lead respondeu". Nunca lanca.
- * Baseline: na PRIMEIRA varredura (linha de controle ausente) todo estado ja existente vira alerta lido e SEM push.
+ * Varredura de UMA Organization: gera novos episodios, resolve os que terminaram, agrupa "lead respondeu".
+ * Pode lancar (o chamador — `sweepAlerts` — isola por org e nunca deixa a falha de uma org afetar outra).
+ */
+async function sweepOrg(orgId: string, now: Date, deferred: PushAlert[]): Promise<number> {
+  let raised = 0;
+  const silent = await ensureBaseline(orgId, now);
+  const opts: RaiseOpts = { silent, deferred };
+  const cands = await collectForOrg(orgId, now);
+  for (const [kind, list] of cands) {
+    for (const c of list) if (await raiseAlert(orgId, c, opts)) raised++;
+    await resolveInactive(orgId, kind, list.map((c) => c.dedupeKey), now);
+  }
+  // SPEC-028: lembretes de reuniao (janelas/offsets) DESTA org; resolve os que deixaram de valer (cancelada, reagendada, passada).
+  const reminders = await collectMeetingReminders(now, orgId);
+  for (const c of reminders.candidates) if (await raiseAlert(orgId, c, { ...opts, silent: opts.silent || c.silent })) raised++;
+  await prisma.mobileAlert.updateMany({ where: { orgId, kind: REMINDER_KIND, resolvedAt: null, dedupeKey: { notIn: reminders.activeKeys } }, data: { resolvedAt: now } });
+  const bucket = Math.floor(now.getTime() / REPLY_BUCKET_MS);
+  const replies = await prisma.touch.count({ where: { direction: "inbound", createdAt: { gte: new Date(bucket * REPLY_BUCKET_MS), lte: now }, lead: { campaign: { orgId } } } });
+  if (replies > 0 && (await raiseAlert(orgId, cand("lead_replied", `${orgId}:${bucket}`, "lead", null), opts))) raised++;
+  return raised;
+}
+
+/**
+ * Varredura: 1 passada por Organization ATIVA (SPEC-030 — nenhuma consulta cruza tenant; cada org so ve/gera
+ * os proprios alertas). Nunca lanca: falha isolada de uma org so loga e nao impede as demais.
+ * Baseline: na PRIMEIRA varredura de cada org (linha de controle ausente) todo estado ja existente vira alerta lido e SEM push.
  */
 export async function sweepAlerts(now: Date = new Date()): Promise<{ raised: number }> {
   let raised = 0;
   const deferred: PushAlert[] = [];
   try {
-    const silent = await ensureBaseline(now);
-    const opts: RaiseOpts = { silent, deferred };
-    const cands = await collect(now);
-    for (const [kind, list] of cands) {
-      for (const c of list) if (await raiseAlert(c, opts)) raised++;
-      await resolveInactive(kind, list.map((c) => c.dedupeKey), now);
+    const orgs = await prisma.organization.findMany({ where: { status: "active" }, select: { id: true } });
+    for (const { id: orgId } of orgs) {
+      try {
+        raised += await sweepOrg(orgId, now, deferred);
+      } catch (e) {
+        console.warn(`[mobile-alerts] varredura da org ${orgId} falhou:`, redactText(safeErrorForLog(e)));
+      }
     }
-    // SPEC-028: lembretes de reuniao (janelas/offsets); resolve os que deixaram de valer (cancelada, reagendada, passada).
-    const reminders = await collectMeetingReminders(now);
-    for (const c of reminders.candidates) if (await raiseAlert(c, { ...opts, silent: opts.silent || c.silent })) raised++;
-    await prisma.mobileAlert.updateMany({ where: { kind: REMINDER_KIND, resolvedAt: null, dedupeKey: { notIn: reminders.activeKeys } }, data: { resolvedAt: now } });
-    const bucket = Math.floor(now.getTime() / REPLY_BUCKET_MS);
-    const replies = await prisma.touch.count({ where: { direction: "inbound", createdAt: { gte: new Date(bucket * REPLY_BUCKET_MS), lte: now } } });
-    if (replies > 0 && (await raiseAlert(cand("lead_replied", String(bucket), "lead", null), opts))) raised++;
   } catch (e) {
     console.warn("[mobile-alerts] varredura falhou:", redactText(safeErrorForLog(e)));
   }

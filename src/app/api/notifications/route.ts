@@ -1,6 +1,6 @@
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { invalidInput, ok } from "@/lib/mobile/http";
+import { fail, invalidInput, ok } from "@/lib/mobile/http";
 import { alertView, sweepThrottled } from "@/lib/mobile/alerts";
 import { areaOfKind, isArea, kindsOfArea } from "@/lib/notifications/areas";
 import { decodeCursor, encodeCursor, requireSession } from "@/lib/notifications/http";
@@ -11,6 +11,7 @@ export const dynamic = "force-dynamic";
 export async function GET(req: Request): Promise<Response> {
   const a = await requireSession();
   if (a instanceof Response) return a;
+  if (!a.orgId) return fail(403, "forbidden", "Sem permissão."); // platform_admin nao usa notificacoes de org (SPEC-030)
   const q = new URL(req.url).searchParams;
 
   let limit = 20;
@@ -29,7 +30,7 @@ export async function GET(req: Request): Promise<Response> {
   const unread = q.get("unread");
   if (unread !== null && unread !== "true" && unread !== "false") return invalidInput("unread inválido.");
 
-  const and: Prisma.MobileAlertWhereInput[] = [{ kind: { not: "baseline" } }];
+  const and: Prisma.MobileAlertWhereInput[] = [{ orgId: a.orgId }, { kind: { not: "baseline" } }];
   if (area) and.push({ kind: { in: kindsOfArea(area) } }); // aprovacoes nao tem alertas: lista vazia
   if (kind) and.push({ kind });
   if (unread === "true") and.push({ readAt: null });

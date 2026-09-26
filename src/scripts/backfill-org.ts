@@ -210,6 +210,18 @@ async function main() {
     await prisma.knowledgeDocument.update({ where: { id: kd.id }, data: { orgId: orgId ?? (await defaultOrgId()) } });
   }
 
+  // 15) MobileAlert.orgId: vazamento cross-tenant corrigido na 3ª rodada da SPEC-030 (a varredura de
+  //     src/lib/mobile/alerts.ts passou a rodar por Organization e resolver a org dona de cada evento
+  //     na criação). Linhas pré-existentes são estado DERIVADO/EFÊMERO — sempre recriado pela próxima
+  //     varredura (`sweepAlerts`), nunca dado de negócio do usuário — e nenhuma delas tem como resolver
+  //     org de forma segura (baseline/scheduler_stale eram, por design antigo, singletons SEM org).
+  //     Decisão do dev-backend: apagar em vez de inventar org — perder um alerta computável não é perda
+  //     de dado real, e a alternativa (atribuir a uma org "default" arbitrária) seria pior: um alerta que
+  //     nunca pertenceu a ela apareceria para o provider errado, o mesmo vazamento que este backfill existe
+  //     para corrigir. Confirmado nesta base: só 2 linhas (baseline + scheduler_stale antigo).
+  const deleted = await prisma.mobileAlert.deleteMany({});
+  console.log(`[backfill-org] MobileAlert: ${deleted.count} linha(s) efêmera(s) apagada(s) (sem org resolvível; serão recriadas pela próxima varredura).`);
+
   console.log("[backfill-org] concluído.");
 }
 

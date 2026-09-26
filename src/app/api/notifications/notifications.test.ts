@@ -3,7 +3,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { prisma } from "@/lib/prisma";
 import { signInAs, signOut } from "@/lib/auth/test-helpers";
 import { mkMeetingFixture, type MeetingFixture } from "@/lib/test-utils/meeting-fixture";
-import { BASELINE_KEY, sweepThrottled, _resetSweepThrottle } from "@/lib/mobile/alerts";
+import { baselineKey, sweepThrottled, _resetSweepThrottle } from "@/lib/mobile/alerts";
 import { signAccessToken } from "@/lib/mobile/token";
 import { GET as summary } from "./summary/route";
 import { GET as list } from "./route";
@@ -16,7 +16,7 @@ const req = (url: string, init: RequestInit = {}) => new Request(`http://localho
 const post = (url: string, body?: unknown, headers: Record<string, string> = {}) => req(url, { method: "POST", ...(body !== undefined ? { body: JSON.stringify(body), headers: { "content-type": "application/json", ...headers } } : { headers }) });
 const ctx = (id: string) => ({ params: Promise.resolve({ id }) });
 const mkAlert = (kind: string, n: number, extra: Record<string, unknown> = {}) =>
-  prisma.mobileAlert.create({ data: { kind, severity: "media", dedupeKey: `zz-notif:${kind}:${n}:${crypto.randomUUID()}`, title: "t", body: "b", refType: "scheduler", createdAt: new Date(Date.now() - n * 1000), ...extra } });
+  prisma.mobileAlert.create({ data: { orgId: fx.orgId, kind, severity: "media", dedupeKey: `zz-notif:${kind}:${n}:${crypto.randomUUID()}`, title: "t", body: "b", refType: "scheduler", createdAt: new Date(Date.now() - n * 1000), ...extra } });
 
 beforeAll(async () => {
   fx = await mkMeetingFixture("zz-test-notif");
@@ -26,7 +26,7 @@ beforeAll(async () => {
 beforeEach(async () => {
   await signInAs(fx.userId);
   await prisma.mobileAlert.deleteMany({});
-  await prisma.mobileAlert.create({ data: { kind: "baseline", severity: "baixa", dedupeKey: BASELINE_KEY, title: "baseline", body: "baseline", refType: "scheduler", readAt: new Date(), resolvedAt: new Date() } });
+  await prisma.mobileAlert.create({ data: { orgId: fx.orgId, kind: "baseline", severity: "baixa", dedupeKey: baselineKey(fx.orgId), title: "baseline", body: "baseline", refType: "scheduler", readAt: new Date(), resolvedAt: new Date() } });
 });
 afterAll(async () => {
   signOut();
@@ -154,7 +154,7 @@ describe("marcar como lida", () => {
     expect((await (await summary(req("/api/notifications/summary"))).json()).data.byArea.calendario).toBe(0);
     expect((await readOne(post("/api/notifications/x/read"), ctx(crypto.randomUUID()))).status).toBe(404);
     expect((await readOne(post("/api/notifications/x/read"), ctx("nao-uuid"))).status).toBe(404);
-    const base = await prisma.mobileAlert.findUniqueOrThrow({ where: { dedupeKey: BASELINE_KEY } });
+    const base = await prisma.mobileAlert.findUniqueOrThrow({ where: { dedupeKey: baselineKey(fx.orgId) } });
     expect((await readOne(post("/api/notifications/x/read"), ctx(base.id))).status).toBe(404);
   });
 
@@ -174,6 +174,30 @@ describe("marcar como lida", () => {
     expect(s.byArea.calendario).toBe(0);
     expect(s.byArea.leads).toBe(1);
     expect((await (await readAll(post("/api/notifications/read-all"))).json()).data.updated).toBe(1);
+  });
+});
+
+describe("vazamento cross-tenant (SPEC-030)", () => {
+  it("GET /summary e /notifications da org B nunca contam/listam alerta da org A; read/read-all nunca tocam o da org A", async () => {
+    const fxB = await mkMeetingFixture("zz-test-notif-b");
+    try {
+      const a = await mkAlert("handoff", 1); // alerta da org A (fx.orgId)
+      await signInAs(fxB.userId);
+      const s = (await (await summary(req("/api/notifications/summary"))).json()).data;
+      expect(s.unreadTotal).toBe(0);
+      const l = (await (await list(req("/api/notifications"))).json()).data as { id: string }[];
+      expect(l.some((x) => x.id === a.id)).toBe(false);
+      const r1 = await readOne(post(`/api/notifications/${a.id}/read`), ctx(a.id));
+      expect(r1.status).toBe(404); // nao encontrado para a org B (nunca revela que existe em outra org)
+      const r2 = await readAll(post("/api/notifications/read-all"));
+      expect(r2.status).toBe(200);
+      const stillUnread = await prisma.mobileAlert.findUniqueOrThrow({ where: { id: a.id } });
+      expect(stillUnread.readAt).toBeNull();
+      expect(stillUnread.orgId).toBe(fx.orgId);
+    } finally {
+      await signInAs(fx.userId);
+      await fxB.cleanup();
+    }
   });
 });
 

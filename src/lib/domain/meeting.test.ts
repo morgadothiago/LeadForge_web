@@ -84,7 +84,7 @@ describe("dominio de reunioes (banco)", () => {
   it("cancelar: nao move stage, retorna aviso, resolve lembretes pendentes; idempotente", async () => {
     const r = await createMeeting({ opportunityId: fx.oppId, startsAt: at(5000), durationMin: 30, now: NOW });
     if (r.status !== "ok") throw new Error("x");
-    await prisma.mobileAlert.create({ data: { kind: "meeting_reminder", severity: "media", dedupeKey: `meeting_reminder:${r.meeting.id}:1:60`, title: "t", body: "b", refType: "meeting", refId: r.meeting.id } });
+    await prisma.mobileAlert.create({ data: { orgId: fx.orgId, kind: "meeting_reminder", severity: "media", dedupeKey: `meeting_reminder:${r.meeting.id}:1:60`, title: "t", body: "b", refType: "meeting", refId: r.meeting.id } });
     const c = await transitionMeeting(r.meeting.id, "cancel", NOW);
     expect(c.status === "ok" && c.meeting.status === "cancelled" && c.warning === CANCEL_STAGE_WARNING).toBe(true);
     expect(c.status === "ok" && c.meeting.cancelledAt).toBeTruthy();
