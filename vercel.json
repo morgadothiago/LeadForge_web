@@ -1,3 +1,3 @@
 {
-  "buildCommand": "prisma migrate deploy && prisma db seed && next build"
+  "buildCommand": "DATABASE_URL=\"$DATABASE_URL_UNPOOLED\" prisma migrate deploy && DATABASE_URL=\"$DATABASE_URL_UNPOOLED\" prisma db seed && next build"
 }
