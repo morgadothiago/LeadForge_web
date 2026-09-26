@@ -129,7 +129,7 @@ describe("access / guard", () => {
     expect((await refresh(post({ deviceId: t.deviceId, refreshToken: t.refreshToken }))).status).toBe(401);
   });
   it("AC4: JWT web (cookie) rejeitado no mobile; access mobile rejeitado no web; aud errada rejeitada", async () => {
-    const web = await signSessionToken(userId);
+    const web = await signSessionToken(userId, null, "provider");
     expect((await me(authed(web))).status).toBe(401);
     const t = await doLogin();
     expect(await verifySessionToken(t.accessToken)).toBeNull();
