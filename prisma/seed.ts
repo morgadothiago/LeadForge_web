@@ -27,6 +27,8 @@ function seedId(kind: number, lead: number, k: number): string {
 }
 
 export async function seed(prisma: PrismaClient, now: Date = new Date()) {
+  // SPEC-033: catálogo de planos primeiro (a Subscription da org de seed depende do Plan "starter" existir).
+  await seedPlans(prisma);
   // SPEC-030: usuário de seed é `provider`, owner de uma Organization própria — todo o dado de negócio
   // abaixo (ICP/Sequence/Campaign/...) pertence a ela. `signInAsSeedAdmin()` continua funcionando: agora
   // resolve orgId/platformRole por essa Membership (não mais por "role=admin").
@@ -44,6 +46,14 @@ export async function seed(prisma: PrismaClient, now: Date = new Date()) {
     where: { userId_orgId: { userId: SEED_IDS.user, orgId: SEED_IDS.org } },
     update: {},
     create: { userId: SEED_IDS.user, orgId: SEED_IDS.org, orgRole: "owner" },
+  });
+  // SPEC-033: org de seed nasce com assinatura "active" (plano starter) — dado de dev não deve ficar
+  // preso no gate de billing (Organization.status) por omissão.
+  const starterPlan = await prisma.plan.findUniqueOrThrow({ where: { key: "starter" }, select: { id: true } });
+  await prisma.subscription.upsert({
+    where: { orgId: SEED_IDS.org },
+    update: {},
+    create: { orgId: SEED_IDS.org, planId: starterPlan.id, status: "active", cadence: "monthly", currentPeriodEnd: new Date(now.getTime() + 30 * 24 * 3600_000) },
   });
   await prisma.icpProfile.upsert({
     where: { id: SEED_IDS.icp },
@@ -299,6 +309,62 @@ export async function seed(prisma: PrismaClient, now: Date = new Date()) {
         },
       });
     }
+  }
+}
+
+/**
+ * SPEC-033 (D-33-2) — catálogo de planos. PLACEHOLDER: preços e limites populam o schema para
+ * desenvolver o fluxo completo (checkout/trial/gating), mas precisam de confirmação explícita do
+ * usuário antes de produção — NÃO usar estes valores no launch sem revisão.
+ */
+export const PLAN_SEED = [
+  {
+    key: "starter",
+    name: "Starter",
+    // PLACEHOLDER: confirmar preço final antes do launch (D-33-2).
+    priceMonthlyCents: 29_700,
+    priceYearlyCents: 297_000, // 2 meses grátis
+    limits: { maxCampaigns: 3, maxWhatsappInstances: 1, maxLeadsPerMonth: 500 },
+    selfServiceCheckout: true,
+  },
+  {
+    key: "pro",
+    name: "Pro",
+    // PLACEHOLDER: confirmar preço final antes do launch (D-33-2).
+    priceMonthlyCents: 69_700,
+    priceYearlyCents: 697_000, // 2 meses grátis
+    limits: { maxCampaigns: 10, maxWhatsappInstances: 3, maxLeadsPerMonth: 3000 },
+    selfServiceCheckout: true,
+  },
+  {
+    key: "business",
+    name: "Business",
+    // PLACEHOLDER: "sob consulta" — sem checkout self-service (D-33-2); preço 0 = não cobrado por aqui.
+    priceMonthlyCents: 0,
+    priceYearlyCents: null,
+    limits: { maxCampaigns: null, maxWhatsappInstances: null, maxLeadsPerMonth: null },
+    selfServiceCheckout: false,
+  },
+  {
+    key: "courtesy",
+    name: "Cortesia",
+    // SPEC-040 (D-040-2/D-040-3): sem cobrança real, acesso sem limite. Só o `platform_admin` atribui
+    // este plano (`createCourtesyOrganization`) — nunca aparece na listagem pública (`listActivePlans`
+    // filtra explicitamente esta key, ver src/lib/billing/plans.ts) nem tem checkout self-service.
+    priceMonthlyCents: 0,
+    priceYearlyCents: null,
+    limits: { maxCampaigns: null, maxWhatsappInstances: null, maxLeadsPerMonth: null },
+    selfServiceCheckout: false,
+  },
+] as const;
+
+export async function seedPlans(prisma: PrismaClient): Promise<void> {
+  for (const p of PLAN_SEED) {
+    await prisma.plan.upsert({
+      where: { key: p.key },
+      update: {},
+      create: { key: p.key, name: p.name, priceMonthlyCents: p.priceMonthlyCents, priceYearlyCents: p.priceYearlyCents, limits: p.limits, selfServiceCheckout: p.selfServiceCheckout },
+    });
   }
 }
 

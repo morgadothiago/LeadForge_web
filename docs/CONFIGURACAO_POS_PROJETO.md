@@ -16,6 +16,7 @@ Precisam existir antes do banco funcionar. Gere com `openssl rand -base64 32` (o
 - [ ] `INGEST_SECRET` (32+ chars, valor DIFERENTE do `CRON_SECRET`) e `INTEGRATION_LEADS_ENABLED=true` — so se quiser ingerir leads via `POST /api/integrations/leads`; o endpoint vem DESLIGADO (503) e so liga com AMBOS
 - [ ] `TRUSTED_PROXY_IP_HEADER` — atras de proxy/CDN (ex.: `x-real-ip`, `cf-connecting-ip`), para o rate limit por IP funcionar; vazio = limita so por e-mail/token
 - [ ] `ALLOW_PRIVATE_SMTP_HOSTS` — deixe `false` em producao (so `true` para SMTP interno confiavel em dev)
+- [ ] `SMTP_HOST` / `SMTP_PORT` / `SMTP_USER` / `SMTP_PASS` — SPEC-038: sem isso, o e-mail de "esqueci minha senha" (redefinicao de senha) nao e enviado (a resposta ao usuario continua generica por seguranca, mas nenhum e-mail sai; a falha e so logada no servidor)
 - Opcionais: `WHATSAPP_PROMO_WORDS`, `WHATSAPP_DISCONNECT_GRACE_MINUTES` (default 10), variaveis de teto do scheduler (ver `.env.example`)
 
 ## 2. Integracoes (hoje no `.env`; passam a ser cadastradas pelo painel na SPEC-018)

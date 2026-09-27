@@ -93,6 +93,33 @@ enum OrgStatus {
   cancelled
 }
 
+/// SPEC-039 (correcao QA, D-039-1): distingue POR QUE `Organization.status` chegou a `suspended` — o
+/// unico jeito de saber isso sem ambiguidade e um sinal explicito gravado no momento da transicao
+/// (nunca re-derivado do estado atual depois). `automatic` = `syncOrgStatuses` (status-map.ts) suspendeu
+/// por causa da propria `Subscription` (grace de past_due expirado, ou canceled/incomplete). `manual` =
+/// `suspendOrganization` (SPEC-031, platform_admin) suspendeu por acao humana, independente do estado da
+/// assinatura. `reminders.ts` usa este campo para o gatilho `auto_suspended` NUNCA disparar para
+/// suspensao manual (mesmo quando a subscription tambem esta em `past_due` por coincidencia).
+enum OrgSuspendedReason {
+  automatic
+  manual
+}
+
+/// SPEC-033: espelha o vocabulario do provedor de pagamento (Stripe, D-33-1). `incomplete` = checkout iniciado mas nao confirmado.
+enum SubscriptionStatus {
+  trialing
+  active
+  past_due
+  canceled
+  incomplete
+}
+
+/// SPEC-033: periodicidade de cobranca (D-33-2: mensal ou anual, anual com desconto).
+enum BillingCadence {
+  monthly
+  yearly
+}
+
 /// SPEC-030: papel do usuario DENTRO do tenant (nao confundir com User.role, que e papel de PLATAFORMA).
 enum OrgRole {
   owner
@@ -105,9 +132,16 @@ model Organization {
   name      String
   slug      String    @unique
   status    OrgStatus @default(active)
+  /// SPEC-039 (correcao QA): por que `status` esta em `suspended` (null quando `status != suspended`, ou
+  /// para orgs nunca suspensas). Gravado SEMPRE no momento exato da transicao — `syncOrgStatuses` grava
+  /// `automatic`, `suspendOrganization` grava `manual` — nunca re-derivado depois.
+  suspendedReason OrgSuspendedReason?
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
+  /// SPEC-033 (D-33-4): marcado quando o job de expurgo anonimiza o dado da org (90 dias apos cancelamento). null = nunca expurgada.
+  purgedAt  DateTime?
 
+  subscription         Subscription?
   memberships          Membership[]
   campaigns            Campaign[]
   whatsappInstances    WhatsAppInstance[]
@@ -116,15 +150,18 @@ model Organization {
   schedulerRuns        SchedulerRun[]
   integrationSecrets   IntegrationSecret[]
   integrationAuditLogs IntegrationAuditLog[]
+  platformAuditLogs    PlatformAuditLog[]
   agentSettings        AgentSettings?
   meetingSettings      MeetingSettings?
   agents               Agent[]
   knowledgeDocuments   KnowledgeDocument[]
   webhookEvents        WebhookEvent[]
+  billingReminderLogs  BillingReminderLog[]
   icpProfiles          IcpProfile[]
   sequences            Sequence[]
   messageTemplates     MessageTemplate[]
   mobileAlerts         MobileAlert[]
+  leadSourceBindings   LeadSourceBinding[]
 
   @@index([status])
 }
@@ -145,17 +182,37 @@ model Membership {
 
 /// SPEC-030: `role` e o papel de PLATAFORMA ("platform_admin" | "provider"), nao o papel dentro do tenant (esse e `Membership.orgRole`). `platform_admin` nao tem `Organization`/`Membership` propria; acessa dados via caminho cross-tenant explicito (`src/lib/tenant/admin-prisma.ts`).
 model User {
-  id            String         @id @default(uuid())
-  name          String
-  email         String         @unique
-  role          String         @default("provider")
-  passwordHash  String?
-  avatarUrl     String?
-  createdAt     DateTime       @default(now())
-  updatedAt     DateTime       @updatedAt
-  campaigns     Campaign[]
-  emailAccounts EmailAccount[]
-  memberships   Membership[]
+  id                    String               @id @default(uuid())
+  name                  String
+  email                 String               @unique
+  role                  String               @default("provider")
+  passwordHash          String?
+  avatarUrl             String?
+  /// SPEC-038 (D-038-2): redefinir a senha grava `now()` aqui. `requireUser()` rejeita qualquer sessão (JWT)
+  /// emitida ANTES deste timestamp (compara com o `iat` do token) — mecanismo de invalidação em massa das
+  /// sessões antigas, já que a sessão web é JWT stateless (sem tabela de sessões para revogar diretamente).
+  sessionsInvalidatedAt DateTime?
+  createdAt             DateTime             @default(now())
+  updatedAt             DateTime             @updatedAt
+  campaigns             Campaign[]
+  emailAccounts         EmailAccount[]
+  memberships           Membership[]
+  passwordResetTokens   PasswordResetToken[]
+}
+
+/// SPEC-038: token de "esqueci minha senha". Só o hash (sha256) é gravado — nunca o valor em claro (mesmo
+/// cuidado de `MobileDevice.refreshHash`/`IntegrationSecret`). `expiresAt` = criação + 24h (D-038-1, decisão
+/// explícita do usuário — não o padrão de mercado de 30-60min). `usedAt` marca consumo (nunca reutilizável).
+model PasswordResetToken {
+  id        String    @id @default(uuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId, createdAt])
 }
 
 model IcpProfile {
@@ -200,6 +257,7 @@ model Campaign {
   meetings           Meeting[]
   templates          MessageTemplate[]
   searchRuns         SearchRun[]
+  leadSourceBindings LeadSourceBinding[]
 
   @@index([orgId, status])
   @@index([userId])
@@ -516,6 +574,31 @@ model WebhookEvent {
   @@index([orgId, createdAt])
 }
 
+/// SPEC-041 (D-041-3): vínculo 1:1 EXPLÍCITO entre uma Conta de Anúncios do Google Ads / Página do Meta e uma Campaign.
+/// Cadastrado pelo Provider (usuário orgRole owner/admin da org, papel "provider" em `User.role`). É a ÚNICA forma de
+/// resolver org/campanha a partir do payload de um webhook de lead do Google/Meta — nunca um segredo global compartilhado
+/// (o padrão de risco documentado no INGEST_SECRET global de `/api/integrations/leads`, SPEC-014).
+/// `externalAccountId`: Google -> o `google_key` configurado pelo Provider na extensão de formulário (identifica E autentica,
+/// mesmo padrão de `WhatsAppInstance.webhookToken`); Meta -> o `page_id` (Facebook Page ID) que chega no webhook `leadgen`
+/// (identifica; a autenticidade do webhook em si vem da assinatura `X-Hub-Signature-256`, verificada ANTES de qualquer uso deste vínculo).
+model LeadSourceBinding {
+  id                String             @id @default(uuid())
+  orgId             String
+  org               Organization       @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  campaignId        String
+  campaign          Campaign           @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  provider          LeadSourceProvider
+  externalAccountId String
+  /// Rótulo livre pro Provider reconhecer a conta/página (ex.: nome da conta de anúncios/página) — nunca usado na resolução.
+  label             String?
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+
+  @@unique([provider, externalAccountId])
+  @@index([orgId])
+  @@index([campaignId])
+}
+
 model StageHistory {
   id            String      @id @default(uuid())
   opportunityId String
@@ -536,8 +619,8 @@ model SchedulerRun {
   org        Organization? @relation(fields: [orgId], references: [id], onDelete: Cascade)
   startedAt  DateTime
   finishedAt DateTime?
-  status     String       @default("running")
-  counters   Json         @default("{}")
+  status     String        @default("running")
+  counters   Json          @default("{}")
   error      String?
 
   @@index([orgId, startedAt])
@@ -550,6 +633,16 @@ enum IntegrationKind {
   n8n
   llm
   places
+  /// SPEC-041: segredo de validação do webhook do Google Ads Lead Form (não usado para resolver org/campanha — isso é sempre a LeadSourceBinding, D-041-3).
+  google_ads_leads
+  /// SPEC-041: App Secret (assinatura X-Hub-Signature-256) e/ou Page Access Token (name=`page:<pageId>`) do Meta Lead Ads.
+  meta_leads
+}
+
+/// SPEC-041: plataforma de origem de um vínculo Conta de Anúncios/Página -> Campaign (D-041-3).
+enum LeadSourceProvider {
+  google_ads
+  meta
 }
 
 enum IntegrationAuditAction {
@@ -597,6 +690,31 @@ model IntegrationAuditLog {
 
   @@index([orgId, integration, at])
   @@index([integration, at])
+}
+
+/// SPEC-031: acoes cross-tenant do `platform_admin` sobre uma Organization (suspender/reativar).
+enum PlatformAuditAction {
+  suspend
+  reactivate
+  /// SPEC-040: platform_admin cria manualmente uma Organization de cortesia (plano "courtesy", sem checkout real).
+  create_courtesy_org
+}
+
+/// SPEC-031: auditoria "quem/quando/acao/motivo" das acoes cross-tenant do `platform_admin` (mesmo
+/// padrao de `IntegrationAuditLog`, SPEC-018). `adminUserId` e so o id (sem relation) de proposito —
+/// mesma escolha de `IntegrationAuditLog.userId` — para nao criar dependencia de FK sobre `User` numa
+/// tabela de auditoria que deve sobreviver mesmo que a conta do admin seja removida futuramente.
+model PlatformAuditLog {
+  id          String              @id @default(uuid())
+  adminUserId String
+  orgId       String
+  org         Organization        @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  action      PlatformAuditAction
+  reason      String?
+  at          DateTime            @default(now())
+
+  @@index([orgId, at])
+  @@index([adminUserId, at])
 }
 
 // ---------- SPEC-019: Agentes de IA ----------
@@ -814,6 +932,100 @@ model MobileAlert {
   @@index([orgId, kind, resolvedAt])
   @@index([createdAt, id])
   @@index([kind, resolvedAt])
+}
+
+// ---------- SPEC-033: Billing/assinatura ----------
+
+/// SPEC-033: catalogo de planos (gerido pelo platform_admin; sem endpoint de gestao nesta SPEC, cadastrado via seed).
+/// D-33-2: precos/limites sao PLACEHOLDER ate confirmacao explicita do usuario antes do launch.
+model Plan {
+  id                   String         @id @default(uuid())
+  /// Slug estavel usado no codigo (ex. "starter"/"pro"/"business"). Nunca muda depois de criado.
+  key                  String         @unique
+  name                 String
+  priceMonthlyCents    Int
+  priceYearlyCents     Int?
+  /// PLACEHOLDER (D-33-2): ex. {"maxCampaigns":3,"maxWhatsappInstances":1,"maxLeadsPerMonth":500}. Enforcement fino fica fora do escopo da SPEC-033.
+  limits               Json
+  /// Permite descontinuar o plano sem apagar historico (assinaturas existentes continuam validas).
+  active               Boolean        @default(true)
+  /// null com PAYMENT_PROVIDER=mock (sem conta Stripe ainda, D-33-5); preenchido quando o adapter Stripe for ativado.
+  stripePriceIdMonthly String?
+  stripePriceIdYearly  String?
+  /// D-33-2: Business e "sob consulta", sem checkout self-service (createCheckoutSession recusa este key).
+  selfServiceCheckout  Boolean        @default(true)
+  createdAt            DateTime       @default(now())
+  updatedAt            DateTime       @updatedAt
+  subscriptions        Subscription[]
+}
+
+/// SPEC-033: 1 assinatura ativa por Organization (orgId unico). `status` e espelho do provedor (Stripe,
+/// D-33-1); `Organization.status` e DERIVADO daqui por um unico mapeamento (`src/lib/billing/status-map.ts`)
+/// para nao divergir do enforcement do cron (SPEC-030).
+model Subscription {
+  id                     String             @id @default(uuid())
+  orgId                  String             @unique
+  org                    Organization       @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  planId                 String
+  plan                   Plan               @relation(fields: [planId], references: [id], onDelete: Restrict)
+  status                 SubscriptionStatus @default(trialing)
+  cadence                BillingCadence     @default(monthly)
+  currentPeriodEnd       DateTime?
+  cancelAtPeriodEnd      Boolean            @default(false)
+  /// D-33-3: trial de 14 dias sem cartao. null fora do periodo de trial.
+  trialEndsAt            DateTime?
+  /// D-33-3: inicio do `past_due` atual (ancora do grace period de 7 dias). null = em dia.
+  pastDueSince           DateTime?
+  /// D-33-4: soft-block imediato ao cancelar; ancora dos 90 dias de retencao antes do expurgo.
+  canceledAt             DateTime?
+  /// Id do customer no provedor externo (Stripe). null em modo mock ate o 1º checkout.
+  externalCustomerId     String?
+  /// Id da subscription no provedor externo (Stripe). null em modo mock.
+  externalSubscriptionId String?
+  /// SPEC-047 (D-047-1): true quando o ciclo desta assinatura e cobrado via PIX avulso do AbacatePay
+  /// (`transparents/create`) com renovacao controlada pelo LeadForge (src/lib/billing/pix-renewal.ts),
+  /// e nao pelo provedor. false/default para os demais casos (mock, Stripe, ou AbacatePay via cartao
+  /// tokenizado com `subscriptions/create` — recorrencia REAL gerenciada pelo provedor).
+  pixManaged              Boolean            @default(false)
+  /// SPEC-047: id da cobranca PIX avulsa pendente do ciclo atual (AbacatePay `transparents/create`).
+  /// null quando nao ha cobranca pendente (fora da janela de renovacao, ou o ciclo ja foi pago/tratado).
+  pixChargeId             String?
+  /// SPEC-047: expiracao da cobranca PIX pendente (`data.expiresAt` do AbacatePay). O job de renovacao usa
+  /// isto para decidir "venceu sem pagamento" (equivalente a cartao recusado, D-047-1) sem criar um
+  /// mecanismo de bloqueio paralelo — a transicao em si e sempre feita via processBillingEvent/status-map.ts.
+  pixChargeExpiresAt     DateTime?
+  createdAt              DateTime           @default(now())
+  updatedAt              DateTime           @updatedAt
+
+  @@index([status])
+  @@index([pixManaged, status])
+}
+
+/// SPEC-039 (D-039-2): "aviso ja enviado" por episodio de cobranca — idempotencia dos e-mails de
+/// lembrete/aviso disparados em cima do fluxo de billing ja existente (SPEC-033), sem tocar na
+/// logica/timing de bloqueio (D-039-3). `anchorAt` e o timestamp que ANCORA o episodio sendo avisado
+/// (`trialEndsAt` para trial_ending, `pastDueSince` para past_due_started/auto_suspended — mesmo
+/// episodio de past_due gera os dois avisos com a MESMA ancora —, `canceledAt` para purge_warning):
+/// se a org passar por um NOVO episodio (ex.: novo `past_due` apos voltar a ficar em dia), a ancora
+/// muda e o aviso e enviado de novo; reprocessar o MESMO episodio (cron rodando de novo) nao duplica
+/// porque `@@unique([orgId, kind, anchorAt])` bloqueia o INSERT repetido antes do e-mail ser enviado.
+model BillingReminderLog {
+  id        String              @id @default(uuid())
+  orgId     String
+  org       Organization        @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  kind      BillingReminderKind
+  anchorAt  DateTime
+  sentAt    DateTime            @default(now())
+
+  @@unique([orgId, kind, anchorAt])
+  @@index([orgId, kind])
+}
+
+enum BillingReminderKind {
+  trial_ending
+  past_due_started
+  auto_suspended
+  purge_warning
 }
 
 /// SPEC-026: auditoria das acoes de gestao do app (sem PII: so ids) + idempotencia por (deviceId, Idempotency-Key).

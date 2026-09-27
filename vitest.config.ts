@@ -11,6 +11,14 @@ export default defineConfig({
   test: {
     environment: "node",
     fileParallelism: false,
+    // SPEC-030/031 passaram a varrer (`sweepAlerts`) 1x por Organization ATIVA do banco de teste
+    // compartilhado (cross-tenant, por design). O numero de orgs so cresce a medida que specs
+    // acrescentam fixtures (`createTestOrg`/`mkMeetingFixture`) — testes que fazem varias varreduras
+    // sequenciais numa unica `it` (ex. meeting-reminders.test.ts) ficavam no limite do timeout padrao
+    // de 5000ms, e ocasionalmente furavam por variacao normal de latencia (flakiness). Timeout maior
+    // da margem real sem mascarar hangs genuinos (ainda finito e bem abaixo do teto de push, 15s).
+    testTimeout: 15_000,
+    hookTimeout: 15_000,
     env: testUrl ? { DATABASE_URL: testUrl } : {},
     globalSetup: ["./src/test/global-setup.ts"],
     setupFiles: ["./src/test/setup-guard.ts", "./src/test/setup.ts"],
