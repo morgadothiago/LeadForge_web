@@ -7,8 +7,9 @@ import { AppError } from "@/lib/errors";
 import { AbacatePayPaymentProvider } from "./abacatepay";
 
 /**
- * SPEC-047 — testes do adapter AbacatePay. NUNCA chama a API real (axios adapter mockado, mesmo padrão
- * de `whatsapp/providers/evolution.test.ts`); `webhookSecret`/`apiKey` são valores de teste, não segredos reais.
+ * SPEC-047 — testes do adapter AbacatePay. NUNCA chama a API real (axios adapter mockado, mesmo padrão já
+ * usado no teste do outro provider de WhatsApp deste projeto); `webhookSecret`/`apiKey` são valores de
+ * teste, não segredos reais.
  */
 
 const API_KEY = "test-abacatepay-api-key";

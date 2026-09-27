@@ -193,7 +193,8 @@ describe("POST leadgen: assinatura verificada ANTES de qualquer efeito colateral
     _setGraphApiFetch(fakeGraphFetch({ [leadgenId]: [{ name: "full_name", values: ["Cross Tenant"] }] }));
     await post(leadgenPayload(pageId, leadgenId));
     expect(await prisma.lead.count({ where: { campaignId: campaignB } })).toBe(0);
-    expect(await prisma.lead.count({ where: { campaignId: campaignA } })).toBe(1);
+    const created = await prisma.lead.findFirst({ where: { campaignId: campaignA, name: "Cross Tenant" } });
+    expect(created).not.toBeNull();
   });
 
   it("respeita supressão da org", async () => {

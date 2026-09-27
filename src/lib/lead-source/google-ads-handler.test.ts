@@ -54,7 +54,7 @@ afterEach(async () => {
 
 const gKeyA = () => `zz-gkey-a-${++n}`;
 const userColumnData = (over: Record<string, string> = {}) => {
-  const base: Record<string, string> = { FULL_NAME: "Ana Souza", EMAIL: `ana${n}@${TAG}.com`, PHONE_NUMBER: "11 91234-5678", ...over };
+  const base: Record<string, string> = { FULL_NAME: "Ana Souza", EMAIL: `ana${n}@${TAG}.com`, PHONE_NUMBER: `11 9${String(n).padStart(8, "0")}`, ...over };
   return Object.entries(base).map(([column_id, string_value]) => ({ column_id, column_name: column_id, string_value }));
 };
 const payload = (googleKey: string, leadId: string, over: Record<string, string> = {}) => ({
@@ -111,7 +111,7 @@ describe("resolução de org/campanha exclusivamente via LeadSourceBinding (D-04
     expect(body.status).toBe("created");
     const lead = await prisma.lead.findFirst({ where: { campaignId: campaignA, source: "google_ads_leads" }, orderBy: { id: "desc" } });
     expect(lead?.name).toBe("Ana Souza");
-    expect(lead?.phone).toBe("+5511912345678");
+    expect(lead?.phone).toBe(`+55119${String(n).padStart(8, "0")}`);
     expect((lead?.rawData as Record<string, unknown>)?.JOB_TITLE).toBe("CTO");
     expect((lead?.rawData as Record<string, unknown>)?.externalLeadId).toBe(leadId);
   });
