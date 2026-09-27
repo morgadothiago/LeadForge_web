@@ -3,9 +3,11 @@ import { Input } from "@/components/ui/input";
 import { LogoutButton } from "@/components/auth/LogoutButton";
 import { NotificationBell } from "@/components/notifications/NotificationBell";
 import { SidebarTrigger } from "@/components/ui/sidebar";
+import { ThemeToggle } from "./ThemeToggle";
+import type { Theme } from "@/lib/theme-state";
 import { PageTitle } from "./PageTitle";
 
-export function Header({ user }: { user: { name: string; email: string } }) {
+export function Header({ user, initialTheme }: { user: { name: string; email: string }; initialTheme: Theme }) {
   return (
     <header className="flex h-16 shrink-0 items-center gap-3 border-b border-border px-4 md:px-6">
       <SidebarTrigger aria-label="Abrir ou recolher menu" />
@@ -15,6 +17,7 @@ export function Header({ user }: { user: { name: string; email: string } }) {
         <Input type="search" aria-label="Buscar" placeholder="Buscar..." className="pl-9" />
       </div>
       <div className="ml-auto flex items-center gap-2 sm:ml-0">
+        <ThemeToggle initialTheme={initialTheme} />
         <NotificationBell />
         <div className="hidden min-w-0 text-right leading-tight md:block">
           <p className="max-w-40 truncate text-sm font-medium">{user.name}</p>

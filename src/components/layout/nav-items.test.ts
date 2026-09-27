@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { NAV_ITEMS, getPageTitle, isActivePath } from "./nav-items";
+import { ADMIN_NAV_ITEMS, NAV_ITEMS, getPageTitle, isActivePath } from "./nav-items";
 
 describe("nav-items", () => {
   it("mantém 9 itens na ordem e com rótulos PT-BR", () => {
@@ -22,5 +22,16 @@ describe("nav-items", () => {
     expect(getPageTitle("/pipeline")).toBe("Pipeline");
     expect(getPageTitle("/leads/123")).toBe("Leads");
     expect(getPageTitle("/nada")).toBe("LeadForge");
+  });
+
+  it("SPEC-032: ADMIN_NAV_ITEMS tem só 'Administração', sem sobrepor NAV_ITEMS", () => {
+    expect(ADMIN_NAV_ITEMS).toHaveLength(1);
+    expect(ADMIN_NAV_ITEMS[0]).toMatchObject({ href: "/admin/organizacoes", label: "Administração" });
+    expect(NAV_ITEMS.some((i) => i.href === "/admin/organizacoes")).toBe(false);
+  });
+
+  it("getPageTitle reconhece rotas de administração (lista e detalhe)", () => {
+    expect(getPageTitle("/admin/organizacoes")).toBe("Administração");
+    expect(getPageTitle("/admin/organizacoes/abc-123")).toBe("Administração");
   });
 });

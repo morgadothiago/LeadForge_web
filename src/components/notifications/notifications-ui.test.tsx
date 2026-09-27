@@ -15,10 +15,10 @@ const sum = (n: number): NotificationSummaryState => ({ unreadTotal: n, byArea: 
 const bell = (n: number) => renderToStaticMarkup(<NotificationsProvider initial={sum(n)}><NotificationBell /></NotificationsProvider>);
 
 describe("sino", () => {
-  it("com não lidas: aria-label com N, ponto/contador #1fb390 aria-hidden", () => {
+  it("com não lidas: aria-label com N, ponto/contador bg-primary aria-hidden", () => {
     const html = bell(3);
     expect(html).toContain('aria-label="Notificações, 3 não lidas"');
-    expect(html).toContain("bg-[#1fb390]");
+    expect(html).toContain("bg-primary");
     expect(html).toContain('data-has-unread="true"');
     expect(html).toContain(">3<");
   });

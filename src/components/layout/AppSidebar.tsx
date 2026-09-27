@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import { getFormError } from "@/components/campaigns/form-utils";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { logout } from "@/lib/actions/auth";
+import { clearClientStorage } from "@/lib/auth/client-logout";
 import {
   Sidebar,
   SidebarContent,
@@ -22,7 +23,7 @@ import {
 import { useNotifications } from "@/components/notifications/NotificationsProvider";
 import { countFor, navNewText, navTooltip } from "@/lib/notifications/client-types";
 import { Logo } from "./Logo";
-import { NAV_ITEMS, isActivePath } from "./nav-items";
+import { ADMIN_NAV_ITEMS, NAV_ITEMS, isActivePath, type NavItem } from "./nav-items";
 
 function initials(name: string) {
   const parts = name.trim().split(/\s+/).filter(Boolean);
@@ -37,8 +38,10 @@ function NavUser({ user }: { user: { name: string; email: string } }) {
   const onLogout = () =>
     startTransition(async () => {
       const res = await logout();
-      if (res.ok) router.replace(res.data.redirectTo);
-      else toast.error(getFormError(res.errors, "Não foi possível sair. Tente novamente."));
+      if (res.ok) {
+        clearClientStorage();
+        router.replace(res.data.redirectTo);
+      } else toast.error(getFormError(res.errors, "Não foi possível sair. Tente novamente."));
     });
   const avatar = (
     <span aria-hidden="true" className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary/15 text-xs font-semibold text-primary">
@@ -79,10 +82,12 @@ function NavUser({ user }: { user: { name: string; email: string } }) {
   );
 }
 
-export function AppSidebar({ user }: { user: { name: string; email: string } }) {
+export function AppSidebar({ user, platformRole = "provider" }: { user: { name: string; email: string }; platformRole?: "provider" | "platform_admin" }) {
   const pathname = usePathname();
   const { setOpenMobile } = useSidebar();
   const { summary } = useNotifications();
+  // SPEC-032: platform_admin nunca vê os itens de provider (Dashboard/Leads/Campanhas... dependem de orgId, que platform_admin não tem).
+  const items: readonly NavItem[] = platformRole === "platform_admin" ? ADMIN_NAV_ITEMS : NAV_ITEMS;
   return (
     <Sidebar collapsible="icon" variant="sidebar">
       <SidebarHeader className="gap-0 p-0">
@@ -101,7 +106,7 @@ export function AppSidebar({ user }: { user: { name: string; email: string } }) 
         <SidebarGroup className="p-3">
           <nav aria-label="Navegação principal">
             <SidebarMenu className="gap-1">
-              {NAV_ITEMS.map(({ href, label, icon: Icon, badgeKey }) => {
+              {items.map(({ href, label, icon: Icon, badgeKey }) => {
                 const active = isActivePath(pathname, href);
                 const fresh = badgeKey ? countFor(summary, badgeKey) : 0;
                 return (
@@ -111,7 +116,7 @@ export function AppSidebar({ user }: { user: { name: string; email: string } }) 
                       tooltip={navTooltip(label, fresh)}
                       data-has-new={fresh > 0 ? "true" : undefined}
                       render={<Link href={href} aria-current={active ? "page" : undefined} onClick={() => setOpenMobile(false)} />}
-                      className="relative h-10 gap-3 px-3 font-medium text-sidebar-foreground focus-visible:ring-primary/40 data-active:bg-primary/10 data-active:text-[#e9ecec] group-data-[collapsible=icon]:[&_svg]:size-4 [&_svg]:size-5"
+                      className="relative h-10 gap-3 px-3 font-medium text-sidebar-foreground focus-visible:ring-primary/40 data-active:bg-primary/10 data-active:text-sidebar-accent-foreground group-data-[collapsible=icon]:[&_svg]:size-4 [&_svg]:size-5"
                     >
                       <Icon aria-hidden="true" />
                       <span className="truncate">{label}</span>
@@ -121,7 +126,7 @@ export function AppSidebar({ user }: { user: { name: string; email: string } }) 
                           <span
                             aria-hidden="true"
                             data-slot="new-dot"
-                            className="ml-auto size-2 shrink-0 rounded-full bg-[#1fb390] group-data-[collapsible=icon]:absolute group-data-[collapsible=icon]:right-1.5 group-data-[collapsible=icon]:top-1.5 group-data-[collapsible=icon]:ml-0"
+                            className="ml-auto size-2 shrink-0 rounded-full bg-primary group-data-[collapsible=icon]:absolute group-data-[collapsible=icon]:right-1.5 group-data-[collapsible=icon]:top-1.5 group-data-[collapsible=icon]:ml-0"
                           />
                         </>
                       ) : null}

@@ -50,7 +50,7 @@ export function NotificationBell() {
           <span
             aria-hidden="true"
             data-slot="bell-count"
-            className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-[#1fb390] px-1 text-[10px] font-bold leading-none text-[#0a0e11] tabular-nums"
+            className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-bold leading-none text-primary-foreground tabular-nums"
           >
             {bellCountText(count)}
           </span>

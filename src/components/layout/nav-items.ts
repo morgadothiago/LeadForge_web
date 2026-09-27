@@ -1,4 +1,4 @@
-import { Bell, CalendarDays, Kanban, ClipboardCheck, LayoutDashboard, Megaphone, Settings, Users, Workflow, type LucideIcon } from "lucide-react";
+import { Bell, Building2, CalendarDays, Kanban, ClipboardCheck, LayoutDashboard, Megaphone, Settings, Users, Workflow, type LucideIcon } from "lucide-react";
 
 import type { NavBadgeKey } from "@/lib/notifications/client-types";
 
@@ -23,10 +23,19 @@ export const NAV_ITEMS: readonly NavItem[] = [
   { href: "/configuracoes", label: "Configurações", description: "Contas de envio e integrações.", icon: Settings, badgeKey: "configuracoes" },
 ];
 
+/**
+ * SPEC-032 — navegação do `platform_admin` (cross-tenant, sem `orgId`): substitui INTEIRAMENTE
+ * `NAV_ITEMS` na sidebar (nunca aparece junto) — nenhum item de `NAV_ITEMS` faz sentido sem org
+ * (Dashboard/Leads/Campanhas etc. dependem de `orgId`). `provider` nunca vê `ADMIN_NAV_ITEMS`.
+ */
+export const ADMIN_NAV_ITEMS: readonly NavItem[] = [
+  { href: "/admin/organizacoes", label: "Administração", description: "Organizations da plataforma: listar, ver detalhe, suspender/reativar.", icon: Building2 },
+];
+
 export function isActivePath(pathname: string, href: string): boolean {
   return pathname === href || pathname.startsWith(`${href}/`);
 }
 
 export function getPageTitle(pathname: string): string {
-  return NAV_ITEMS.find((i) => isActivePath(pathname, i.href))?.label ?? "LeadForge";
+  return [...NAV_ITEMS, ...ADMIN_NAV_ITEMS].find((i) => isActivePath(pathname, i.href))?.label ?? "LeadForge";
 }

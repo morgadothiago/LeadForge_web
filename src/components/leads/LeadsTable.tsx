@@ -71,11 +71,11 @@ export function LeadsTable({ items, total, page, pageSize, pageCount, sort, dir,
   return (
     <div className="space-y-4">
       {/* Desktop: tabela */}
-      <div className="hidden overflow-hidden rounded-lg border border-[#202226] md:block">
+      <div className="hidden overflow-hidden rounded-lg border border-border md:block">
         <table className="w-full text-sm">
           <caption className="sr-only">Leads ({total})</caption>
-          <thead className="bg-[#1a1d21]">
-            <tr className="border-b border-[#202226]">
+          <thead className="bg-muted">
+            <tr className="border-b border-border">
               {COLS.map((c) => (
                 <th
                   key={c.label}
@@ -100,7 +100,7 @@ export function LeadsTable({ items, total, page, pageSize, pageCount, sort, dir,
           </thead>
           <tbody>
             {items.map((l) => (
-              <tr key={l.id} className="relative border-b border-[#202226] transition-colors last:border-0 hover:bg-[#131619] focus-within:bg-[#131619]">
+              <tr key={l.id} className="relative border-b border-border transition-colors last:border-0 hover:bg-muted/50 focus-within:bg-muted/50">
                 <td className="px-3 py-3 font-medium">
                   {/* after:absolute inset-0 estende o link à linha inteira (link real acessível) */}
                   <Link href={`/leads/${l.id}`} className="rounded-sm outline-none after:absolute after:inset-0 focus-visible:after:ring-2 focus-visible:after:ring-primary/40">
@@ -128,7 +128,7 @@ export function LeadsTable({ items, total, page, pageSize, pageCount, sort, dir,
       {/* Mobile: cards */}
       <ul className="grid gap-3 md:hidden">
         {items.map((l) => (
-          <li key={l.id} className="relative rounded-lg border border-[#202226] bg-card p-4 hover:bg-[#131619]">
+          <li key={l.id} className="relative rounded-lg border border-border bg-card p-4 hover:bg-muted/50">
             <div className="flex items-start justify-between gap-2">
               <div className="min-w-0">
                 <Link href={`/leads/${l.id}`} className="truncate font-semibold outline-none after:absolute after:inset-0 after:rounded-lg focus-visible:after:ring-2 focus-visible:after:ring-primary/40">

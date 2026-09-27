@@ -3,50 +3,138 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/*
+ * SPEC-037 — identidade visual UNIFICADA (D-037-2): paleta clara + primária roxo/índigo (#6d5ef5),
+ * antes isolada em `.landing-theme` (SPEC-035), agora é o tema padrão do design system inteiro
+ * (`:root`, sem classe) — landing, login, signup e todo o app logado herdam os mesmos tokens
+ * semânticos. O modo `dark` (classe `.dark` no `<html>`, aplicada via cookie `theme` lido no
+ * servidor, ver `src/lib/theme-state.ts`) é uma VARIANTE ESCURA da MESMA identidade índigo: fundo
+ * escuro, primária ainda no espectro roxo/índigo, porém mais clara/saturada (#9d8cff) do que a
+ * versão light (#6d5ef5) para manter contraste AA sobre fundo escuro — ver Implementation Notes da
+ * spec para o cálculo de contraste de cada token.
+ */
 :root {
-  --background: #0a0e11;
-  --foreground: #e9ecec;
-  --card: #131619;
-  --card-foreground: #e9ecec;
-  --popover: #131619;
-  --popover-foreground: #e9ecec;
-  --muted: #1a1d21;
-  --muted-foreground: #747b82;
-  --sidebar: #111417;
-  --sidebar-foreground: #bcc4c7;
-  --sidebar-primary: #1fb390;
-  --sidebar-primary-foreground: #0a0e11;
-  --sidebar-accent: #202226;
-  --sidebar-accent-foreground: #e9ecec;
-  --sidebar-border: #202226;
-  --sidebar-ring: #1fb390;
-  --primary: #1fb390;
-  --primary-hover: #1a9e7e;
-  --primary-foreground: #0a0e11;
-  --secondary: #1a1d21;
-  --secondary-foreground: #e9ecec;
-  --accent: #202226;
-  --accent-foreground: #e9ecec;
+  --background: #f8f8fc;
+  --foreground: #14121f;
+  --card: #ffffff;
+  --card-foreground: #14121f;
+  --popover: #ffffff;
+  --popover-foreground: #14121f;
+  --muted: #f1f0f8;
+  --muted-foreground: #66647a;
+  --sidebar: #ffffff;
+  --sidebar-foreground: #4a4760;
+  --sidebar-primary: #6d5ef5;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #ece9fe;
+  --sidebar-accent-foreground: #4a3fd1;
+  --sidebar-border: #e7e5f3;
+  --sidebar-ring: #6d5ef5;
+  --primary: #6d5ef5;
+  --primary-hover: #5a4ce0;
+  --primary-foreground: #ffffff;
+  --secondary: #f1f0f8;
+  --secondary-foreground: #14121f;
+  --accent: #ece9fe;
+  --accent-foreground: #4a3fd1;
   --destructive: #dc2626;
-  --border: #202226;
-  --input: #202226;
-  --ring: #1fb390;
-  --warning: #f5b638;
-  --warning-foreground: #0a0e11;
+  --border: #e7e5f3;
+  --input: #e7e5f3;
+  --ring: #6d5ef5;
+  --warning: #92600c;
+  --warning-foreground: #ffffff;
+  --success: #147739;
+  --success-foreground: #ffffff;
   --radius: 0.5rem;
 
-  --stage-novo-lead: #3b82f6;
+  /* Cores de domínio (stage/canal/status de org) — fixas por design, não mudam de "hue" entre os
+   * modos, mas o TOM muda por tema (ver Implementation Notes): aqui, versões escurecidas em relação
+   * ao hue "puro" (ex. `#eab308`), necessárias porque estas cores são usadas como texto sobre um
+   * fundo quase branco (`color-mix` 10%) nos badges (`StatusBadge`/`ChannelBadge`/`OrgStatusBadge`)
+   * — o hue puro não teria contraste AA (4.5:1) contra um fundo claro.
+   */
+  --stage-novo-lead: #0a5de4;
+  --stage-contactado: #826404;
+  --stage-em-followup: #af4a04;
+  --stage-interessado: #147739;
+  --stage-reuniao-agendada: #8f24f5;
+  --stage-fechado: #107636;
+  --stage-perdido: #c82020;
+
+  --channel-email: #0a5de4;
+  --channel-whatsapp: #15783a;
+  --channel-linkedin: #006da6;
+  --channel-phone: #8f24f5;
+
+  --org-active: #147739;
+  --org-suspended: #8d6007;
+  --org-cancelled: #c82020;
+}
+
+.dark {
+  --background: #0f0d1a;
+  --foreground: #eceaf7;
+  --card: #16131f;
+  --card-foreground: #eceaf7;
+  --popover: #16131f;
+  --popover-foreground: #eceaf7;
+  --muted: #1e1a2b;
+  --muted-foreground: #948fb0;
+  --sidebar: #0c0a15;
+  --sidebar-foreground: #b7b0d1;
+  --sidebar-primary: #9d8cff;
+  --sidebar-primary-foreground: #14121f;
+  --sidebar-accent: #221c36;
+  --sidebar-accent-foreground: #eceaf7;
+  --sidebar-border: #2a2540;
+  --sidebar-ring: #9d8cff;
+  --primary: #9d8cff;
+  --primary-hover: #8672f0;
+  --primary-foreground: #14121f;
+  --secondary: #1e1a2b;
+  --secondary-foreground: #eceaf7;
+  --accent: #2a2340;
+  --accent-foreground: #c9bdff;
+  --destructive: #dc2626;
+  --border: #2a2540;
+  --input: #2a2540;
+  --ring: #9d8cff;
+  --warning: #f5b638;
+  --warning-foreground: #14121f;
+  --success: #22c55e;
+  --success-foreground: #0f0d1a;
+
+  /* Cores de domínio no modo escuro: o hue puro (ex. `#22c55e`) já tem contraste AA sobre o fundo
+   * escuro, então na maioria dos casos permanece igual ao valor histórico do app; `perdido`/
+   * `cancelled` e `reuniao_agendada`/`phone`/`linkedin` foram clareados em relação ao hue original
+   * (ex. `#dc2626` -> `#e24e4e`) porque o tom original ficava abaixo de 4.5:1 sobre o novo fundo.
+   *
+   * QA (SPEC-037, rodada de correção pós-IMPLEMENTED): o contraste real dos badges não é o texto
+   * contra `--card` sólido, e sim contra o próprio fundo do badge, que é
+   * `color-mix(in srgb, <cor> 10%, transparent)` composto sobre `--card` (ver `StatusBadge`/
+   * `ChannelBadge`/`OrgStatusBadge`) — uma cor ligeiramente tingida pela própria cor do texto, o
+   * que reduz o contraste em relação ao cálculo contra `--card` puro. 4 tokens falhavam AA (4.5:1)
+   * nesse cálculo mais preciso: `--channel-linkedin` (4.27:1), `--stage-reuniao-agendada`/
+   * `--channel-phone` (4.32:1), `--stage-perdido`/`--org-cancelled` (4.30:1),
+   * `--stage-novo-lead`/`--channel-email` (4.46:1). Clareados o suficiente pra >=4.5:1 nesse
+   * cenário real, com margem (ver `src/lib/design-tokens.test.ts`), mantendo o hue original.
+   */
+  --stage-novo-lead: #3f85f6;
   --stage-contactado: #eab308;
   --stage-em-followup: #f97316;
   --stage-interessado: #22c55e;
-  --stage-reuniao-agendada: #a855f7;
+  --stage-reuniao-agendada: #af63f7;
   --stage-fechado: #16a34a;
-  --stage-perdido: #dc2626;
+  --stage-perdido: #e45a5a;
 
-  --channel-email: #3b82f6;
+  --channel-email: #3f85f6;
   --channel-whatsapp: #25d366;
-  --channel-linkedin: #0077b5;
-  --channel-phone: #a855f7;
+  --channel-linkedin: #0e8fd2;
+  --channel-phone: #af63f7;
+
+  --org-active: #22c55e;
+  --org-suspended: #f5b638;
+  --org-cancelled: #e45a5a;
 }
 
 @theme inline {
@@ -76,6 +164,8 @@
   --color-destructive: var(--destructive);
   --color-warning: var(--warning);
   --color-warning-foreground: var(--warning-foreground);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
@@ -91,6 +181,9 @@
   --color-channel-whatsapp: var(--channel-whatsapp);
   --color-channel-linkedin: var(--channel-linkedin);
   --color-channel-phone: var(--channel-phone);
+  --color-org-active: var(--org-active);
+  --color-org-suspended: var(--org-suspended);
+  --color-org-cancelled: var(--org-cancelled);
 
   --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
   --font-heading: var(--font-space-grotesk), ui-sans-serif, system-ui, sans-serif;
@@ -126,7 +219,8 @@
 
 @layer base {
   * { border-color: var(--border); }
-  html { color-scheme: dark; }
+  html { color-scheme: light; }
+  html.dark { color-scheme: dark; }
   body {
     background: var(--background);
     color: var(--foreground);
@@ -143,8 +237,12 @@
   transition: transform 200ms ease-out, box-shadow 200ms ease-out;
   &:hover {
     transform: translateY(-2px);
-    box-shadow: 0 20px 25px -5px rgb(0 0 0 / 0.4), 0 8px 10px -6px rgb(0 0 0 / 0.4);
+    box-shadow: 0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1);
   }
+}
+
+.dark .hover-lift:hover {
+  box-shadow: 0 20px 25px -5px rgb(0 0 0 / 0.4), 0 8px 10px -6px rgb(0 0 0 / 0.4);
 }
 
 @utility glass {

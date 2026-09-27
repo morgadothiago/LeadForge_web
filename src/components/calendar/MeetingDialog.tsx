@@ -160,8 +160,8 @@ function MeetingForm({ state, meetings, onClose }: { state: NonNullable<DialogSt
 
         <div aria-live="polite">
           {conflicts.length > 0 && editable ? (
-            <div role="status" data-testid="conflict-warning" className="flex gap-2 rounded-lg border border-[#f5b638]/50 bg-[#f5b638]/10 p-3 text-sm">
-              <AlertTriangle aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-[#f5b638]" />
+            <div role="status" data-testid="conflict-warning" className="flex gap-2 rounded-lg border border-warning/50 bg-warning/10 p-3 text-sm">
+              <AlertTriangle aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-warning" />
               <div>
                 <p className="font-medium">Conflito de horário</p>
                 <p className="text-muted-foreground">

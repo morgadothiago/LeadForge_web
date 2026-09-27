@@ -2,7 +2,7 @@
 import * as React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { NAV_ITEMS } from "./nav-items";
+import { ADMIN_NAV_ITEMS, NAV_ITEMS } from "./nav-items";
 
 const state = { pathname: "/dashboard", mobile: false };
 vi.mock("next/navigation", () => ({ usePathname: () => state.pathname, useRouter: () => ({ replace: vi.fn() }) }));
@@ -15,11 +15,11 @@ import { NotificationsProvider } from "@/components/notifications/NotificationsP
 import { EMPTY_SUMMARY, type NotificationSummaryState } from "@/lib/notifications/client-types";
 
 const user = { name: "Ana", email: "ana@x.com" };
-const render = (defaultOpen = true, summary: NotificationSummaryState = EMPTY_SUMMARY) =>
+const render = (defaultOpen = true, summary: NotificationSummaryState = EMPTY_SUMMARY, platformRole?: "provider" | "platform_admin") =>
   renderToStaticMarkup(
     <SidebarProvider defaultOpen={defaultOpen}>
       <NotificationsProvider initial={summary}>
-        <AppSidebar user={user} />
+        <AppSidebar user={user} platformRole={platformRole} />
       </NotificationsProvider>
     </SidebarProvider>,
   );
@@ -105,7 +105,7 @@ describe("AppSidebar", () => {
     expect(html).not.toContain("data-has-new");
   });
 
-  it("com novidades: bolinha #1fb390 + sr-only só nos itens com contagem (Pipeline nunca)", () => {
+  it("com novidades: bolinha bg-primary + sr-only só nos itens com contagem (Pipeline nunca)", () => {
     const html = render(true, withNew);
     // Calendário(1), Leads(2), Aprovações(4), Notificações(3); Configurações=0 e Pipeline sem badgeKey
     expect(dots(html)).toBe(4);
@@ -113,7 +113,7 @@ describe("AppSidebar", () => {
     expect(html).toContain(", 2 novos itens");
     expect(html).toContain(", 4 novos itens");
     expect(html).toContain(", 3 novos itens");
-    expect(html).toContain("bg-[#1fb390]");
+    expect(html).toContain("bg-primary");
     expect(html).toContain('aria-hidden="true" data-slot="new-dot"');
     expect((html.match(/data-has-new="true"/g) ?? []).length).toBe(4);
   });
@@ -131,5 +131,32 @@ describe("AppSidebar", () => {
     const html = render(true, withNew);
     expect(currentCount(html)).toBe(1);
     expect(html).toMatch(/aria-current="page"/);
+  });
+
+  describe("SPEC-032: platformRole", () => {
+    it("provider (padrão/explícito): vê os 9 itens de NAV_ITEMS, nunca 'Administração'", () => {
+      const html = render(true, EMPTY_SUMMARY, "provider");
+      for (const { label } of NAV_ITEMS) expect(html).toContain(label);
+      expect(html).not.toContain("Administração");
+      expect(html).not.toContain('href="/admin/organizacoes"');
+    });
+
+    it("platform_admin: vê SÓ 'Administração', nenhum item de NAV_ITEMS (Dashboard/Leads/Campanhas...)", () => {
+      const html = render(true, EMPTY_SUMMARY, "platform_admin");
+      // Escopo na <nav> de navegação principal (exclui o link de marca no header, que sempre aponta pra /dashboard).
+      const nav = html.match(/<nav aria-label="Navegação principal">[\s\S]*?<\/nav>/)![0];
+      expect(nav).toContain("Administração");
+      expect(nav).toContain('href="/admin/organizacoes"');
+      for (const { label, href } of NAV_ITEMS) {
+        expect(nav).not.toContain(`href="${href}"`);
+        if (!ADMIN_NAV_ITEMS.some((i) => i.label === label)) expect(nav).not.toContain(label);
+      }
+    });
+
+    it("platform_admin: item 'Administração' fica ativo em /admin/organizacoes e em subrotas", () => {
+      state.pathname = "/admin/organizacoes/123";
+      const html = render(true, EMPTY_SUMMARY, "platform_admin");
+      expect(currentCount(html)).toBe(1);
+    });
   });
 });

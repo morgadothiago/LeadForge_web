@@ -38,7 +38,7 @@ export function MetricCard({
         <p
           className={cn(
             "mt-2 inline-flex items-center gap-1 text-xs font-medium",
-            dir === "up" && "text-[#22c55e]",
+            dir === "up" && "text-success",
             dir === "down" && "text-destructive",
             dir === "flat" && "text-muted-foreground",
           )}
