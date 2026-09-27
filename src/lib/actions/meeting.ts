@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { requireProviderOrg } from "@/lib/auth/require-admin";
+import { requireActiveProviderOrg, requireProviderOrg } from "@/lib/auth/require-admin";
 import { scopedPrisma } from "@/lib/tenant/scoped-prisma";
 import {
   createMeeting as createMeetingDomain, transitionMeeting, updateMeeting as updateMeetingDomain, writeMeetingAudit,
@@ -36,7 +36,7 @@ function domainError<T>(e: MeetingErr): ActionResult<T> {
 /** Cria reuniao (manual). `clientRequestId` evita duplicar no duplo clique. Move a oportunidade para "Reunião Agendada". Conflito de horario = aviso em `conflicts`. */
 export async function createMeeting(input: unknown): Promise<ActionResult<MeetingResult>> {
   return safeAction(async () => {
-    const { user, orgId } = await requireProviderOrg();
+    const { user, orgId } = await requireActiveProviderOrg();
     const p = createMeetingSchema.safeParse(input);
     if (!p.success) return failure(zodErrors(p.error));
     const d = p.data;
@@ -55,7 +55,7 @@ export async function createMeeting(input: unknown): Promise<ActionResult<Meetin
 
 export async function updateMeeting(input: unknown): Promise<ActionResult<MeetingResult>> {
   return safeAction(async () => {
-    const { user, orgId } = await requireProviderOrg();
+    const { user, orgId } = await requireActiveProviderOrg();
     const p = updateMeetingSchema.safeParse(input);
     if (!p.success) return failure(zodErrors(p.error));
     const d = p.data;
@@ -80,19 +80,19 @@ async function transition(userId: string, orgId: string, input: unknown, t: Meet
 /** Cancelar NAO desfaz o stage da oportunidade: devolve `warning` para a UI. */
 export async function cancelMeeting(input: unknown): Promise<ActionResult<MeetingResult>> {
   return safeAction(async () => {
-    const { user, orgId } = await requireProviderOrg();
+    const { user, orgId } = await requireActiveProviderOrg();
     return transition(user.id, orgId, input, "cancel");
   });
 }
 export async function markMeetingDone(input: unknown): Promise<ActionResult<MeetingResult>> {
   return safeAction(async () => {
-    const { user, orgId } = await requireProviderOrg();
+    const { user, orgId } = await requireActiveProviderOrg();
     return transition(user.id, orgId, input, "done");
   });
 }
 export async function markMeetingNoShow(input: unknown): Promise<ActionResult<MeetingResult>> {
   return safeAction(async () => {
-    const { user, orgId } = await requireProviderOrg();
+    const { user, orgId } = await requireActiveProviderOrg();
     return transition(user.id, orgId, input, "no_show");
   });
 }
@@ -110,7 +110,7 @@ export async function getMeetingSettings(): Promise<ActionResult<MeetingSettings
 /** Configurações de lembretes de reunião DESTA org (SPEC-030: deixou de ser singleton global). */
 export async function saveMeetingSettings(input: unknown): Promise<ActionResult<MeetingSettingsView>> {
   return safeAction(async () => {
-    const { user, orgId } = await requireProviderOrg();
+    const { user, orgId } = await requireActiveProviderOrg();
     const p = meetingSettingsSchema.safeParse(input);
     if (!p.success) return failure(zodErrors(p.error));
     const s = await scopedPrisma(orgId).meetingSettings.upsert({

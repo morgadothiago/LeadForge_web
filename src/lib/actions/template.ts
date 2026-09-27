@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { requireUser } from "@/lib/auth/require-user";
-import { requireProviderOrg } from "@/lib/auth/require-admin";
+import { requireActiveProviderOrg } from "@/lib/auth/require-admin";
 import { scopedPrisma } from "@/lib/tenant/scoped-prisma";
 import { idSchema } from "@/lib/schemas/campaign";
 import { templateCreateSchema, templateUpdateSchema } from "@/lib/schemas/template";
@@ -22,7 +22,7 @@ const warningsFor = (channel: string, body: string): string[] => (channel === "w
 
 export async function createTemplate(input: unknown): Promise<ActionResult<{ id: string; warnings: string[] }>> {
   return safeAction(async () => {
-  const { orgId } = await requireProviderOrg();
+  const { orgId } = await requireActiveProviderOrg();
   const db = scopedPrisma(orgId);
   const parsed = templateCreateSchema.safeParse(input);
   if (!parsed.success) return failure(zodErrors(parsed.error));
@@ -37,7 +37,7 @@ export async function createTemplate(input: unknown): Promise<ActionResult<{ id:
 
 export async function updateTemplate(input: unknown): Promise<ActionResult<{ id: string; warnings: string[] }>> {
   return safeAction(async () => {
-  const { orgId } = await requireProviderOrg();
+  const { orgId } = await requireActiveProviderOrg();
   const db = scopedPrisma(orgId);
   const parsed = templateUpdateSchema.safeParse(input);
   if (!parsed.success) return failure(zodErrors(parsed.error));
@@ -66,7 +66,7 @@ export async function updateTemplate(input: unknown): Promise<ActionResult<{ id:
 /** Template usado em passo não é excluído (Restrict), com mensagem listando as sequências. */
 export async function deleteTemplate(id: unknown): Promise<ActionResult<{ id: string }>> {
   return safeAction(async () => {
-  const { orgId } = await requireProviderOrg();
+  const { orgId } = await requireActiveProviderOrg();
   const db = scopedPrisma(orgId);
   const parsed = idSchema.safeParse(id);
   if (!parsed.success) return formError("ID inválido.");

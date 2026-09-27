@@ -208,11 +208,17 @@ describe("estático: envio só via sendEmail/sendWhatsApp", () => {
     expect(starts.length).toBeGreaterThan(8);
     starts.forEach((s, i) => {
       const body = src.slice(s.at, starts[i + 1]?.at ?? src.length);
-      expect(body, `${s.name} requireUser`).toMatch(/await requireUser\(\)|await requireProviderOrg\(\)/);
-      const iGuard = Math.max(body.indexOf("await requireUser()"), body.indexOf("await requireProviderOrg()"));
+      expect(body, `${s.name} requireUser`).toMatch(/await requireUser\(\)|await requireProviderOrg\(\)|await requireActiveProviderOrg\(\)/);
+      const iGuard = Math.max(body.indexOf("await requireUser()"), body.indexOf("await requireProviderOrg()"), body.indexOf("await requireActiveProviderOrg()"));
       expect(iGuard, s.name).toBeLessThan(body.search(/\bprisma\.|scopedPrisma\(|\b(listAgentRuns|dispatchDraft|rejectDraft|simulateAgent|stopAgentOnManualReply|monthlySpend)\(/));
     });
-    for (const n of ["createAgent", "updateAgent", "setAgentActive", "setAgentAutonomy", "updateAgentSettings", "saveKnowledge", "deleteKnowledge", "simulateAgentAction", "getAgentRuns"]) {
+    // SPEC-033: getAgentRuns é leitura (permanece requireProviderOrg); as demais são escrita/operação (requireActiveProviderOrg, bloqueadas com org suspensa).
+    for (const n of ["createAgent", "updateAgent", "setAgentActive", "setAgentAutonomy", "updateAgentSettings", "saveKnowledge", "deleteKnowledge", "simulateAgentAction"]) {
+      const s = starts.find((x) => x.name === n)!;
+      const body = src.slice(s.at, starts[starts.indexOf(s) + 1]?.at ?? src.length);
+      expect(body, n).toMatch(/await requireActiveProviderOrg\(\)/);
+    }
+    for (const n of ["getAgentRuns"]) {
       const s = starts.find((x) => x.name === n)!;
       const body = src.slice(s.at, starts[starts.indexOf(s) + 1]?.at ?? src.length);
       expect(body, n).toMatch(/await requireProviderOrg\(\)/);

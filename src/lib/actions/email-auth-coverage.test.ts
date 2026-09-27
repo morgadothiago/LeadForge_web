@@ -41,7 +41,7 @@ describe("email: toda action/query exige sessão", () => {
       expect(starts.length).toBeGreaterThan(0);
       starts.forEach((s, i) => {
         const body = src.slice(s.at, starts[i + 1]?.at ?? src.length);
-        expect(body, `${f}:${s.name} deve chamar requireUser()`).toMatch(/await requireUser\(\)|await requireProviderOrg\(\)|await requirePlatformAdmin\(\)/);
+        expect(body, `${f}:${s.name} deve chamar requireUser()`).toMatch(/await requireUser\(\)|await requireProviderOrg\(\)|await requireActiveProviderOrg\(\)|await requirePlatformAdmin\(\)/);
       });
     }
   });

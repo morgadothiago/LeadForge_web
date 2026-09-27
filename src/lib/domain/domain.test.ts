@@ -8,8 +8,10 @@ describe("domain", () => {
     expect([...CHANNELS].sort()).toEqual(Object.values(Channel).sort());
     for (const s of STAGES) {
       expect(STAGE_LABELS[s]).toBeTruthy();
-      expect(STAGE_COLORS[s]).toMatch(/^#/);
+      /** SPEC-037 (correção QA): valor é `var(--stage-*)`, não hex literal — lê o token CSS
+       * recalculado por tema em vez de fixar sempre a mesma cor independente do modo ativo. */
+      expect(STAGE_COLORS[s]).toMatch(/^var\(--stage-[\w-]+\)$/);
     }
-    for (const c of CHANNELS) expect(CHANNEL_COLORS[c]).toMatch(/^#/);
+    for (const c of CHANNELS) expect(CHANNEL_COLORS[c]).toMatch(/^var\(--channel-[\w-]+\)$/);
   });
 });

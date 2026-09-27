@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import type { CampaignStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { requireProviderOrg } from "@/lib/auth/require-admin";
+import { requireActiveProviderOrg } from "@/lib/auth/require-admin";
 import { scopedPrisma } from "@/lib/tenant/scoped-prisma";
 import { campaignCreateSchema, campaignUpdateSchema, idSchema } from "@/lib/schemas/campaign";
 import { Prisma } from "@prisma/client";
@@ -36,7 +36,7 @@ async function checkRefs(
 
 export async function createCampaign(input: unknown): Promise<ActionResult<{ id: string }>> {
   return safeAction(async () => {
-    const { user, orgId } = await requireProviderOrg();
+    const { user, orgId } = await requireActiveProviderOrg();
     const db = scopedPrisma(orgId);
     const parsed = campaignCreateSchema.safeParse(input);
     if (!parsed.success) return { ok: false, errors: zodErrors(parsed.error) };
@@ -59,7 +59,7 @@ export async function createCampaign(input: unknown): Promise<ActionResult<{ id:
 
 export async function updateCampaign(input: unknown): Promise<ActionResult<{ id: string }>> {
   return safeAction(async () => {
-    const { orgId } = await requireProviderOrg();
+    const { orgId } = await requireActiveProviderOrg();
     const db = scopedPrisma(orgId);
     const parsed = campaignUpdateSchema.safeParse(input);
     if (!parsed.success) return { ok: false, errors: zodErrors(parsed.error) };
@@ -75,7 +75,7 @@ export async function updateCampaign(input: unknown): Promise<ActionResult<{ id:
 
 async function setStatus(id: unknown, status: CampaignStatus): Promise<ActionResult<{ id: string; status: CampaignStatus }>> {
   return safeAction(async () => {
-    const { orgId } = await requireProviderOrg();
+    const { orgId } = await requireActiveProviderOrg();
     const db = scopedPrisma(orgId);
     const parsed = idSchema.safeParse(id);
     if (!parsed.success) return formError("ID inválido.");
@@ -99,7 +99,7 @@ export async function archiveCampaign(id: unknown) {
 /** Copia configuração (ICP, sequência, instância); não copia leads nem templates. Nasce pausada. */
 export async function duplicateCampaign(id: unknown): Promise<ActionResult<{ id: string }>> {
   return safeAction(async () => {
-    const { user, orgId } = await requireProviderOrg();
+    const { user, orgId } = await requireActiveProviderOrg();
     const db = scopedPrisma(orgId);
     const parsed = idSchema.safeParse(id);
     if (!parsed.success) return formError("ID inválido.");
@@ -128,7 +128,7 @@ const blockedMsg = (n: number): string =>
 /** Campanha com leads não pode ser excluída (só arquivada). */
 export async function deleteCampaign(id: unknown): Promise<ActionResult<{ id: string }>> {
   return safeAction(async () => {
-    const { orgId } = await requireProviderOrg();
+    const { orgId } = await requireActiveProviderOrg();
     const parsed = idSchema.safeParse(id);
     if (!parsed.success) return formError("ID inválido.");
     try {

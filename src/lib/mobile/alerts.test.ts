@@ -13,6 +13,7 @@ import { _setExpoClient, prefAllows } from "./expo-push";
 import { runTick } from "@/lib/scheduler/run-tick";
 import { GET as listAlerts } from "@/app/api/mobile/v1/alerts/route";
 import { GET as unreadCount } from "@/app/api/mobile/v1/alerts/unread-count/route";
+import { parkOtherOrgs } from "@/lib/test-utils/park-other-orgs";
 import { POST as readAll } from "@/app/api/mobile/v1/alerts/read-all/route";
 import { POST as readOne } from "@/app/api/mobile/v1/alerts/[id]/read/route";
 import { PUT as putToken, DELETE as delToken } from "@/app/api/mobile/v1/devices/push-token/route";
@@ -31,13 +32,16 @@ let userId = "";
 let devA = "", devB = "";
 let tokA = "", tokB = "";
 let icpId = "", campId = "", instId = "", leadId = "", orgId = "";
+let restoreOtherOrgs: () => Promise<void> = async () => {};
 
 const hdr = (t: string | null): RequestInit => ({ headers: t ? { authorization: `Bearer ${t}` } : {} });
 const get = (t: string | null, url = "http://x/api") => new Request(url, hdr(t));
 const send = (method: string, t: string | null, body?: unknown, url = "http://x/api") =>
   new Request(url, { method, ...(body !== undefined ? { body: JSON.stringify(body), headers: { "content-type": "application/json", ...(t ? { authorization: `Bearer ${t}` } : {}) } as Record<string, string> } : hdr(t)) });
 const ctx = (id: string) => ({ params: Promise.resolve({ id }) });
-const cleanAlerts = () => prisma.mobileAlert.deleteMany({});
+// Escopado por orgId: `sweepAlerts` varre TODAS as orgs ativas do banco de teste compartilhado
+// (SPEC-030); um `deleteMany({})` global apagaria alertas/baseline de fixtures de outros arquivos.
+const cleanAlerts = () => prisma.mobileAlert.deleteMany({ where: { orgId } });
 const seedBaseline = () => prisma.mobileAlert.create({ data: { orgId, kind: "baseline", severity: "baixa", dedupeKey: baselineKey(orgId), title: "baseline", body: "baseline", refType: "scheduler", readAt: new Date(), resolvedAt: new Date() } });
 
 async function mkDevice(name: string, extra: object = {}) {
@@ -58,6 +62,9 @@ beforeAll(async () => {
   campId = (await prisma.campaign.create({ data: { name: "zz-alerts-camp", icpId, orgId, userId } })).id;
   leadId = (await prisma.lead.create({ data: { campaignId: campId, name: LEAD_NAME, email: LEAD_EMAIL, phone: LEAD_PHONE } })).id;
   instId = (await prisma.whatsAppInstance.create({ data: { orgId, instanceName: "zz-inst-alerts", number: LEAD_PHONE, webhookToken: `wt-${crypto.randomUUID()}`, status: "connected" } })).id;
+  // `sweepAlerts` e cross-tenant (SPEC-030): esta suite conta candidatos/pushes globais do adapter
+  // fake, entao so pode haver 1 org ativa (a propria) durante o arquivo, senao contamina contagens.
+  ({ restore: restoreOtherOrgs } = await parkOtherOrgs(orgId));
 });
 beforeEach(async () => {
   await cleanAlerts();
@@ -81,6 +88,7 @@ afterAll(async () => {
   await prisma.user.deleteMany({ where: { email: EMAIL } });
   await prisma.membership.deleteMany({ where: { orgId } });
   await prisma.organization.deleteMany({ where: { id: orgId } });
+  await restoreOtherOrgs();
 });
 
 const mine = (kind: string, ref: string) => prisma.mobileAlert.findMany({ where: { kind, refId: ref } });
@@ -343,8 +351,10 @@ describe("API (AC7, authz, IDOR)", () => {
     expect((await listAlerts(get(tokA, "http://x/api?unread=talvez"))).status).toBe(400);
     const cnt = async () => (await (await unreadCount(get(tokA))).json()).data.count as number;
     const total = await cnt();
-    expect(total).toBe(await prisma.mobileAlert.count({ where: { readAt: null } }));
-    const id = (await prisma.mobileAlert.findFirstOrThrow({ where: { readAt: null, kind: "scheduler_stale" } })).id; // nao-lido garantido (SPEC-028: lembretes de reuniao do seed podem nascer lidos)
+    // Escopado por orgId: `sweepAlerts` roda cross-tenant (SPEC-030) e outras fixtures do banco de
+    // teste compartilhado podem ter alertas nao-lidos de outras orgs no mesmo instante.
+    expect(total).toBe(await prisma.mobileAlert.count({ where: { orgId, readAt: null } }));
+    const id = (await prisma.mobileAlert.findFirstOrThrow({ where: { orgId, readAt: null, kind: "scheduler_stale" } })).id; // nao-lido garantido (SPEC-028: lembretes de reuniao do seed podem nascer lidos)
     const r1 = await (await readOne(send("POST", tokA), ctx(id))).json();
     const r2 = await (await readOne(send("POST", tokA), ctx(id))).json();
     expect(r2.data.readAt).toBe(r1.data.readAt); // idempotente: nao reescreve readAt

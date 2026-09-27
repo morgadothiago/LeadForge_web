@@ -4,7 +4,7 @@ import { withSerializableRetry } from "@/lib/db/tx-conflict";
 import { revalidatePath } from "next/cache";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { requireProviderOrg } from "@/lib/auth/require-admin";
+import { requireActiveProviderOrg } from "@/lib/auth/require-admin";
 import { scopedPrisma } from "@/lib/tenant/scoped-prisma";
 import { runMoveOpportunity, type MoveResult } from "@/lib/domain/move-opportunity";
 import { isSuppressed } from "@/lib/domain/suppression";
@@ -62,7 +62,7 @@ async function checkDuplicates(
 /** Cria lead + Opportunity `novo_lead` (fim da coluna) + StageHistory, numa transação. */
 export async function createLead(input: unknown): Promise<ActionResult<{ id: string; opportunityId: string; suppressed?: boolean }>> {
   return safeAction(async () => {
-    const { orgId } = await requireProviderOrg();
+    const { orgId } = await requireActiveProviderOrg();
     const parsed = createLeadSchema.safeParse(input);
     if (!parsed.success) return failure(zodErrors(parsed.error));
     const d = parsed.data;
@@ -97,7 +97,7 @@ export async function createLead(input: unknown): Promise<ActionResult<{ id: str
 /** Atualização parcial (campo ausente = inalterado; null/"" limpa). Campanha imutável (D6). */
 export async function updateLead(input: unknown): Promise<ActionResult<{ id: string; suppressed?: boolean }>> {
   return safeAction(async () => {
-    const { orgId } = await requireProviderOrg();
+    const { orgId } = await requireActiveProviderOrg();
     const parsed = updateLeadSchema.safeParse(input);
     if (!parsed.success) return failure(zodErrors(parsed.error));
     const { leadId, ...d } = parsed.data;
@@ -128,7 +128,7 @@ export async function updateLead(input: unknown): Promise<ActionResult<{ id: str
 /** Normaliza (trim/minúsculas/espaços), ignora duplicata (idempotente) e limita a MAX_TAGS por lead. */
 export async function addTag(input: unknown): Promise<ActionResult<{ tags: string[] }>> {
   return safeAction(async () => {
-    const { orgId } = await requireProviderOrg();
+    const { orgId } = await requireActiveProviderOrg();
     const parsed = tagSchema.safeParse(input);
     if (!parsed.success) return failure(zodErrors(parsed.error));
     const { leadId, tag } = parsed.data;
@@ -150,7 +150,7 @@ export async function addTag(input: unknown): Promise<ActionResult<{ tags: strin
 
 export async function removeTag(input: unknown): Promise<ActionResult<{ tags: string[] }>> {
   return safeAction(async () => {
-    const { orgId } = await requireProviderOrg();
+    const { orgId } = await requireActiveProviderOrg();
     const parsed = tagSchema.safeParse(input);
     if (!parsed.success) return failure(zodErrors(parsed.error));
     const { leadId, tag } = parsed.data;
@@ -169,7 +169,7 @@ export async function removeTag(input: unknown): Promise<ActionResult<{ tags: st
 
 export async function addNote(input: unknown): Promise<ActionResult<{ id: string }>> {
   return safeAction(async () => {
-    const { orgId } = await requireProviderOrg();
+    const { orgId } = await requireActiveProviderOrg();
     const parsed = noteSchema.safeParse(input);
     if (!parsed.success) return failure(zodErrors(parsed.error));
     const lead = await prisma.lead.findFirst({ where: { id: parsed.data.leadId, campaign: { orgId } }, select: { id: true } });
@@ -182,7 +182,7 @@ export async function addNote(input: unknown): Promise<ActionResult<{ id: string
 
 export async function deleteNote(input: unknown): Promise<ActionResult<{ id: string }>> {
   return safeAction(async () => {
-    const { orgId } = await requireProviderOrg();
+    const { orgId } = await requireActiveProviderOrg();
     const parsed = deleteNoteSchema.safeParse(input);
     if (!parsed.success) return failure(zodErrors(parsed.error));
     // SPEC-030: LeadNote é indireto (via lead->campaign) — confere a org antes de excluir.
@@ -197,7 +197,7 @@ export async function deleteNote(input: unknown): Promise<ActionResult<{ id: str
 /** Reusa o núcleo transacional de moveOpportunity (StageHistory, lostReason, encerramento de sequência). Vai ao fim da coluna destino. */
 export async function moveLeadStage(input: unknown): Promise<ActionResult<MoveResult>> {
   return safeAction(async () => {
-    const { orgId } = await requireProviderOrg();
+    const { orgId } = await requireActiveProviderOrg();
     const parsed = moveLeadStageSchema.safeParse(input);
     if (!parsed.success) return failure(zodErrors(parsed.error));
     const { leadId, toStage, lostReason } = parsed.data;
@@ -227,7 +227,7 @@ export async function moveLeadStage(input: unknown): Promise<ActionResult<MoveRe
  */
 export async function deleteLead(id: unknown): Promise<ActionResult<{ id: string }>> {
   return safeAction(async () => {
-    const { orgId } = await requireProviderOrg();
+    const { orgId } = await requireActiveProviderOrg();
     const parsed = leadIdSchema.safeParse(id);
     if (!parsed.success) return formError("Lead inválido.");
     const leadId = parsed.data;

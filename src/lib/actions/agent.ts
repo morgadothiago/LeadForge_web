@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { requireProviderOrg } from "@/lib/auth/require-admin";
+import { requireActiveProviderOrg, requireProviderOrg } from "@/lib/auth/require-admin";
 import { scopedPrisma } from "@/lib/tenant/scoped-prisma";
 import { DEFAULT_DISCLOSURE } from "@/lib/agents/types";
 import { simulateAgent, type SimulationResult } from "@/lib/agents/simulate";
@@ -24,7 +24,7 @@ const revalidate = (): void => {
 /** Cria agente (sempre INATIVO, autonomia `draft`). Closer nasce com aviso de IA ligado (D27). */
 export async function createAgent(input: unknown): Promise<ActionResult<{ id: string }>> {
   return safeAction(async () => {
-    const { user: actor, orgId } = await requireProviderOrg();
+    const { user: actor, orgId } = await requireActiveProviderOrg();
     const parsed = createAgentSchema.safeParse(input);
     if (!parsed.success) return failure(zodErrors(parsed.error));
     const d = parsed.data;
@@ -47,7 +47,7 @@ export async function createAgent(input: unknown): Promise<ActionResult<{ id: st
 
 export async function updateAgent(input: unknown): Promise<ActionResult<{ id: string }>> {
   return safeAction(async () => {
-    const { user: actor, orgId } = await requireProviderOrg();
+    const { user: actor, orgId } = await requireActiveProviderOrg();
     const db = scopedPrisma(orgId);
     const parsed = updateAgentSchema.safeParse(input);
     if (!parsed.success) return failure(zodErrors(parsed.error));
@@ -65,7 +65,7 @@ export async function updateAgent(input: unknown): Promise<ActionResult<{ id: st
 /** Ativar exige teto de gasto definido (padrão: agentes DESLIGADOS até haver chave e teto). */
 export async function setAgentActive(input: unknown): Promise<ActionResult<{ id: string; active: boolean }>> {
   return safeAction(async () => {
-    const { user: actor, orgId } = await requireProviderOrg();
+    const { user: actor, orgId } = await requireActiveProviderOrg();
     const db = scopedPrisma(orgId);
     const parsed = setActiveSchema.safeParse(input);
     if (!parsed.success) return failure(zodErrors(parsed.error));
@@ -81,7 +81,7 @@ export async function setAgentActive(input: unknown): Promise<ActionResult<{ id:
 
 export async function setAgentAutonomy(input: unknown): Promise<ActionResult<{ id: string }>> {
   return safeAction(async () => {
-    const { user: actor, orgId } = await requireProviderOrg();
+    const { user: actor, orgId } = await requireActiveProviderOrg();
     const db = scopedPrisma(orgId);
     const parsed = setAutonomySchema.safeParse(input);
     if (!parsed.success) return failure(zodErrors(parsed.error));
@@ -103,7 +103,7 @@ export async function setAgentAutonomy(input: unknown): Promise<ActionResult<{ i
 /** Kill switch e teto mensal DESTA org (SPEC-030: AgentSettings deixou de ser singleton global). */
 export async function updateAgentSettings(input: unknown): Promise<ActionResult<{ killSwitch: boolean }>> {
   return safeAction(async () => {
-    const { user: actor, orgId } = await requireProviderOrg();
+    const { user: actor, orgId } = await requireActiveProviderOrg();
     const parsed = globalSettingsSchema.safeParse(input);
     if (!parsed.success) return failure(zodErrors(parsed.error));
     const s = await scopedPrisma(orgId).agentSettings.upsert({
@@ -118,7 +118,7 @@ export async function updateAgentSettings(input: unknown): Promise<ActionResult<
 
 export async function saveKnowledge(input: unknown): Promise<ActionResult<{ id: string }>> {
   return safeAction(async () => {
-    const { orgId } = await requireProviderOrg();
+    const { orgId } = await requireActiveProviderOrg();
     const db = scopedPrisma(orgId);
     const parsed = knowledgeSchema.safeParse(input);
     if (!parsed.success) return failure(zodErrors(parsed.error));
@@ -133,7 +133,7 @@ export async function saveKnowledge(input: unknown): Promise<ActionResult<{ id: 
 
 export async function deleteKnowledge(input: unknown): Promise<ActionResult<{ id: string }>> {
   return safeAction(async () => {
-    const { orgId } = await requireProviderOrg();
+    const { orgId } = await requireActiveProviderOrg();
     const parsed = idSchema.safeParse(input);
     if (!parsed.success) return failure(zodErrors(parsed.error));
     await scopedPrisma(orgId).knowledgeDocument.delete({ where: { id: parsed.data.id } });
@@ -144,7 +144,7 @@ export async function deleteKnowledge(input: unknown): Promise<ActionResult<{ id
 
 export async function simulateAgentAction(input: unknown): Promise<ActionResult<SimulationResult>> {
   return safeAction(async () => {
-    const { orgId } = await requireProviderOrg();
+    const { orgId } = await requireActiveProviderOrg();
     const parsed = simulateSchema.safeParse(input);
     if (!parsed.success) return failure(zodErrors(parsed.error));
     // simulateAgent lê o agente por id direto (fora do scopedPrisma) — confere o dono aqui antes.
@@ -184,7 +184,7 @@ export async function getAgentRuns(input: unknown): Promise<ActionResult<AgentRu
 
 export async function approveDraft(input: unknown): Promise<ActionResult<{ status: string; reason?: string }>> {
   return safeAction(async () => {
-    const { user: actor, orgId } = await requireProviderOrg();
+    const { user: actor, orgId } = await requireActiveProviderOrg();
     const parsed = approveDraftSchema.safeParse(input);
     if (!parsed.success) return failure(zodErrors(parsed.error));
     const r = await dispatchDraft(parsed.data.id, { reviewer: actor.id, editedBody: parsed.data.editedBody, orgId });
@@ -195,7 +195,7 @@ export async function approveDraft(input: unknown): Promise<ActionResult<{ statu
 
 export async function rejectDraftAction(input: unknown): Promise<ActionResult<{ id: string }>> {
   return safeAction(async () => {
-    const { user: actor, orgId } = await requireProviderOrg();
+    const { user: actor, orgId } = await requireActiveProviderOrg();
     const parsed = rejectDraftSchema.safeParse(input);
     if (!parsed.success) return failure(zodErrors(parsed.error));
     if (!(await rejectDraft(parsed.data.id, actor.id, parsed.data.reason, new Date(), orgId))) return formError("Este rascunho já foi tratado.");
@@ -207,7 +207,7 @@ export async function rejectDraftAction(input: unknown): Promise<ActionResult<{ 
 /** Lote: SOMENTE rascunhos de Follow-up (SPEC-019), desta org. Cada um passa pela política de envio individualmente. */
 export async function bulkApproveFollowups(input: unknown): Promise<ActionResult<{ sent: number; blocked: number; skipped: number }>> {
   return safeAction(async () => {
-    const { user: actor, orgId } = await requireProviderOrg();
+    const { user: actor, orgId } = await requireActiveProviderOrg();
     const parsed = bulkApproveSchema.safeParse(input);
     if (!parsed.success) return failure(zodErrors(parsed.error));
     const rows = await scopedPrisma(orgId).draft.findMany({ where: { id: { in: parsed.data.ids }, status: "pending", agentRun: { agent: { role: "followup" } } }, select: { id: true }, orderBy: { createdAt: "asc" } });
@@ -225,7 +225,7 @@ export async function bulkApproveFollowups(input: unknown): Promise<ActionResult
 /** Usuário assumiu a conversa: o agente para de agir no lead e rascunhos pendentes expiram. */
 export async function takeOverLead(input: unknown): Promise<ActionResult<{ id: string }>> {
   return safeAction(async () => {
-    const { orgId } = await requireProviderOrg();
+    const { orgId } = await requireActiveProviderOrg();
     const parsed = idSchema.safeParse(input);
     if (!parsed.success) return failure(zodErrors(parsed.error));
     // SPEC-030: Lead é indireto (via campaign) — confere a org antes de mexer no agente do lead.

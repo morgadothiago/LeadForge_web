@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { requireProviderOrg } from "@/lib/auth/require-admin";
+import { requireActiveProviderOrg } from "@/lib/auth/require-admin";
 import { scopedPrisma } from "@/lib/tenant/scoped-prisma";
 import { resumeInstanceNow } from "@/lib/whatsapp/health";
 import { NEEDS_REVIEW_PREFIX } from "@/lib/channels/reserve";
@@ -13,7 +13,7 @@ const revalidate = (): void => revalidatePath("/configuracoes/whatsapp");
 /** Retomada manual: reinicia a rampa um degrau abaixo e zera a janela de métricas. Idempotente (não pausada = sem efeito). */
 export async function resumeInstance(instanceId: unknown): Promise<ActionResult<{ id: string; resumed: boolean }>> {
   return safeAction(async () => {
-    const { orgId } = await requireProviderOrg();
+    const { orgId } = await requireActiveProviderOrg();
     const db = scopedPrisma(orgId);
     const pid = whatsappInstanceIdSchema.safeParse(instanceId);
     if (!pid.success) return failure(zodErrors(pid.error));
@@ -29,7 +29,7 @@ export async function resumeInstance(instanceId: unknown): Promise<ActionResult<
 /** Marca como lidos os alertas da instância (some o badge). */
 export async function dismissInstanceAlerts(instanceId: unknown): Promise<ActionResult<{ id: string }>> {
   return safeAction(async () => {
-    const { orgId } = await requireProviderOrg();
+    const { orgId } = await requireActiveProviderOrg();
     const db = scopedPrisma(orgId);
     const pid = whatsappInstanceIdSchema.safeParse(instanceId);
     if (!pid.success) return failure(zodErrors(pid.error));
@@ -47,7 +47,7 @@ export async function dismissInstanceAlerts(instanceId: unknown): Promise<Action
  */
 export async function retryTouch(input: unknown): Promise<ActionResult<{ id: string }>> {
   return safeAction(async () => {
-    const { orgId } = await requireProviderOrg();
+    const { orgId } = await requireActiveProviderOrg();
     const db = scopedPrisma(orgId);
     const parsed = retryTouchSchema.safeParse(input);
     if (!parsed.success) return failure(zodErrors(parsed.error));

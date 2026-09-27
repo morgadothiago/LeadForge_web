@@ -13,7 +13,7 @@ describe("reunioes: toda action/query exige requireUser antes de qualquer acesso
       starts.forEach((s, i) => {
         const body = src.slice(s.at, starts[i + 1]?.at ?? src.length);
         // SPEC-030: `getMeetingSettings`/`saveMeetingSettings`/etc. usam `requireProviderOrg()` (exige sessão + org).
-        const guardIdx = ["await requireUser()", "await requireProviderOrg()"].map((g) => body.indexOf(g)).filter((i) => i !== -1);
+        const guardIdx = ["await requireUser()", "await requireProviderOrg()", "await requireActiveProviderOrg()"].map((g) => body.indexOf(g)).filter((i) => i !== -1);
         const iUser = guardIdx.length ? Math.min(...guardIdx) : -1;
         expect(iUser, `${s.name} requireUser`).toBeGreaterThan(-1);
         for (const re2 of [/prisma\./, /transition\(/, /createMeetingDomain\(/, /updateMeetingDomain\(/, /safeParse\(/]) {

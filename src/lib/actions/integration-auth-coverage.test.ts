@@ -16,9 +16,10 @@ describe("integrações: toda action/query exige requireUser + requireAdmin (est
       expect(starts.length).toBeGreaterThan(0);
       starts.forEach((s, i) => {
         const body = src.slice(s.at, starts[i + 1]?.at ?? src.length);
-        expect(body, `${s.name} requireProviderOrg`).toMatch(/await requireProviderOrg\(\)/);
+        expect(body, `${s.name} requireProviderOrg`).toMatch(/await requireProviderOrg\(\)|await requireActiveProviderOrg\(\)/);
         // ORDEM: a trava vem antes de qualquer acesso a dados/rede/limitador na função.
-        const iGuard = body.indexOf("await requireProviderOrg()");
+        const guardIdx = [body.indexOf("await requireProviderOrg()"), body.indexOf("await requireActiveProviderOrg()")].filter((i) => i !== -1);
+        const iGuard = Math.min(...guardIdx);
         const sensitive = [/prisma\./, /getIntegrationConfig\(/, /fetch\(/, /assertAllowedHost\(/, /runConnectionTest\(/, /consume\w*Quota\(/, /listIntegrations?\w*\(/];
         for (const re of sensitive) {
           const at = body.search(re);

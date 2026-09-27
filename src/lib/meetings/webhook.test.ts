@@ -3,6 +3,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { prisma } from "@/lib/prisma";
 import { mkMeetingFixture, type MeetingFixture } from "@/lib/test-utils/meeting-fixture";
 import { handleMeetingWebhook, _resetMeetingWebhookRateLimit } from "./webhook";
+import { scopedExternalId } from "@/lib/domain/meeting";
 import { POST, GET } from "@/app/api/integrations/meetings/route";
 
 const SECRET = "s".repeat(40);
@@ -33,52 +34,64 @@ describe("POST /api/integrations/meetings", () => {
   });
 
   it("cria (201) por leadId, move stage, source=webhook; repeticao com externalId = 200 mesma reuniao", async () => {
-    const body = { leadId: fx.leadId, startsAt: startsIso(), durationMin: 45, link: "https://meet.test/x", externalId: "ext-1" };
+    const body = { campaignId: fx.campId, leadId: fx.leadId, startsAt: startsIso(), durationMin: 45, link: "https://meet.test/x", externalId: "ext-1" };
     const r1 = await call(body);
     expect(r1.status).toBe(201);
     const j1 = await r1.json();
     const m = await prisma.meeting.findUniqueOrThrow({ where: { id: j1.meetingId } });
     expect(m.source).toBe("webhook");
     expect(m.duration).toBe(45);
-    expect(m.externalId).toBe("wh:ext-1");
+    expect(m.externalId).toBe(scopedExternalId(fx.orgId, "wh:ext-1"));
     expect((await prisma.opportunity.findUniqueOrThrow({ where: { id: fx.oppId } })).stage).toBe("reuniao_agendada");
     const r2 = await call(body);
     expect(r2.status).toBe(200);
     expect(await r2.json()).toMatchObject({ meetingId: j1.meetingId, idempotentReplay: true });
-    expect(await prisma.meeting.count({ where: { externalId: "wh:ext-1" } })).toBe(1);
+    expect(await prisma.meeting.count({ where: { externalId: scopedExternalId(fx.orgId, "wh:ext-1") } })).toBe(1);
   });
 
   it("aceita offset explicito e resolve lead por telefone", async () => {
-    const r = await call({ phone: "(11) 95555-0001", startsAt: "2099-05-01T14:00:00-03:00" });
+    const r = await call({ campaignId: fx.campId, phone: "(11) 95555-0001", startsAt: "2099-05-01T14:00:00-03:00" });
     expect(r.status).toBe(201);
     const j = await r.json();
     expect((await prisma.meeting.findUniqueOrThrow({ where: { id: j.meetingId } })).startsAt.toISOString()).toBe("2099-05-01T17:00:00.000Z");
   });
 
-  it("validacao: campo desconhecido, sem lead, ambos, sem offset, passado, http, duracao, lead inexistente", async () => {
+  it("validacao: campo desconhecido, sem lead, ambos, sem offset, passado, http, duracao, sem campaignId, lead inexistente", async () => {
     const bad = async (b: unknown, status = 400) => expect((await call(b)).status).toBe(status);
-    await bad({ leadId: fx.leadId, startsAt: startsIso(), extra: 1 });
-    await bad({ startsAt: startsIso() });
-    await bad({ leadId: fx.leadId, phone: "11955550001", startsAt: startsIso() });
-    await bad({ leadId: fx.leadId, startsAt: "2099-05-01T14:00:00" });
-    await bad({ leadId: fx.leadId, startsAt: "2020-01-01T10:00:00Z" });
-    await bad({ leadId: fx.leadId, startsAt: startsIso(), link: "http://x.test" });
-    await bad({ leadId: fx.leadId, startsAt: startsIso(), durationMin: 3 });
+    await bad({ campaignId: fx.campId, leadId: fx.leadId, startsAt: startsIso(), extra: 1 });
+    await bad({ campaignId: fx.campId, startsAt: startsIso() });
+    await bad({ campaignId: fx.campId, leadId: fx.leadId, phone: "11955550001", startsAt: startsIso() });
+    await bad({ campaignId: fx.campId, leadId: fx.leadId, startsAt: "2099-05-01T14:00:00" });
+    await bad({ campaignId: fx.campId, leadId: fx.leadId, startsAt: "2020-01-01T10:00:00Z" });
+    await bad({ campaignId: fx.campId, leadId: fx.leadId, startsAt: startsIso(), link: "http://x.test" });
+    await bad({ campaignId: fx.campId, leadId: fx.leadId, startsAt: startsIso(), durationMin: 3 });
     await bad("{nao json");
-    await bad({ leadId: crypto.randomUUID(), startsAt: startsIso() }, 404);
-    await bad({ phone: "11900000000", startsAt: startsIso() }, 404);
+    await bad({ leadId: fx.leadId, startsAt: startsIso() }); // sem campaignId = validation_error (400)
+    await bad({ campaignId: fx.campId, leadId: crypto.randomUUID(), startsAt: startsIso() }, 404);
+    await bad({ campaignId: fx.campId, phone: "11900000000", startsAt: startsIso() }, 404);
+    await bad({ campaignId: crypto.randomUUID(), leadId: fx.leadId, startsAt: startsIso() }, 404); // campanha inexistente
   });
 
-  it("telefone ambiguo = 409", async () => {
-    const other = await prisma.campaign.create({ data: { name: "zz-test-mhook-2", icpId: (await prisma.campaign.findUniqueOrThrow({ where: { id: fx.campId } })).icpId, userId: fx.userId, orgId: fx.orgId } });
-    const dup = await prisma.lead.create({ data: { campaignId: other.id, name: "Dup", phone: fx.phone, email: "dup@x.test" } });
-    expect((await call({ phone: fx.phone, startsAt: startsIso() })).status).toBe(409);
+  it("telefone ambiguo = 409 (escopado a campaignId: duplicata em OUTRA campanha nao ambiguo nesta)", async () => {
+    // Lead.@@unique([campaignId, phone]) impede duas linhas com a MESMA string de telefone na mesma campanha;
+    // a ambiguidade real e a variante sem "+" (mesma busca aceita e164 e e164.slice(1)) coexistindo na campanha.
+    const dup = await prisma.lead.create({ data: { campaignId: fx.campId, name: "Dup", phone: fx.phone.slice(1), email: "dup@x.test" } });
+    expect((await call({ campaignId: fx.campId, phone: fx.phone, startsAt: startsIso() })).status).toBe(409);
     await prisma.lead.delete({ where: { id: dup.id } });
+
+    const other = await prisma.campaign.create({ data: { name: "zz-test-mhook-2", icpId: (await prisma.campaign.findUniqueOrThrow({ where: { id: fx.campId } })).icpId, userId: fx.userId, orgId: fx.orgId } });
+    const dup2 = await prisma.lead.create({ data: { campaignId: other.id, name: "Dup2", phone: fx.phone, email: "dup2@x.test" } });
+    // mesmo telefone existindo em OUTRA campanha nao gera ambiguidade nem vazamento: busca escopada por campaignId.
+    const r = await call({ campaignId: fx.campId, phone: fx.phone, startsAt: startsIso() });
+    expect(r.status).toBe(201);
+    const j = await r.json();
+    await prisma.meeting.delete({ where: { id: j.meetingId } });
+    await prisma.lead.delete({ where: { id: dup2.id } });
     await prisma.campaign.delete({ where: { id: other.id } });
   });
 
   it("nao ecoa corpo nem segredo em erro", async () => {
-    const r = await call({ leadId: fx.leadId, startsAt: "nao-e-data", link: "https://segredo-zz.test" }, SECRET);
+    const r = await call({ campaignId: fx.campId, leadId: fx.leadId, startsAt: "nao-e-data", link: "https://segredo-zz.test" }, SECRET);
     const t = await r.text();
     expect(t).not.toContain("segredo-zz");
     expect(t).not.toContain(SECRET);

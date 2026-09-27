@@ -19,14 +19,17 @@ export const STAGE_LABELS: Record<StageKey, string> = {
   perdido: "Perdido",
 };
 
+/** SPEC-037 (correção QA): valores são `var(--stage-*)` — não hex literal — para que o tom mude
+ * automaticamente por tema (light/dark), lendo os tokens já recalculados por contraste AA em
+ * `src/app/globals.css`, em vez de fixar sempre o mesmo hex independente do modo ativo. */
 export const STAGE_COLORS: Record<StageKey, string> = {
-  novo_lead: "#3b82f6",
-  contactado: "#eab308",
-  em_followup: "#f97316",
-  interessado: "#22c55e",
-  reuniao_agendada: "#a855f7",
-  fechado: "#16a34a",
-  perdido: "#dc2626",
+  novo_lead: "var(--stage-novo-lead)",
+  contactado: "var(--stage-contactado)",
+  em_followup: "var(--stage-em-followup)",
+  interessado: "var(--stage-interessado)",
+  reuniao_agendada: "var(--stage-reuniao-agendada)",
+  fechado: "var(--stage-fechado)",
+  perdido: "var(--stage-perdido)",
 };
 
 export const CHANNELS = ["email", "whatsapp", "linkedin", "phone"] as const;
@@ -39,11 +42,12 @@ export const CHANNEL_LABELS: Record<ChannelKey, string> = {
   phone: "Telefone",
 };
 
+/** SPEC-037 (correção QA): idem `STAGE_COLORS` — `var(--channel-*)`, não hex literal. */
 export const CHANNEL_COLORS: Record<ChannelKey, string> = {
-  email: "#3b82f6",
-  whatsapp: "#25D366",
-  linkedin: "#0077B5",
-  phone: "#a855f7",
+  email: "var(--channel-email)",
+  whatsapp: "var(--channel-whatsapp)",
+  linkedin: "var(--channel-linkedin)",
+  phone: "var(--channel-phone)",
 };
 
 export const SEQUENCE_STATUS_LABELS = {

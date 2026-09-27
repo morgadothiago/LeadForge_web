@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { requireProviderOrg } from "@/lib/auth/require-admin";
+import { requireActiveProviderOrg } from "@/lib/auth/require-admin";
 import { scopedPrisma } from "@/lib/tenant/scoped-prisma";
 import { SlidingLimiter } from "@/lib/integrations/rate-limit";
 import { runLeadSearch } from "@/lib/lead-search/run";
@@ -22,7 +22,7 @@ const limiter = new SlidingLimiter(5, 10 * 60_000);
 /** Dispara a busca manual de leads da campanha (provider dono da org). Erros de limite/config vêm em PT-BR do backend. */
 export async function searchLeads(campaignId: unknown): Promise<ActionResult<LeadSearchResult>> {
   return safeAction(async () => {
-    const { user: actor, orgId } = await requireProviderOrg();
+    const { user: actor, orgId } = await requireActiveProviderOrg();
     const id = idSchema.safeParse(campaignId);
     if (!id.success) return formError("Campanha inválida.");
     if (!(await scopedPrisma(orgId).campaign.findUnique({ where: { id: id.data }, select: { id: true } }))) return formError("Campanha não encontrada.");

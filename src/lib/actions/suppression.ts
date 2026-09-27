@@ -4,7 +4,7 @@ import { withSerializableRetry } from "@/lib/db/tx-conflict";
 import { revalidatePath } from "next/cache";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { requireProviderOrg } from "@/lib/auth/require-admin";
+import { requireActiveProviderOrg } from "@/lib/auth/require-admin";
 import { scopedPrisma } from "@/lib/tenant/scoped-prisma";
 import { addSuppression } from "@/lib/domain/suppression";
 import { addToSuppressionSchema, removeFromSuppressionSchema } from "@/lib/schemas/suppression";
@@ -22,7 +22,7 @@ const revalidate = (leadId?: string): void => {
  */
 export async function addToSuppression(input: unknown): Promise<ActionResult<{ added: number }>> {
   return safeAction(async () => {
-    const { orgId } = await requireProviderOrg();
+    const { orgId } = await requireActiveProviderOrg();
     const parsed = addToSuppressionSchema.safeParse(input);
     if (!parsed.success) return failure(zodErrors(parsed.error));
     const { leadId, reason, note } = parsed.data;
@@ -55,7 +55,7 @@ export async function addToSuppression(input: unknown): Promise<ActionResult<{ a
  */
 export async function removeFromSuppression(input: unknown): Promise<ActionResult<{ id: string }>> {
   return safeAction(async () => {
-    const { user, orgId } = await requireProviderOrg();
+    const { user, orgId } = await requireActiveProviderOrg();
     const parsed = removeFromSuppressionSchema.safeParse(input);
     if (!parsed.success) return failure(zodErrors(parsed.error));
     const { id, reason } = parsed.data;

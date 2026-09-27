@@ -4,6 +4,7 @@ import type { AxiosAdapter, InternalAxiosRequestConfig } from "axios";
 import { prisma } from "@/lib/prisma";
 import { createHttpClient } from "@/lib/http/client";
 import { mkMeetingFixture, type MeetingFixture } from "@/lib/test-utils/meeting-fixture";
+import { parkOtherOrgs } from "@/lib/test-utils/park-other-orgs";
 import { updateMeeting } from "@/lib/domain/meeting";
 import { baselineKey, sweepAlerts, _resetSweepThrottle } from "./alerts";
 import { _setExpoClient } from "./expo-push";
@@ -14,6 +15,7 @@ const OLD = new Date(Date.now() - 30 * 24 * 3600_000); // updatedAt antigo: reun
 let fx: MeetingFixture;
 let devId = "";
 let parked: string[] = [];
+let restoreOtherOrgs: () => Promise<void> = async () => {};
 const LINK = "https://meet.zzsecret.test/sala-xyz";
 const NOTES = "notas-secretas-zz-999";
 
@@ -21,7 +23,10 @@ const mk = (startsAt: Date, extra: Record<string, unknown> = {}) =>
   prisma.meeting.create({
     data: { opportunityId: fx.oppId, leadId: fx.leadId, campaignId: fx.campId, startsAt, endsAt: new Date(startsAt.getTime() + 30 * MIN), duration: 30, link: LINK, notes: NOTES, updatedAt: OLD, ...extra },
   });
-const remAlerts = () => prisma.mobileAlert.findMany({ where: { kind: "meeting_reminder" }, orderBy: { createdAt: "asc" } });
+// Sempre escopado por fx.orgId: `sweepAlerts` varre TODAS as orgs ATIVAS do banco de teste
+// compartilhado (SPEC-030, cross-tenant por design); sem o filtro, esta suite ficaria
+// vulneravel a qualquer alerta de outra org/fixture que exista no banco no momento do teste.
+const remAlerts = () => prisma.mobileAlert.findMany({ where: { kind: "meeting_reminder", orgId: fx.orgId }, orderBy: { createdAt: "asc" } });
 const sweepAt = async (now: Date) => {
   _resetSweepThrottle();
   await sweepAlerts(now);
@@ -34,11 +39,17 @@ beforeAll(async () => {
   parked = (await prisma.meeting.findMany({ where: { status: "scheduled", campaignId: { not: fx.campId } }, select: { id: true } })).map((m) => m.id);
   await prisma.meeting.updateMany({ where: { id: { in: parked } }, data: { status: "done" } });
   devId = (await prisma.mobileDevice.create({ data: { userId: fx.userId, name: "zz-dev", platform: "android", refreshHash: `h-${crypto.randomUUID()}`, refreshExpiresAt: new Date(Date.now() + 1e9), pushToken: "ExponentPushToken[zzMEET]" } })).id;
+  // `sweepAlerts` e cross-tenant (SPEC-030): esta suite chama sweepAt() em loop (varias varreduras por
+  // teste); com so a propria org ativa, cada varredura fica O(1) em vez de O(orgs do banco de teste
+  // compartilhado) — elimina a fonte real da flakiness por timeout (SPEC-031, QA de 2026-09-26).
+  ({ restore: restoreOtherOrgs } = await parkOtherOrgs(fx.orgId));
 });
 beforeEach(async () => {
-  await prisma.mobileAlert.deleteMany({});
+  // Escopado por fx.orgId (nunca `{}` global): apagar alertas/config de TODAS as orgs afetaria
+  // fixtures de outros arquivos de teste que compartilham o mesmo banco `_test`.
+  await prisma.mobileAlert.deleteMany({ where: { orgId: fx.orgId } });
   await prisma.meeting.deleteMany({ where: { campaignId: fx.campId } });
-  await prisma.meetingSettings.deleteMany({});
+  await prisma.meetingSettings.deleteMany({ where: { orgId: fx.orgId } });
   await seedBaseline();
 });
 afterEach(() => {
@@ -48,7 +59,8 @@ afterEach(() => {
 afterAll(async () => {
   await prisma.meeting.updateMany({ where: { id: { in: parked } }, data: { status: "scheduled" } });
   await prisma.mobileDevice.deleteMany({ where: { id: devId } });
-  await prisma.mobileAlert.deleteMany({});
+  await prisma.mobileAlert.deleteMany({ where: { orgId: fx.orgId } });
+  await restoreOtherOrgs();
   await fx.cleanup();
   await prisma.$disconnect();
 });

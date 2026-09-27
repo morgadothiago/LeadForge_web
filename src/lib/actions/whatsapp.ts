@@ -5,7 +5,7 @@ import { randomBytes } from "node:crypto";
 import { revalidatePath } from "next/cache";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { requireProviderOrg } from "@/lib/auth/require-admin";
+import { requireActiveProviderOrg, requireProviderOrg } from "@/lib/auth/require-admin";
 import { scopedPrisma } from "@/lib/tenant/scoped-prisma";
 import { encrypt } from "@/lib/crypto/secret-box";
 import { AppError, safeErrorForLog } from "@/lib/errors";
@@ -35,7 +35,7 @@ async function record(id: string, status: ConnectionState, err?: unknown): Promi
 
 export async function createWhatsAppInstance(input: unknown): Promise<ActionResult<{ id: string }>> {
   return safeAction(async () => {
-    const { orgId } = await requireProviderOrg();
+    const { orgId } = await requireActiveProviderOrg();
     const db = scopedPrisma(orgId);
     const parsed = whatsappInstanceCreateSchema.safeParse(input);
     if (!parsed.success) return failure(zodErrors(parsed.error));
@@ -66,7 +66,9 @@ export async function createWhatsAppInstance(input: unknown): Promise<ActionResu
 
 export async function getInstanceQr(id: unknown): Promise<ActionResult<{ qrCode: string | null; pairingCode: string | null }>> {
   return safeAction(async () => {
-    const { orgId } = await requireProviderOrg();
+    // QA fix (achado menor, SPEC-033 rodada 2): escreve no banco (lastError) e chama o provider externo —
+    // tratado como operação (requireActiveProviderOrg), não leitura pura.
+    const { orgId } = await requireActiveProviderOrg();
     const db = scopedPrisma(orgId);
     const pid = whatsappInstanceIdSchema.safeParse(id);
     if (!pid.success) return failure(zodErrors(pid.error));
@@ -85,7 +87,9 @@ export async function getInstanceQr(id: unknown): Promise<ActionResult<{ qrCode:
 
 export async function refreshInstanceStatus(id: unknown): Promise<ActionResult<{ status: ConnectionState }>> {
   return safeAction(async () => {
-    const { orgId } = await requireProviderOrg();
+    // QA fix (achado menor, SPEC-033 rodada 2): escreve no banco (status/lastError/lastConnectedAt) —
+    // tratado como operação (requireActiveProviderOrg), não leitura pura.
+    const { orgId } = await requireActiveProviderOrg();
     const db = scopedPrisma(orgId);
     const pid = whatsappInstanceIdSchema.safeParse(id);
     if (!pid.success) return failure(zodErrors(pid.error));
@@ -105,7 +109,7 @@ export async function refreshInstanceStatus(id: unknown): Promise<ActionResult<{
 
 export async function updateInstance(input: unknown): Promise<ActionResult<{ id: string }>> {
   return safeAction(async () => {
-    const { orgId } = await requireProviderOrg();
+    const { orgId } = await requireActiveProviderOrg();
     const db = scopedPrisma(orgId);
     const parsed = whatsappInstanceUpdateSchema.safeParse(input);
     if (!parsed.success) return failure(zodErrors(parsed.error));
@@ -119,7 +123,7 @@ export async function updateInstance(input: unknown): Promise<ActionResult<{ id:
 
 export async function deleteWhatsAppInstance(id: unknown): Promise<ActionResult<{ id: string }>> {
   return safeAction(async () => {
-    const { orgId } = await requireProviderOrg();
+    const { orgId } = await requireActiveProviderOrg();
     const db = scopedPrisma(orgId);
     const pid = whatsappInstanceIdSchema.safeParse(id);
     if (!pid.success) return failure(zodErrors(pid.error));
@@ -148,7 +152,7 @@ export async function deleteWhatsAppInstance(id: unknown): Promise<ActionResult<
 /** Desconecta (logout) a sessão, se o provider suportar. */
 export async function disconnectInstance(id: unknown): Promise<ActionResult<{ id: string }>> {
   return safeAction(async () => {
-    const { orgId } = await requireProviderOrg();
+    const { orgId } = await requireActiveProviderOrg();
     const db = scopedPrisma(orgId);
     const pid = whatsappInstanceIdSchema.safeParse(id);
     if (!pid.success) return failure(zodErrors(pid.error));
@@ -183,7 +187,7 @@ export async function getInstanceWebhookConfig(id: unknown): Promise<ActionResul
  */
 export async function rotateWebhookToken(instanceId: unknown): Promise<ActionResult<{ webhookUrl: string; tokenHint: string }>> {
   return safeAction(async () => {
-    const { orgId } = await requireProviderOrg();
+    const { orgId } = await requireActiveProviderOrg();
     const db = scopedPrisma(orgId);
     const pid = whatsappInstanceIdSchema.safeParse(instanceId);
     if (!pid.success) return failure(zodErrors(pid.error));
@@ -216,7 +220,7 @@ const revalidateLead = (id: string): void => {
 /** Confirma o opt-out sugerido (possibleOptOut): mesmo efeito do opt-out automático. Idempotente. */
 export async function confirmOptOut(leadId: unknown): Promise<ActionResult<{ id: string }>> {
   return safeAction(async () => {
-    const { orgId } = await requireProviderOrg();
+    const { orgId } = await requireActiveProviderOrg();
     const db = scopedPrisma(orgId);
     const pid = leadIdSchema.safeParse(leadId);
     if (!pid.success) return failure(zodErrors(pid.error));
@@ -234,7 +238,7 @@ export async function confirmOptOut(leadId: unknown): Promise<ActionResult<{ id:
 /** Descarta o alerta "Possível opt-out". */
 export async function dismissPossibleOptOut(leadId: unknown): Promise<ActionResult<{ id: string }>> {
   return safeAction(async () => {
-    const { orgId } = await requireProviderOrg();
+    const { orgId } = await requireActiveProviderOrg();
     const db = scopedPrisma(orgId);
     const pid = leadIdSchema.safeParse(leadId);
     if (!pid.success) return failure(zodErrors(pid.error));

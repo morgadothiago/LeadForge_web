@@ -11,7 +11,23 @@ import { meetingWebhookSchema } from "@/lib/schemas/meeting";
 /**
  * POST /api/integrations/meetings (SPEC-028). MESMO padrao de auth das integracoes (SPEC-014/018): Bearer INGEST_SECRET,
  * desligado (503) sem INTEGRATION_LEADS_ENABLED=true. Nunca ecoa corpo/segredo; erros so com codigo e mensagem fixa.
- * Idempotente por `externalId` (prefixo "wh:"): repeticao devolve a mesma reuniao (200, idempotentReplay).
+ * Idempotente por `externalId` (prefixo "wh:", escopado por org — ver `scopedExternalId` em
+ * `src/lib/domain/meeting.ts`): repeticao devolve a mesma reuniao (200, idempotentReplay), NUNCA a reuniao
+ * de outra org com o mesmo `externalId` cru.
+ *
+ * SPEC-030 (fix de vazamento cross-tenant, 2026-09-26): `campaignId` (obrigatorio no payload, ver
+ * `meetingWebhookSchema`) e quem resolve a organizacao ANTES de qualquer busca de lead — mesmo padrao de
+ * `/api/integrations/leads`. `leadId`/`phone` sao sempre resolvidos ESCOPADOS a esse `campaignId` (nunca uma
+ * busca global), e `createMeeting()` recebe `orgId` explicito para a defesa em profundidade em
+ * `src/lib/domain/meeting.ts` (`opp.campaign.orgId === p.orgId`). Antes desta rodada, o segredo global
+ * (`INGEST_SECRET`) combinado com busca de lead sem escopo de org permitia criar reuniao na organizacao
+ * errada (telefone/leadId adivinhado de outro tenant).
+ *
+ * SPEC-030 (fix de vazamento cross-tenant #2, Rodada 5, achado do QA): mesmo com `campaignId` obrigatorio
+ * acima, a checagem de IDEMPOTENCIA por `externalId` ainda comparava contra a tabela `Meeting` inteira, sem
+ * filtro de org (`Meeting.externalId` e `@unique` GLOBALMENTE no schema) — uma org B podia reaproveitar um
+ * `externalId` ja usado pela org A e receber de volta a reuniao da A como "replay". Corrigido em
+ * `createMeeting()`/`scopedExternalId()` (`src/lib/domain/meeting.ts`), nao neste arquivo.
  */
 const MAX_BODY = 16 * 1024;
 const HEADERS = { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" };
@@ -67,15 +83,20 @@ export async function handleMeetingWebhook(req: Request, deps: MeetingWebhookDep
     if (!p.success) return json({ error: "validation_error", message: "Payload inválido.", details: [...new Set(p.error.issues.map((i) => i.message))] }, 400);
     const d = p.data;
 
+    const campaign = await prisma.campaign.findUnique({ where: { id: d.campaignId }, select: { orgId: true } });
+    if (!campaign) return err(404, "campaign_not_found", "Campanha não encontrada.");
+
     let leadId = d.leadId;
     if (!leadId) {
       const ph = normalizeBrPhone(d.phone!);
       if (!ph.ok) return json({ error: "validation_error", message: "Payload inválido.", details: ["Telefone inválido."] }, 400);
-      const leads = await prisma.lead.findMany({ where: { phone: { in: [ph.e164, ph.e164.slice(1)] } }, select: { id: true }, take: 2 });
+      // Escopado por campaignId (nunca busca global): telefone repetido em outro tenant nunca colide aqui.
+      const leads = await prisma.lead.findMany({ where: { campaignId: d.campaignId, phone: { in: [ph.e164, ph.e164.slice(1)] } }, select: { id: true }, take: 2 });
       if (leads.length > 1) return err(409, "ambiguous_lead", "Mais de um lead com este telefone: informe leadId.");
       leadId = leads[0]?.id;
     }
-    const lead = leadId ? await prisma.lead.findUnique({ where: { id: leadId }, select: { id: true, campaignId: true } }) : null;
+    // findFirst com campaignId explícito (não findUnique por id): leadId de outra campanha/org nunca resolve aqui.
+    const lead = leadId ? await prisma.lead.findFirst({ where: { id: leadId, campaignId: d.campaignId }, select: { id: true, campaignId: true } }) : null;
     if (!lead) return err(404, "lead_not_found", "Lead não encontrado.");
     const opp = await prisma.opportunity.findUnique({ where: { leadId_campaignId: { leadId: lead.id, campaignId: lead.campaignId } }, select: { id: true } });
     if (!opp) return err(404, "opportunity_not_found", "Lead sem oportunidade.");
@@ -83,6 +104,7 @@ export async function handleMeetingWebhook(req: Request, deps: MeetingWebhookDep
     const r = await createMeeting({
       opportunityId: opp.id, startsAt: d.startsAt, durationMin: d.durationMin ?? 30, link: d.link ?? null, source: "webhook",
       externalId: d.externalId ? `wh:${d.externalId}` : null, now: deps.now,
+      orgId: campaign.orgId,
     });
     if (r.status === "invalid") return json({ error: "validation_error", message: "Payload inválido.", details: [r.message] }, 400);
     if (r.status === "not_found") return err(404, "opportunity_not_found", "Lead sem oportunidade.");

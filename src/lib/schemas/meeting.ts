@@ -82,9 +82,20 @@ export const meetingSettingsSchema = z.object({
     .transform((a) => [...new Set(a)].sort((x, y) => y - x)),
 });
 
-/** Webhook (SPEC-028 item 4). Estrito: campo desconhecido = 400. */
+/**
+ * Webhook (SPEC-028 item 4). Estrito: campo desconhecido = 400.
+ * SPEC-030 (fix de vazamento cross-tenant, 2026-09-26): `campaignId` passou a ser SEMPRE obrigatório, mesmo
+ * quando `leadId` é informado — mesmo padrão de `/api/integrations/leads` (SPEC-014), onde `campaignId`
+ * explícito é quem resolve a organização antes de qualquer efeito. Sem isso, um `leadId` (UUID) adivinhado
+ * de outro tenant não tinha como ser rejeitado (o segredo de ingestão é global, não por org) — exigir
+ * `campaignId` sempre, e não só "quando leadId não é enviado", fecha os dois caminhos (leadId e phone) com
+ * a mesma regra, em vez de manter dois comportamentos de segurança diferentes no mesmo endpoint. É uma
+ * quebra de contrato deliberada (aprovada pelo usuário): quem chamava este webhook sem `campaignId` passa a
+ * receber 400 `validation_error`.
+ */
 export const meetingWebhookSchema = z
   .object({
+    campaignId: z.uuid("campaignId inválido."),
     leadId: z.uuid("leadId inválido.").optional(),
     phone: z.string().trim().min(8).max(32).optional(),
     startsAt: isoInstant("startsAt"),

@@ -203,11 +203,11 @@ export const spec: OpenAPIV3_1.Document = {
     "/integrations/meetings": {
       servers: [{ url: "/api" }],
       post: {
-        tags: ["integrations"], summary: "Webhook: cria reuniao, idempotente por externalId (Bearer INGEST_SECRET; 401 sem chave; 429 + Retry-After) (SPEC-028)", security: [{ ingestBearer: [] }],
-        requestBody: { required: true, content: json({ type: "object", additionalProperties: false, required: ["startsAt"], properties: { leadId: { type: "string", format: "uuid" }, phone: str, startsAt: { type: "string", description: "ISO 8601 com offset" }, durationMin: { type: "integer", minimum: 5, maximum: 480 }, link: { type: "string", description: "https://" }, externalId: str } }) },
+        tags: ["integrations"], summary: "Webhook: cria reuniao, idempotente por externalId (Bearer INGEST_SECRET; 401 sem chave; 429 + Retry-After) (SPEC-028; campaignId obrigatorio desde SPEC-030, fix de vazamento cross-tenant)", security: [{ ingestBearer: [] }],
+        requestBody: { required: true, content: json({ type: "object", additionalProperties: false, required: ["campaignId", "startsAt"], properties: { campaignId: { type: "string", format: "uuid", description: "Resolve a organizacao dona; leadId/phone sao sempre buscados escopados a esta campanha." }, leadId: { type: "string", format: "uuid" }, phone: str, startsAt: { type: "string", description: "ISO 8601 com offset" }, durationMin: { type: "integer", minimum: 5, maximum: 480 }, link: { type: "string", description: "https://" }, externalId: str } }) },
         responses: {
           "200": okResp("Repeticao idempotente (idempotentReplay=true)", ref("MeetingWebhookResult")), "201": okResp("Criada", ref("MeetingWebhookResult")),
-          "400": { description: "Payload invalido" }, "401": { description: "Sem chave" }, "404": { description: "Lead/oportunidade nao encontrado" }, "409": { description: "Telefone ambiguo" }, "429": { description: "Rate limit (Retry-After)" }, "503": { description: "Integracao desativada" },
+          "400": { description: "Payload invalido" }, "401": { description: "Sem chave" }, "404": { description: "Campanha/lead/oportunidade nao encontrado" }, "409": { description: "Telefone ambiguo" }, "429": { description: "Rate limit (Retry-After)" }, "503": { description: "Integracao desativada" },
         },
       },
     },

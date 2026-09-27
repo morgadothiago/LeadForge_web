@@ -13,6 +13,10 @@ import { allowSeedSends } from "@/lib/domain/seed-guard";
 import { activateLeads, classifyStartable, writeSequenceAudit } from "@/lib/domain/sequence-start";
 import { runMoveOpportunity } from "@/lib/domain/move-opportunity";
 import { sweepThrottled } from "@/lib/mobile/alerts";
+import { syncOrgStatuses } from "@/lib/billing/status-map";
+import { purgeCanceledOrgs } from "@/lib/billing/purge";
+import { sendBillingReminders } from "@/lib/billing/reminders";
+import { runPixRenewalJob } from "@/lib/billing/pix-renewal";
 import { getSchedulerConfig, type SchedulerConfig } from "./config";
 import { acquirePgAdvisoryLock, type AcquireLock } from "./lock";
 import { computeNextTouchAt, decideAfterSend, decideStage, pickDueLeads, type ChannelResult, type EndStatus } from "./decide";
@@ -94,6 +98,9 @@ export async function runTick(now: Date, overrides: Partial<TickDeps> = {}): Pro
   const state = { sends: 0, budget: null as TickSummary["budget"] };
   try {
     await prisma.schedulerRun.deleteMany({ where: { startedAt: { lt: new Date(now.getTime() - RUN_RETENTION_MS) } } }).catch(() => {});
+    // SPEC-033: recalcula Organization.status ANTES de selecionar as orgs ativas da rodada — cobre a
+    // expiração do grace period de `past_due` (7 dias, D-33-3), que é dependente do tempo, não de um evento.
+    await syncOrgStatuses(now).catch((e) => console.error("[scheduler] sync de status de billing falhou:", safeErrorForLog(e)));
     // deps.campaignIds (testes/execução dirigida): resolve as orgs donas dessas campanhas em vez de varrer todas.
     const orgIds = deps.campaignIds
       ? [...new Set((await prisma.campaign.findMany({ where: { id: { in: deps.campaignIds } }, select: { orgId: true } })).map((c) => c.orgId))]
@@ -123,6 +130,16 @@ export async function runTick(now: Date, overrides: Partial<TickDeps> = {}): Pro
   }
   // SPEC-023: alertas mobile (isolado; falha nunca derruba o tick)
   await sweepThrottled(new Date()).catch(() => {});
+  // SPEC-039: e-mails de lembrete/aviso do fluxo de billing (trial acabando, past_due, suspensão automática,
+  // aviso pré-expurgo) — isolado; falha nunca derruba o tick. Roda ANTES do expurgo para o aviso "15 dias antes"
+  // não perder a janela na mesma rodada em que o expurgo já executaria (defensivo; datas não coincidem na prática).
+  await sendBillingReminders(new Date()).catch((e) => console.error("[scheduler] lembretes de billing falharam:", safeErrorForLog(e)));
+  // SPEC-047 (D-047-1): renovação PIX (AbacatePay) — no-op quando o provider ativo não é AbacatePay ou
+  // nenhuma Subscription é pixManaged. Isolado; falha nunca derruba o tick. Roda antes do expurgo, mesma
+  // ordem de sendBillingReminders (past_due marcado aqui já é visto pelo aviso auto_suspended no PRÓXIMO tick).
+  await runPixRenewalJob(new Date()).catch((e) => console.error("[scheduler] renovação PIX (AbacatePay) falhou:", safeErrorForLog(e)));
+  // SPEC-033 (D-33-4): expurgo/anonimização 90 dias após cancelamento (isolado; falha nunca derruba o tick)
+  await purgeCanceledOrgs(new Date()).catch((e) => console.error("[scheduler] expurgo de billing falhou:", safeErrorForLog(e)));
   return summary({ status: error ? "error" : "ok", runId: firstRunId, budget, ...(error ? { error } : {}) });
 }
 

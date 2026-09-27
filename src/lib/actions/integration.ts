@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
-import { requireProviderOrg } from "@/lib/auth/require-admin";
+import { requireActiveProviderOrg } from "@/lib/auth/require-admin";
 import { scopedPrisma } from "@/lib/tenant/scoped-prisma";
 import { encrypt } from "@/lib/crypto/secret-box";
 import { getEncryptionKey } from "@/lib/env";
@@ -26,7 +26,7 @@ const NOT_FOUND = "Integração não encontrada.";
  */
 export async function saveIntegration(input: unknown): Promise<ActionResult<IntegrationItemView>> {
   return safeAction(async () => {
-    const { user: actor, orgId } = await requireProviderOrg();
+    const { user: actor, orgId } = await requireActiveProviderOrg();
     const db = scopedPrisma(orgId);
     const saveWait = consumeSaveQuota(actor.id);
     if (saveWait > 0) return formError(`Muitas alterações seguidas. Tente novamente em ${saveWait}s.`);
@@ -101,7 +101,7 @@ export async function saveIntegration(input: unknown): Promise<ActionResult<Inte
 /** Remove a chave do banco (o resolvedor volta ao fallback .env, se existir). Bloqueia se houver instâncias WhatsApp dependendo da Evolution. */
 export async function removeIntegration(input: unknown): Promise<ActionResult<{ id: string }>> {
   return safeAction(async () => {
-    const { user: actor, orgId } = await requireProviderOrg();
+    const { user: actor, orgId } = await requireActiveProviderOrg();
     const parsed = removeIntegrationSchema.safeParse(input);
     if (!parsed.success) return failure(zodErrors(parsed.error));
     // Contagem de dependentes + delete + auditoria na MESMA transação Serializable (sem janela entre checar e apagar).
@@ -133,7 +133,7 @@ export async function removeIntegration(input: unknown): Promise<ActionResult<{ 
 /** Testa a conexão (timeout, 429/Retry-After tratados, PT-BR). Limite: 5 testes/min por usuário. Atualiza lastTested*. */
 export async function testIntegration(input: unknown): Promise<ActionResult<ConnectionTestResult>> {
   return safeAction(async () => {
-    const { user: actor, orgId } = await requireProviderOrg();
+    const { user: actor, orgId } = await requireActiveProviderOrg();
     const id = integrationIdSchema.safeParse(input);
     if (!id.success) return failure(zodErrors(id.error));
     const row = await prisma.integrationSecret.findFirst({ where: { id: id.data, orgId }, select: { id: true, integration: true, baseUrl: true, allowPrivateHost: true, encryptedValue: true } });

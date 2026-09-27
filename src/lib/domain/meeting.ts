@@ -67,7 +67,7 @@ export interface CreateMeetingParams {
   link?: string | null;
   notes?: string | null;
   source?: MeetingSource;
-  /** Chave de idempotencia (webhook externalId / clientRequestId), ja com prefixo do dono. */
+  /** Chave de idempotencia "crua" (webhook externalId / clientRequestId), ja com prefixo do CHAMADOR (ex.: "wh:", "client:"). Escopada por org internamente antes de persistir — ver `scopedExternalId`. */
   externalId?: string | null;
   createdById?: string | null;
   now?: Date;
@@ -82,10 +82,38 @@ export type CreateOutcome =
   | { status: "ok"; meeting: Meeting; conflicts: MeetingConflict[]; stageMoved: boolean; replay: boolean }
   | MeetingErr;
 
+/**
+ * SPEC-030 (fix de vazamento cross-tenant, 2026-09-26, achado do QA na Rodada 5): `Meeting.externalId`
+ * e `@unique` GLOBALMENTE no schema (nao por org — ver `prisma/schema.prisma`, decisao deliberada de nao
+ * desnormalizar `orgId` em `Meeting`, que resolve tenant via `Campaign`, ver secao "Modelo de dados" do
+ * spec). Antes desta correcao, a checagem de idempotencia comparava o `externalId` CRU do chamador
+ * (ex.: `"wh:abc"`, o mesmo prefixo estatico para toda a plataforma) contra a tabela inteira, sem
+ * nenhum filtro de org — uma Organization B podia reaproveitar/adivinhar um `externalId` ja usado pela
+ * Organization A e receber de volta a reuniao da A como "replay" (`idempotentReplay: true`), mesmo
+ * enviando `campaignId`/`leadId` legitimos da propria B. Correcao (opcao (b) do achado, escolhida em vez
+ * de desnormalizar `orgId` em `Meeting` porque o spec ja diz explicitamente que essa tabela NAO deve
+ * ganhar `orgId` proprio): o valor persistido/consultado em `Meeting.externalId` deixa de ser o
+ * `externalId` puro do chamador e passa a ser `scopedExternalId(orgId, externalId)`, prefixado com o
+ * `orgId` REAL da oportunidade (nao mais uma constante estatica) — resolvido a partir da propria
+ * `opportunityId` antes de qualquer checagem de idempotencia (nao depende do chamador lembrar de passar
+ * `orgId` certo; se passar, so serve como defesa em profundidade extra). Duas Organizations nunca mais
+ * colidem no mesmo `externalId` cru, porque a string armazenada e diferente.
+ */
+export function scopedExternalId(orgId: string, externalId: string): string {
+  return `org:${orgId}:${externalId}`;
+}
+
 export async function createMeeting(p: CreateMeetingParams): Promise<CreateOutcome> {
   const now = p.now ?? new Date();
-  if (p.externalId) {
-    const prev = await prisma.meeting.findUnique({ where: { externalId: p.externalId } });
+  // Resolve a org REAL da oportunidade antes de qualquer coisa (inclusive antes da checagem de
+  // idempotencia) — nunca confia so no p.orgId opcional do chamador para escopar o externalId.
+  const oppOrg = await prisma.opportunity.findUnique({ where: { id: p.opportunityId }, select: { campaign: { select: { orgId: true } } } });
+  if (!oppOrg) return { status: "not_found" };
+  const orgId = oppOrg.campaign.orgId;
+  if (p.orgId && orgId !== p.orgId) return { status: "not_found" };
+  const externalKey = p.externalId ? scopedExternalId(orgId, p.externalId) : null;
+  if (externalKey) {
+    const prev = await prisma.meeting.findUnique({ where: { externalId: externalKey } });
     if (prev) return { status: "ok", meeting: prev, conflicts: [], stageMoved: false, replay: true };
   }
   const bad = validateSchedule({ startsAt: p.startsAt, durationMin: p.durationMin, link: p.link, timezone: p.timezone }, now, true);
@@ -107,7 +135,7 @@ export async function createMeeting(p: CreateMeetingParams): Promise<CreateOutco
               opportunityId: opp.id, leadId: opp.leadId, campaignId: opp.campaignId,
               startsAt: p.startsAt, endsAt, duration: p.durationMin, timezone: p.timezone ?? DEFAULT_TIMEZONE,
               link: p.link ?? null, notes: p.notes ?? null, source: p.source ?? "manual",
-              externalId: p.externalId ?? null, createdById: p.createdById ?? null,
+              externalId: externalKey, createdById: p.createdById ?? null,
             },
           });
           let stageMoved = false;
@@ -124,8 +152,8 @@ export async function createMeeting(p: CreateMeetingParams): Promise<CreateOutco
     return { status: "ok", ...out, replay: false };
   } catch (e) {
     if (isRetryableTxConflict(e)) return { status: "conflict" };
-    if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002" && p.externalId) {
-      const prev = await prisma.meeting.findUnique({ where: { externalId: p.externalId } });
+    if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002" && externalKey) {
+      const prev = await prisma.meeting.findUnique({ where: { externalId: externalKey } });
       if (prev) return { status: "ok", meeting: prev, conflicts: [], stageMoved: false, replay: true };
     }
     throw e;

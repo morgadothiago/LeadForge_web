@@ -2,7 +2,7 @@ import "dotenv/config";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { prisma } from "@/lib/prisma";
 import { mkMeetingFixture, type MeetingFixture } from "@/lib/test-utils/meeting-fixture";
-import { createMeeting, transitionMeeting, updateMeeting, validateSchedule, endsAtOf, CANCEL_STAGE_WARNING } from "./meeting";
+import { createMeeting, transitionMeeting, updateMeeting, validateSchedule, endsAtOf, scopedExternalId, CANCEL_STAGE_WARNING } from "./meeting";
 
 const NOW = new Date("2026-10-01T12:00:00Z");
 const at = (min: number) => new Date(NOW.getTime() + min * 60_000);
@@ -78,7 +78,7 @@ describe("dominio de reunioes (banco)", () => {
     expect(r1.status === "ok" && !r1.replay).toBe(true);
     expect(r2.status === "ok" && r2.replay).toBe(true);
     expect(r1.status === "ok" && r2.status === "ok" && r1.meeting.id === r2.meeting.id).toBe(true);
-    expect(await prisma.meeting.count({ where: { externalId: "wh:abc" } })).toBe(1);
+    expect(await prisma.meeting.count({ where: { externalId: scopedExternalId(fx.orgId, "wh:abc") } })).toBe(1);
   });
 
   it("cancelar: nao move stage, retorna aviso, resolve lembretes pendentes; idempotente", async () => {

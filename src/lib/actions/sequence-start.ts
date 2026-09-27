@@ -4,7 +4,7 @@ import { withSerializableRetry } from "@/lib/db/tx-conflict";
 import { revalidatePath } from "next/cache";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { requireProviderOrg } from "@/lib/auth/require-admin";
+import { requireActiveProviderOrg } from "@/lib/auth/require-admin";
 import { STOP_NOTE, activateLeads, classifyStartable, ineligibleReason, loadCampaignCtx, REASON_LABEL, START_LEAD_SELECT, writeSequenceAudit, type IneligibleReason } from "@/lib/domain/sequence-start";
 import { findSuppression } from "@/lib/domain/suppression";
 import { startCampaignSequencesSchema, startSequenceSchema, stopSequenceSchema } from "@/lib/schemas/sequence-start";
@@ -24,7 +24,7 @@ const revalidate = (campaignId: string, leadId?: string): void => {
  */
 export async function startSequence(input: unknown): Promise<ActionResult<{ leadId: string; started: boolean }>> {
   return safeAction(async () => {
-    const { user, orgId } = await requireProviderOrg();
+    const { user, orgId } = await requireActiveProviderOrg();
     const parsed = startSequenceSchema.safeParse(input);
     if (!parsed.success) return failure(zodErrors(parsed.error));
     const { leadId } = parsed.data;
@@ -52,7 +52,7 @@ export async function startCampaignSequences(
   input: unknown,
 ): Promise<ActionResult<{ campaignId: string; started: number; ineligible: Partial<Record<IneligibleReason, number>>; ineligibleTotal: number }>> {
   return safeAction(async () => {
-    const { user, orgId } = await requireProviderOrg();
+    const { user, orgId } = await requireActiveProviderOrg();
     const parsed = startCampaignSequencesSchema.safeParse(input);
     if (!parsed.success) return failure(zodErrors(parsed.error));
     const { campaignId } = parsed.data;
@@ -74,7 +74,7 @@ export async function startCampaignSequences(
  */
 export async function stopSequence(input: unknown): Promise<ActionResult<{ leadId: string; stopped: boolean; cancelledTouches: number }>> {
   return safeAction(async () => {
-    const { user, orgId } = await requireProviderOrg();
+    const { user, orgId } = await requireActiveProviderOrg();
     const parsed = stopSequenceSchema.safeParse(input);
     if (!parsed.success) return failure(zodErrors(parsed.error));
     const { leadId } = parsed.data;

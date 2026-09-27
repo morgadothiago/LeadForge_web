@@ -47,7 +47,7 @@ describe("SPEC-017: toda action/query nova exige sessão", () => {
       for (let m = re.exec(src); m; m = re.exec(src)) starts.push({ name: m[1], at: m.index });
       expect(starts.length).toBeGreaterThan(0);
       starts.forEach((s, i) => {
-        expect(src.slice(s.at, starts[i + 1]?.at ?? src.length), `${f}:${s.name} deve chamar requireUser()`).toMatch(/await requireUser\(\)|await requireProviderOrg\(\)|await requirePlatformAdmin\(\)/);
+        expect(src.slice(s.at, starts[i + 1]?.at ?? src.length), `${f}:${s.name} deve chamar requireUser()`).toMatch(/await requireUser\(\)|await requireProviderOrg\(\)|await requireActiveProviderOrg\(\)|await requirePlatformAdmin\(\)/);
       });
     }
   });

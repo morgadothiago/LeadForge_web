@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { requireProviderOrg } from "@/lib/auth/require-admin";
+import { requireActiveProviderOrg } from "@/lib/auth/require-admin";
 import { scopedPrisma } from "@/lib/tenant/scoped-prisma";
 import { idSchema } from "@/lib/schemas/campaign";
 import {
@@ -59,7 +59,7 @@ export interface SequenceSaved {
 
 export async function createSequence(input: unknown): Promise<ActionResult<SequenceSaved>> {
   return safeAction(async () => {
-  const { orgId } = await requireProviderOrg();
+  const { orgId } = await requireActiveProviderOrg();
   const parsed = sequenceCreateSchema.safeParse(input);
   if (!parsed.success) return failure(zodErrors(parsed.error));
   const errs = await validateSteps(orgId, parsed.data.steps);
@@ -78,7 +78,7 @@ export async function createSequence(input: unknown): Promise<ActionResult<Seque
 
 export async function renameSequence(input: unknown): Promise<ActionResult<SequenceSaved>> {
   return safeAction(async () => {
-  const { orgId } = await requireProviderOrg();
+  const { orgId } = await requireActiveProviderOrg();
   const db = scopedPrisma(orgId);
   const parsed = sequenceRenameSchema.safeParse(input);
   if (!parsed.success) return failure(zodErrors(parsed.error));
@@ -101,7 +101,7 @@ async function applyOrders(tx: Prisma.TransactionClient, ids: string[]): Promise
  */
 export async function saveSequenceSteps(input: unknown): Promise<ActionResult<SequenceSaved>> {
   return safeAction(async () => {
-  const { orgId } = await requireProviderOrg();
+  const { orgId } = await requireActiveProviderOrg();
   const db = scopedPrisma(orgId);
   const parsed = sequenceStepsSchema.safeParse(input);
   if (!parsed.success) return failure(zodErrors(parsed.error));
@@ -151,7 +151,7 @@ export async function saveSequenceSteps(input: unknown): Promise<ActionResult<Se
 /** Reordena passos existentes (permutação completa). Dias resultantes precisam continuar não decrescentes. */
 export async function reorderSteps(input: unknown): Promise<ActionResult<SequenceSaved>> {
   return safeAction(async () => {
-  const { orgId } = await requireProviderOrg();
+  const { orgId } = await requireActiveProviderOrg();
   const db = scopedPrisma(orgId);
   const parsed = reorderSchema.safeParse(input);
   if (!parsed.success) return failure(zodErrors(parsed.error));
@@ -175,7 +175,7 @@ export async function reorderSteps(input: unknown): Promise<ActionResult<Sequenc
 /** Nova sequência independente (ids novos); templates são compartilhados (mesma campanha). */
 export async function duplicateSequence(id: unknown): Promise<ActionResult<{ id: string }>> {
   return safeAction(async () => {
-  const { orgId } = await requireProviderOrg();
+  const { orgId } = await requireActiveProviderOrg();
   const db = scopedPrisma(orgId);
   const parsed = idSchema.safeParse(id);
   if (!parsed.success) return formError("ID inválido.");
@@ -196,7 +196,7 @@ export async function duplicateSequence(id: unknown): Promise<ActionResult<{ id:
 /** Bloqueia exclusão se campanha ativa usa a sequência; demais campanhas ficam sem sequência (SetNull). */
 export async function deleteSequence(id: unknown): Promise<ActionResult<{ id: string }>> {
   return safeAction(async () => {
-  const { orgId } = await requireProviderOrg();
+  const { orgId } = await requireActiveProviderOrg();
   const parsed = idSchema.safeParse(id);
   if (!parsed.success) return formError("ID inválido.");
   const sid = parsed.data;

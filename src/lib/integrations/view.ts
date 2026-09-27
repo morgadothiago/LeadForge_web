@@ -41,7 +41,9 @@ type Row = {
 };
 
 export function toItemView(r: Row): IntegrationItemView {
-  return { ...r, hintDisplay: `••••${r.hint}` };
+  // `Row.integration` é o enum Prisma inteiro (inclui os kinds da SPEC-041, sem tela própria ainda); esta view só
+  // é chamada pelos 4 kinds de `INTEGRATIONS` (filtro em `listIntegrations`), nunca pelos novos.
+  return { ...r, integration: r.integration as IntegrationKindName, hintDisplay: `••••${r.hint}` };
 }
 
 export function summarize(integration: IntegrationKindName, items: IntegrationItemView[], envConfigured: boolean): IntegrationSummary {

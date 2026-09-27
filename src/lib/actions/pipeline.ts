@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import type { Prisma } from "@prisma/client";
-import { requireProviderOrg } from "@/lib/auth/require-admin";
+import { requireActiveProviderOrg } from "@/lib/auth/require-admin";
 import { scopedPrisma } from "@/lib/tenant/scoped-prisma";
 import { runMoveOpportunity, type MoveResult } from "@/lib/domain/move-opportunity";
 import {
@@ -34,7 +34,7 @@ export async function moveOpportunity(
   input: unknown,
 ): Promise<ActionResult<MoveResult>> {
   return safeAction(async () => {
-    const { orgId } = await requireProviderOrg();
+    const { orgId } = await requireActiveProviderOrg();
     const db = scopedPrisma(orgId);
     const parsed = moveOpportunitySchema.safeParse(input);
     if (!parsed.success) return failure(zodErrors(parsed.error));
@@ -63,7 +63,7 @@ export async function updateOpportunity(
   input: unknown,
 ): Promise<ActionResult<{ id: string }>> {
   return safeAction(async () => {
-    const { orgId } = await requireProviderOrg();
+    const { orgId } = await requireActiveProviderOrg();
     const db = scopedPrisma(orgId);
     const parsed = updateOpportunitySchema.safeParse(input);
     if (!parsed.success) return failure(zodErrors(parsed.error));

@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { requireProviderOrg } from "@/lib/auth/require-admin";
+import { requireActiveProviderOrg } from "@/lib/auth/require-admin";
 import { scopedPrisma } from "@/lib/tenant/scoped-prisma";
 import { icpInputSchema, icpUpdateSchema } from "@/lib/schemas/icp";
 import { idSchema } from "@/lib/schemas/campaign";
@@ -16,7 +16,7 @@ function revalidate(): void {
 
 export async function createIcp(input: unknown): Promise<ActionResult<{ id: string }>> {
   return safeAction(async () => {
-    const { orgId } = await requireProviderOrg();
+    const { orgId } = await requireActiveProviderOrg();
     const parsed = icpInputSchema.safeParse(input);
     if (!parsed.success) return { ok: false, errors: zodErrors(parsed.error) };
     const icp = await scopedPrisma(orgId).icpProfile.create({ data: parsed.data, select: { id: true } });
@@ -27,7 +27,7 @@ export async function createIcp(input: unknown): Promise<ActionResult<{ id: stri
 
 export async function updateIcp(input: unknown): Promise<ActionResult<{ id: string }>> {
   return safeAction(async () => {
-    const { orgId } = await requireProviderOrg();
+    const { orgId } = await requireActiveProviderOrg();
     const parsed = icpUpdateSchema.safeParse(input);
     if (!parsed.success) return { ok: false, errors: zodErrors(parsed.error) };
     const { id, ...data } = parsed.data;
@@ -45,7 +45,7 @@ export async function updateIcp(input: unknown): Promise<ActionResult<{ id: stri
 /** Bloqueia se alguma campanha (inclusive arquivada) usa o ICP. Checagem+delete na mesma transação; P2003 (corrida) vira a mesma mensagem. */
 export async function deleteIcp(id: unknown): Promise<ActionResult<{ id: string }>> {
   return safeAction(async () => {
-    const { orgId } = await requireProviderOrg();
+    const { orgId } = await requireActiveProviderOrg();
     const parsed = idSchema.safeParse(id);
     if (!parsed.success) return formError("ID inválido.");
     try {
