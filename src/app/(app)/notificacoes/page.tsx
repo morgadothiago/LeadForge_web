@@ -1,9 +1,9 @@
 import { NotificationsList } from "@/components/notifications/NotificationsList";
-import { requireUser } from "@/lib/auth/require-user";
+import { requirePageUser } from "@/lib/auth/require-page";
 
 export const dynamic = "force-dynamic";
 
 export default async function Page() {
-  await requireUser();
+  await requirePageUser();
   return <NotificationsList />;
 }

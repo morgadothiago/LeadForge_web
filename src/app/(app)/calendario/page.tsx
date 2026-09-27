@@ -1,6 +1,6 @@
 import { CalendarView } from "@/components/calendar/CalendarView";
 import type { CalendarMeeting } from "@/components/calendar/types";
-import { requireUser } from "@/lib/auth/require-user";
+import { requirePageUser } from "@/lib/auth/require-page";
 import { dayKeyOf, isDayKey, visibleRange, type CalendarView as View } from "@/lib/calendar/tz";
 import { getMeetingStart, listMeetings } from "@/lib/queries/meetings";
 
@@ -9,7 +9,7 @@ export const dynamic = "force-dynamic";
 const first = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v);
 
 export default async function Page({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
-  await requireUser();
+  await requirePageUser();
   const sp = await searchParams;
   const todayKey = dayKeyOf(new Date());
   const rawView = first(sp.view);
