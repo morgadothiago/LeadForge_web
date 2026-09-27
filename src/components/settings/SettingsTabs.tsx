@@ -9,6 +9,7 @@ const TABS = [
   { href: "/configuracoes/supressao", label: "Supressão" },
   { href: "/configuracoes/agentes", label: "Agentes", adminOnly: true },
   { href: "/configuracoes/integracoes", label: "Integrações", adminOnly: true },
+  { href: "/configuracoes/assinatura", label: "Assinatura", adminOnly: true },
 ] as const;
 
 /** `isAdmin` vem do servidor (role); é só UX: a barreira real é requireAdmin nas actions/queries/página. */
