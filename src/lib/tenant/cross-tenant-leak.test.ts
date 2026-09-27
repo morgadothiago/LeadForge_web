@@ -19,7 +19,7 @@ import { getSequence, listSequences } from "@/lib/queries/sequences";
 import { createTemplate, updateTemplate } from "@/lib/actions/template";
 import { updateInstance, deleteWhatsAppInstance } from "@/lib/actions/whatsapp";
 import { listWhatsAppInstances, getWhatsAppInstance } from "@/lib/queries/whatsapp";
-import { updateEmailAccount } from "@/lib/actions/email";
+import { updateEmailAccount, deleteEmailAccount, setActive as setEmailAccountActive, testEmailConnection } from "@/lib/actions/email";
 import { listEmailAccounts, getEmailAccount } from "@/lib/queries/email";
 import { updateAgent, approveDraft, rejectDraftAction, takeOverLead } from "@/lib/actions/agent";
 import { listAgents } from "@/lib/queries/agent";
@@ -39,6 +39,7 @@ import { GET as listAlerts } from "@/app/api/mobile/v1/alerts/route";
 import { GET as unreadCount } from "@/app/api/mobile/v1/alerts/unread-count/route";
 import { POST as readOneAlert } from "@/app/api/mobile/v1/alerts/[id]/read/route";
 import { POST as readAllAlerts } from "@/app/api/mobile/v1/alerts/read-all/route";
+import { handleMeetingWebhook, _resetMeetingWebhookRateLimit } from "@/lib/meetings/webhook";
 
 /**
  * SPEC-030 seção 3 — "Teste obrigatório": para cada domínio de negócio, cria 2 Organizations e confirma
@@ -265,6 +266,30 @@ describe("email — vazamento cross-tenant", () => {
     const upd = await updateEmailAccount({ id: accA, provider: "smtp", smtpHost: "outro.local", port: 587, email: `zz-${A.tag}@test.local`, dailyLimit: 50 });
     expect(upd.ok).toBe(false);
   });
+
+  it("setActive com id de outra org falha, nunca ativa/desativa a conta alheia (achado QA Rodada 5: migradas para scopedPrisma)", async () => {
+    await signInAs(B.userId);
+    const before = await prisma.emailAccount.findUniqueOrThrow({ where: { id: accA } });
+    const r = await setEmailAccountActive({ id: accA, isActive: !before.isActive });
+    expect(r.ok).toBe(false);
+    const after = await prisma.emailAccount.findUniqueOrThrow({ where: { id: accA } });
+    expect(after.isActive).toBe(before.isActive);
+  });
+
+  it("testEmailConnection com id de outra org falha ('Conta não encontrada'), nunca testa a conta alheia", async () => {
+    await signInAs(B.userId);
+    const r = await testEmailConnection(accA);
+    expect(r.ok).toBe(false);
+    if (r.ok) throw new Error("unreachable");
+    expect(r.errors?._form?.[0]).toMatch(/não encontrada/);
+  });
+
+  it("deleteEmailAccount com id de outra org falha, nunca apaga a conta alheia", async () => {
+    await signInAs(B.userId);
+    const r = await deleteEmailAccount(accA);
+    expect(r.ok).toBe(false);
+    expect(await prisma.emailAccount.findUnique({ where: { id: accA } })).not.toBeNull();
+  });
 });
 
 describe("agentes — vazamento cross-tenant", () => {
@@ -443,5 +468,103 @@ describe("MobileAlert — vazamento cross-tenant (achado real corrigido nesta ro
     expect(rowA.orgId).toBe(A.orgId);
     const crossed = await prisma.mobileAlert.findFirst({ where: { orgId: B.orgId, refId: seedA.leadId } });
     expect(crossed).toBeNull();
+  });
+});
+
+describe("POST /api/integrations/meetings (webhook) — vazamento cross-tenant (achado + fix desta rodada da SPEC-030)", () => {
+  const WEBHOOK_SECRET = "s".repeat(40);
+  const deps = { secret: WEBHOOK_SECRET, enabled: true };
+  const futureIso = () => new Date(Date.now() + 48 * 3600_000).toISOString();
+  const call = (body: unknown) =>
+    handleMeetingWebhook(new Request("http://x/api/integrations/meetings", { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${WEBHOOK_SECRET}` }, body: JSON.stringify(body) }), deps);
+
+  beforeAll(() => _resetMeetingWebhookRateLimit());
+
+  it("sem campaignId no payload = 400 validation_error, nunca tenta resolver lead", async () => {
+    const r = await call({ leadId: seedA.leadId, startsAt: futureIso() });
+    expect(r.status).toBe(400);
+    expect((await r.json()).error).toBe("validation_error");
+  });
+
+  it("leadId da org A com campaignId da org B = 404 lead_not_found, nunca cria reunião na org errada", async () => {
+    const r = await call({ campaignId: seedB.campaignId, leadId: seedA.leadId, startsAt: futureIso() });
+    expect(r.status).toBe(404);
+    expect((await r.json()).error).toBe("lead_not_found");
+    const opp = await prisma.opportunity.findUniqueOrThrow({ where: { id: seedA.opportunityId } });
+    expect(opp.stage).not.toBe("reuniao_agendada");
+  });
+
+  it("campaignId inexistente/adivinhado = 404 campaign_not_found", async () => {
+    const r = await call({ campaignId: crypto.randomUUID(), leadId: seedB.leadId, startsAt: futureIso() });
+    expect(r.status).toBe(404);
+    expect((await r.json()).error).toBe("campaign_not_found");
+  });
+
+  it("mesmo telefone existindo em duas orgs: resolve SOMENTE o lead da org do campaignId informado", async () => {
+    const phone = "+5511977770002";
+    const leadA = await prisma.lead.create({ data: { campaignId: seedA.campaignId, name: "zz-ct phone dup A", phone } });
+    const oppA = await prisma.opportunity.create({ data: { leadId: leadA.id, campaignId: seedA.campaignId } });
+    const leadB = await prisma.lead.create({ data: { campaignId: seedB.campaignId, name: "zz-ct phone dup B", phone } });
+    const oppB = await prisma.opportunity.create({ data: { leadId: leadB.id, campaignId: seedB.campaignId } });
+    try {
+      const r = await call({ campaignId: seedA.campaignId, phone, startsAt: futureIso() });
+      expect(r.status).toBe(201);
+      const j = await r.json();
+      expect(j.leadId).toBe(leadA.id);
+      const meeting = await prisma.meeting.findUniqueOrThrow({ where: { id: j.meetingId } });
+      expect(meeting.campaignId).toBe(seedA.campaignId);
+      const oppBAfter = await prisma.opportunity.findUniqueOrThrow({ where: { id: oppB.id } });
+      expect(oppBAfter.stage).not.toBe("reuniao_agendada");
+      await prisma.meeting.delete({ where: { id: meeting.id } });
+    } finally {
+      await prisma.opportunity.delete({ where: { id: oppA.id } }).catch(() => undefined);
+      await prisma.opportunity.delete({ where: { id: oppB.id } }).catch(() => undefined);
+      await prisma.lead.delete({ where: { id: leadA.id } }).catch(() => undefined);
+      await prisma.lead.delete({ where: { id: leadB.id } }).catch(() => undefined);
+    }
+  });
+
+  it("caminho feliz: campaignId+leadId da org B cria a reunião na org B (nunca na org A)", async () => {
+    const r = await call({ campaignId: seedB.campaignId, leadId: seedB.leadId, startsAt: futureIso(), durationMin: 30 });
+    expect(r.status).toBe(201);
+    const j = await r.json();
+    const meeting = await prisma.meeting.findUniqueOrThrow({ where: { id: j.meetingId } });
+    expect(meeting.campaignId).toBe(seedB.campaignId);
+    expect(meeting.leadId).toBe(seedB.leadId);
+    await prisma.meeting.delete({ where: { id: meeting.id } });
+  });
+
+  it("achado do QA (Rodada 5): mesmo externalId reutilizado por outra org NUNCA devolve a reunião da org A como replay da org B", async () => {
+    // Org A cria uma reunião via webhook com externalId "collide-1".
+    const rA = await call({ campaignId: seedA.campaignId, leadId: seedA.leadId, startsAt: futureIso(), durationMin: 30, externalId: "collide-1" });
+    expect(rA.status).toBe(201);
+    const jA = await rA.json();
+    expect(jA.idempotentReplay).toBeUndefined();
+
+    // Org B chama o mesmo webhook, com campaignId/leadId legítimos da PRÓPRIA org B, reaproveitando o
+    // MESMO externalId cru "collide-1" já usado pela org A. Antes do fix: 200, idempotentReplay:true, com
+    // o meetingId da org A (vazamento). Depois do fix: a org B nunca vê a reunião da org A — cria a sua
+    // própria (nova), nunca um "replay" cruzando org.
+    const rB = await call({ campaignId: seedB.campaignId, leadId: seedB.leadId, startsAt: futureIso(), durationMin: 45, externalId: "collide-1" });
+    expect(rB.status).toBe(201);
+    const jB = await rB.json();
+    expect(jB.idempotentReplay).toBeUndefined();
+    expect(jB.meetingId).not.toBe(jA.meetingId);
+
+    const meetingA = await prisma.meeting.findUniqueOrThrow({ where: { id: jA.meetingId } });
+    const meetingB = await prisma.meeting.findUniqueOrThrow({ where: { id: jB.meetingId } });
+    expect(meetingA.campaignId).toBe(seedA.campaignId);
+    expect(meetingB.campaignId).toBe(seedB.campaignId);
+    expect(meetingA.externalId).not.toBe(meetingB.externalId); // mesmo externalId cru, chaves persistidas escopadas por org são diferentes
+
+    // Replay de verdade DENTRO da mesma org continua funcionando (não regrediu a idempotência real).
+    const rAReplay = await call({ campaignId: seedA.campaignId, leadId: seedA.leadId, startsAt: futureIso(), durationMin: 30, externalId: "collide-1" });
+    expect(rAReplay.status).toBe(200);
+    const jAReplay = await rAReplay.json();
+    expect(jAReplay.idempotentReplay).toBe(true);
+    expect(jAReplay.meetingId).toBe(jA.meetingId);
+
+    await prisma.meeting.delete({ where: { id: meetingA.id } });
+    await prisma.meeting.delete({ where: { id: meetingB.id } });
   });
 });

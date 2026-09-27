@@ -1,7 +1,8 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { LoginForm } from "@/components/auth/LoginForm";
-import { requireUser, UnauthorizedError } from "@/lib/auth/require-user";
+import { requireUser, UnauthorizedError, homeRouteFor } from "@/lib/auth/require-user";
 
 export const metadata: Metadata = {
   title: "Entrar | LeadForge",
@@ -10,14 +11,14 @@ export const metadata: Metadata = {
 export const dynamic = "force-dynamic";
 
 export default async function LoginPage({ searchParams }: { searchParams: Promise<{ next?: string | string[] }> }) {
-  let authenticated = false;
+  let homeRoute: string | null = null;
   try {
-    await requireUser();
-    authenticated = true;
+    const user = await requireUser();
+    homeRoute = homeRouteFor(user.platformRole);
   } catch (e) {
     if (!(e instanceof UnauthorizedError)) throw e;
   }
-  if (authenticated) redirect("/dashboard");
+  if (homeRoute) redirect(homeRoute);
 
   const { next } = await searchParams;
   const nextValue = Array.isArray(next) ? next[0] : next;
@@ -31,6 +32,12 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
           <p className="text-sm text-muted-foreground">Use seu e-mail e senha para acessar.</p>
         </div>
         <LoginForm next={nextValue} />
+        <p className="text-center text-xs text-muted-foreground">
+          Ainda não tem conta?{" "}
+          <Link href="/signup" className="font-medium text-primary underline-offset-2 hover:underline">
+            Criar conta
+          </Link>
+        </p>
       </div>
     </main>
   );

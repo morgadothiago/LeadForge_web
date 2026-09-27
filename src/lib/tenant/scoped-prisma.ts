@@ -16,6 +16,10 @@ import { prisma } from "@/lib/prisma";
  * `Organization` são a própria infraestrutura de tenant; `MobileDevice`/`MobileActionLog` são escopo
  * por usuário, não por org).
  *
+ * SPEC-033: `Subscription` entrou em DIRECT_ORG_MODELS (1 por org, `orgId` único). `Plan` NÃO entrou —
+ * é catálogo GLOBAL (gerido só pelo `platform_admin`, sem endpoint de gestão nesta SPEC), acessado via
+ * `prisma` direto como `User`/`Organization`.
+ *
  * `MobileAlert` GANHOU `orgId` na 3ª rodada da SPEC-030 (vazamento cross-tenant real corrigido — o app
  * mobile/o painel web liam/marcavam-como-lido alertas de QUALQUER organização). Não está listado em
  * DIRECT_ORG_MODELS porque a varredura que o cria (`sweepAlerts`/`collectForOrg`,
@@ -44,6 +48,7 @@ const DIRECT_ORG_MODELS = [
   "agent",
   "knowledgeDocument",
   "webhookEvent",
+  "subscription",
 ] as const;
 
 /** Modelos sem `orgId` próprio: caminho de relação (nomes de campo do Prisma, não de tabela) até um modelo de DIRECT_ORG_MODELS. */

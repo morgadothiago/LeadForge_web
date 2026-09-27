@@ -9,6 +9,13 @@ export interface SessionPayload {
   /** null só para `platform_admin` (sem Organization própria — D-30-1). */
   orgId: string | null;
   platformRole: PlatformRole;
+  /**
+   * SPEC-038 (D-038-2): momento (epoch MILLISSEGUNDOS, claim customizada `imts`) em que o token foi
+   * emitido — `requireUser()` compara com `User.sessionsInvalidatedAt` para rejeitar sessões emitidas
+   * ANTES de uma redefinição de senha. Claim própria (não o `iat` padrão do JWT, que só tem resolução de
+   * SEGUNDOS) para não perder a invalidação por corrida quando emissão/invalidação caem no mesmo segundo.
+   */
+  issuedAtMs: number;
 }
 
 function key(secret?: string): Uint8Array {
@@ -24,8 +31,9 @@ export async function signSessionToken(
   platformRole: PlatformRole,
   opts: { ttlSeconds?: number; secret?: string; now?: Date } = {},
 ): Promise<string> {
-  const iat = Math.floor((opts.now ?? new Date()).getTime() / 1000);
-  return new SignJWT({ orgId, platformRole })
+  const now = opts.now ?? new Date();
+  const iat = Math.floor(now.getTime() / 1000);
+  return new SignJWT({ orgId, platformRole, imts: now.getTime() })
     .setProtectedHeader({ alg: "HS256" })
     .setSubject(userId)
     .setIssuedAt(iat)
@@ -40,8 +48,9 @@ export async function verifySessionToken(token: string | undefined, secret?: str
     const { payload } = await jwtVerify(token, key(secret), { algorithms: ["HS256"] });
     if (!payload.sub) return null;
     if (payload.platformRole !== "provider" && payload.platformRole !== "platform_admin") return null;
+    if (typeof payload.imts !== "number") return null;
     const orgId = typeof payload.orgId === "string" ? payload.orgId : null;
-    return { userId: payload.sub, orgId, platformRole: payload.platformRole };
+    return { userId: payload.sub, orgId, platformRole: payload.platformRole, issuedAtMs: payload.imts };
   } catch {
     return null;
   }

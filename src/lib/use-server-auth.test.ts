@@ -11,6 +11,11 @@ const ALLOWLIST: Record<string, string> = {
   // login/logout: ações de autenticação, não exigem sessão prévia (login cria; logout é idempotente e apenas remove a sessão).
   login: "src/lib/actions/auth.ts",
   logout: "src/lib/actions/auth.ts",
+  // SPEC-033/D-35-1: signup self-service, cria a própria sessão (como login) — não há sessão prévia a exigir.
+  signUpAndStartCheckout: "src/lib/actions/billing.ts",
+  // SPEC-038: "esqueci/redefinir senha" — o usuário, por definição, ainda não tem sessão (ou a perdeu).
+  forgotPassword: "src/lib/actions/auth.ts",
+  resetPassword: "src/lib/actions/auth.ts",
 };
 
 function walk(dir: string, out: string[] = []): string[] {
@@ -57,7 +62,7 @@ function allAsyncFns(src: string): Fn[] {
  * `requireUser()` por dentro — são "exige sessão" tanto quanto a chamada direta, só que também exigem
  * org/papel de plataforma. O grep original só procurava `requireUser(` literal.
  */
-const SESSION_GUARD_RE = /\brequireUser\s*\(|\brequireProviderOrg\s*\(|\brequirePlatformAdmin\s*\(/;
+const SESSION_GUARD_RE = /\brequireUser\s*\(|\brequireProviderOrg\s*\(|\brequireActiveProviderOrg\s*\(|\brequirePlatformAdmin\s*\(/;
 
 // Funções de queries/actions (exportadas ou helpers locais como setStatus) que exigem sessão (delegáveis).
 const guarded = new Set<string>();
@@ -86,7 +91,7 @@ describe("estático: todo arquivo 'use server' exige sessão", () => {
     });
   }
 
-  it("allowlist só contém login/logout de auth.ts", () => {
-    expect(Object.keys(ALLOWLIST).sort()).toEqual(["login", "logout"]);
+  it("allowlist só contém login/logout/forgotPassword/resetPassword de auth.ts e signUpAndStartCheckout de billing.ts", () => {
+    expect(Object.keys(ALLOWLIST).sort()).toEqual(["forgotPassword", "login", "logout", "resetPassword", "signUpAndStartCheckout"]);
   });
 });
