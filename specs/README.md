@@ -31,12 +31,24 @@ Fullstack = executa dev-backend primeiro, depois dev-frontend.
 | 027 | Migracao da sidebar custom para shadcn `Sidebar` (icon-collapsible, cookie, Sheet mobile) | dev-frontend | 5 | IMPLEMENTED (2026-09-20; validacao visual pendente) | 003,009 |
 | 028 | Reunioes: backend (Meeting, lembretes via alertas, resumo/leitura de notificacoes por sessao) | dev-backend | 5 | IMPLEMENTED (2026-09-21; backend; push real e migrate no banco de dev pendentes) | 001,007,012,013,019,023 |
 | 029 | Calendario de reunioes + notificacoes (sino/Sheet, /notificacoes, bolinhas na sidebar, toasts, polling unico) | dev-frontend | 5 | IMPLEMENTED (2026-09-21; frontend; validacao visual/teclado/leitor de tela e migrate no banco de dev PENDENTES do usuario) | 028,027 |
-| 030 | Migracao multi-tenant + ReBAC (Organization, orgId, guards, sessao com org/papel) | dev-backend | 6 (SaaS) | APPROVED (usuario, 2026-09-25) -> IN_PROGRESS | - |
-| 031 | Administrador: backend cross-tenant (listar/suspender/reativar Organizations) | dev-backend | 6 (SaaS) | DRAFT | 030 |
-| 032 | Administrador: area cross-tenant (UI) | dev-frontend | 6 (SaaS) | DRAFT | 031 |
-| 033 | Billing/assinatura: backend (planos, checkout, webhook, gating) | dev-backend | 6 (SaaS) | APPROVED (usuario, 2026-09-25) | 030 |
-| 034 | Billing/assinatura: frontend (pricing, checkout, signup self-service, gestao do plano) | dev-frontend | 6 (SaaS) | APPROVED (usuario, 2026-09-25) | 033 |
-| 035 | Landing page publica ("/") | dev-frontend | 6 (SaaS) | APPROVED (usuario, 2026-09-25) | 002,027,034 (pricing/signup) |
+| 030 | Migracao multi-tenant + ReBAC (Organization, orgId, guards, sessao com org/papel) | dev-backend | 6 (SaaS) | IMPLEMENTED (2026-09-26; 6 rodadas dev-backend + 2 rodadas QA, ultima APPROVED) | - |
+| 031 | Administrador: backend cross-tenant (listar/suspender/reativar Organizations) | dev-backend | 6 (SaaS) | IMPLEMENTED (2026-09-26; 2 rodadas dev-backend + 2 rodadas QA, ultima APPROVED; flakiness pre-existente de meeting-reminders.test.ts corrigida) | 030 |
+| 032 | Administrador: area cross-tenant (UI) | dev-frontend | 6 (SaaS) | IMPLEMENTED (2026-09-26; dev-frontend + QA APPROVED) | 031 |
+| 033 | Billing/assinatura: backend (planos, checkout, webhook, gating) | dev-backend | 6 (SaaS) | IMPLEMENTED (2026-09-26; 2 rodadas dev-backend + 2 rodadas QA, ultima APPROVED) | 030 |
+| 034 | Billing/assinatura: frontend (pricing, checkout, signup self-service, gestao do plano) | dev-frontend | 6 (SaaS) | IMPLEMENTED (2026-09-26; dev-frontend + QA APPROVED) | 033 |
+| 035 | Landing page publica ("/") | dev-frontend | 6 (SaaS) | IMPLEMENTED (2026-09-26; 2 rodadas dev-frontend + 4 rodadas QA, ultima APPROVED) | 002,027,034 (pricing/signup) |
+| 036 | LLM gratuito (provedor OpenAI-compatible: Ollama, Gemini, Groq) | fullstack | 7 (LLM gratis) | DRAFT | 018,019,030 |
+| 037 | Dark/Light mode + identidade visual unificada (landing+app+login) | dev-frontend | 6 (SaaS) | IMPLEMENTED (2026-09-26; 2 rodadas dev-frontend + 2 rodadas QA, ultima APPROVED) | 002,035 |
+| 038 | Recuperacao de senha ("esqueci minha senha") | fullstack | 6 (SaaS) | IMPLEMENTED (2026-09-26; 2 rodadas backend + 1 frontend + 2 rodadas QA, ultima APPROVED) | 009,010,037 |
+| 039 | Bloqueio manual de inadimplencia + lembretes de cobranca por e-mail | dev-backend | 6 (SaaS) | IMPLEMENTED (2026-09-27; 2 rodadas dev-backend + 2 rodadas QA, ultima APPROVED) | 030,031,032,033,038 |
+| 040 | Criacao manual de usuario com acesso completo (cortesia/interno) | fullstack | 6 (SaaS) | IMPLEMENTED (2026-09-27; backend+frontend + QA APPROVED) | 030,031,032,033 |
+| 041 | Captacao de leads: Google Ads Lead Form + Meta Lead Ads | fullstack | 6 (SaaS) | APPROVED (usuario, 2026-09-27) | 018,014,030 |
+| 042 | Padrao react-hook-form + piloto (Auth: login/signup/esqueci-senha/redefinir-senha) | dev-frontend | 6 (SaaS) | APPROVED (usuario, 2026-09-27) | 009,034,037,038 |
+| 043 | react-hook-form: Campanhas, ICP, Leads | dev-frontend | 6 (SaaS) | APPROVED (usuario, 2026-09-27) | 042 |
+| 044 | react-hook-form: Sequences, Templates, Agentes, Calendario | dev-frontend | 6 (SaaS) | APPROVED (usuario, 2026-09-27) | 042 |
+| 045 | react-hook-form: Configuracoes, Integracoes, WhatsApp, Supressao, Admin, Billing | dev-frontend | 6 (SaaS) | APPROVED (usuario, 2026-09-27) | 042 |
+| 046 | E-mail transacional: Resend (fallback SMTP) + templates HTML + 2 cenarios novos (assinatura efetuada/cancelada) | dev-backend | 6 (SaaS) | APPROVED (usuario, 2026-09-27) | 010,033,037,038,039,040 |
+| 047 | AbacatePay como adapter adicional de PaymentProvider (PIX/cartao) | dev-backend | 6 (SaaS) | APPROVED (usuario, 2026-09-27) | 033 |
 
 Ordem (sessao 2): 009,010,016 feitos -> 011 -> 012 -> 017 -> 013 -> 014 -> 015. Ordem sessao 1: 000 -> 001 -> 002 -> 003 -> 004 -> 005 -> 006 -> 007 -> 008 | 009 -> 010 -> 011 -> 012 -> 013 -> 014 -> 015.
 Nota: 004 (dashboard) fica antes de 005-008 por ordem do PROMPT; com poucos dados usa seed.

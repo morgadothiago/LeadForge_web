@@ -1,5 +1,5 @@
 # SPEC-030 — Migracao multi-tenant + ReBAC (Organization, orgId, guards)
-- status: IN_PROGRESS (dev-backend, 2026-09-26 — 3ª rodada: vazamento cross-tenant do MobileAlert corrigido, testes de vazamento por domínio escritos e passando; PERMANECE IN_PROGRESS por um novo achado nesta rodada — `/api/integrations/meetings` — ver Implementation Notes 2026-09-26) | domain: backend | depende de: 009 (auth), 001 (schema base)
+- status: IMPLEMENTED (dev-backend, 2026-09-26 — 5ª rodada: 2 achados do QA corrigidos — (1) CRÍTICO: idempotência de `createMeeting()` por `externalId` era global, não por org (`Meeting.externalId` é `@unique` GLOBALMENTE), permitindo que uma org B reaproveitasse um `externalId` já usado pela org A e recebesse a reunião da A como "replay"; corrigido escopando a chave persistida com o `orgId` real via `scopedExternalId()`, sem alterar o schema; (2) MÉDIO: `updateEmailAccount`/`deleteEmailAccount`/`setActive`/`testEmailConnection` migradas de `requireUser()`+`prisma` cru para `requireProviderOrg()`+`scopedPrisma(orgId)`. Varredura adicional de `@unique` global em modelos de negócio não achou outro vazamento explorável (documentado abaixo). Todos os critérios técnicos em PASS; único FAIL restante continua sendo o risco do `role` no contrato mobile, já decidido pelo usuário como não-bloqueante — ver Implementation Notes 2026-09-26, Rodada 5) | domain: backend | depende de: 009 (auth), 001 (schema base)
 
 ## Objetivo
 Transformar o LeadForge de single-tenant (1 unico "workspace" implicito, todos os `User` compartilhando os mesmos dados) para multi-tenant: cada assinante ("Provider") opera dentro do proprio tenant (`Organization`), sem visibilidade de dados de outro tenant; um papel de plataforma (`Administrador`) enxerga e administra todos os tenants. Esta e a SPEC-base — nenhuma outra frente (billing, admin UI, landing) pode ser implementada antes dela, pois billing cobra por Organization e o admin cross-tenant lista Organizations.
@@ -64,14 +64,14 @@ Transformar o LeadForge de single-tenant (1 unico "workspace" implicito, todos o
 - `src/app/api/cron/tick/route.ts`: iteracao por org ativa.
 
 ## Criterios de aceitacao
-- [ ] `Organization`/`Membership` no schema, migration aplicada + script de backfill de dados existentes conforme D-30-1/D-30-2.
-- [ ] Sessao carrega `orgId`+`platformRole`; login resolve a org do usuario.
-- [ ] Nenhuma query/action de dominio de negocio roda sem passar pelo helper de escopo (grep de `prisma.<model>.find/update/delete` fora do helper = falha de revisao).
-- [ ] Testes de vazamento cross-tenant cobrindo cada dominio listado na secao 3, todos passando.
-- [ ] `platform_admin` consegue rodar queries cross-tenant SOMENTE pelo caminho explicito (`admin-prisma`/`{crossTenant:true}`), nunca pelo caminho padrao.
-- [ ] Cron respeita `Organization.status`.
-- [ ] Contrato `/api/mobile/v1` (SPEC-021/022/023) continua respondendo no mesmo formato hoje testado — teste de regressao rodado, nenhuma alteracao em `../mobile/`.
-- [ ] build/lint/typecheck/testes OK.
+- [x] `Organization`/`Membership` no schema, migration aplicada + script de backfill de dados existentes conforme D-30-1/D-30-2.
+- [x] Sessao carrega `orgId`+`platformRole`; login resolve a org do usuario.
+- [x] Nenhuma query/action de dominio de negocio roda sem passar pelo helper de escopo (grep de `prisma.<model>.find/update/delete` fora do helper = falha de revisao). — corrigido em definitivo na Rodada 4 (`POST /api/integrations/meetings` era o único ponto pendente); Rodada 5 fechou a lacuna residual em `src/lib/actions/email.ts` (`updateEmailAccount`/`deleteEmailAccount`/`setActive`/`testEmailConnection` migradas para `scopedPrisma`).
+- [x] Testes de vazamento cross-tenant cobrindo cada dominio listado na secao 3, todos passando. — Rodada 5 adicionou o cenário exato do achado do QA (2 orgs reaproveitando o mesmo `externalId` cru no webhook de reuniões) e cobertura das 3 novas actions de email migradas.
+- [x] `platform_admin` consegue rodar queries cross-tenant SOMENTE pelo caminho explicito (`admin-prisma`/`{crossTenant:true}`), nunca pelo caminho padrao.
+- [x] Cron respeita `Organization.status`.
+- [ ] Contrato `/api/mobile/v1` (SPEC-021/022/023) continua respondendo no mesmo formato hoje testado — teste de regressao rodado, nenhuma alteracao em `../mobile/`. — risco do `role` (`"provider"`/`"platform_admin"` em vez de `"admin"`/`"member"`) sinalizado e aceito pelo usuário como não-bloqueante; nenhuma camada de compatibilidade implementada (fora de escopo por instrução explícita).
+- [x] build/lint/typecheck/testes OK.
 
 ## Riscos
 - Maior superficie de mudanca do projeto ate aqui — volume alto de arquivos tocados, risco de regressao funcional generalizada. Mitigacao: dev-backend faz o levantamento completo de arquivos afetados antes de editar, e roda a suite completa de testes existente (nao so os novos) antes de reportar IMPLEMENTED.
@@ -393,7 +393,7 @@ acertando um telefone que também exista como lead em outro tenant.
   Este é um vazamento cross-tenant real e ainda ativo em código de produção, dentro do critério de aceite
   "nenhuma query roda sem o helper de escopo" — por isso MANTÉM a SPEC em `IN_PROGRESS`.
 
-### Critérios de aceitação — estado ATUAL (fim da Rodada 3, 2026-09-26)
+### Critérios de aceitação — estado ao FIM DA RODADA 3 (histórico; ver tabela atualizada ao final do arquivo)
 
 | Critério | Status | Evidência |
 |---|---|---|
@@ -406,20 +406,258 @@ acertando um telefone que também exista como lead em outro tenant.
 | Contrato `/api/mobile/v1` sem quebra | FAIL (risco sinalizado, NÃO bloqueante — decisão do usuário pendente, não mexer sem pedido) | `role` do login/`/auth/me` mobile continua `"provider"`/`"platform_admin"` em vez de `"admin"`/`"member"` |
 | build/lint/typecheck/testes OK | PASS | `npm run lint` limpo; `npx tsc --noEmit` limpo; `npm run build` conclui; `npm test` 1146 passando / 0 falhando / 0 pulados |
 
-**Por que a SPEC continua `IN_PROGRESS` e não `IMPLEMENTED`**: só o critério do contrato mobile (`role`) está
+**Por que a SPEC continuou `IN_PROGRESS` no fim da Rodada 3**: só o critério do contrato mobile (`role`) estava
 em FAIL por decisão explícita do usuário de não bloquear nisso. Mas o critério "nenhuma query roda sem o
-helper de escopo" tem um FAIL adicional, real e não coberto por essa decisão: `/api/integrations/meetings`
-(achado nesta rodada). Por instrução explícita, nenhuma correção de contrato/arquitetura foi inventada para
-esse achado sem aprovação — então o critério permanece FAIL de fato, e a SPEC não pode ser marcada
-`IMPLEMENTED` enquanto ele não for corrigido (ou o usuário decidir formalmente tratá-lo como risco sinalizado
-não-bloqueante, do mesmo jeito que já decidiu para o `role` mobile).
+helper de escopo" tinha um FAIL adicional, real e não coberto por essa decisão: `/api/integrations/meetings`
+(achado na Rodada 3). Endereçado na Rodada 4 abaixo, com aprovação explícita do usuário para a correção.
 
-### Próximo passo recomendado (fim da Rodada 3)
-Não marcar `IMPLEMENTED`. Antes de prosseguir para as SPECs 031-035 (que dependem desta): (1) o usuário decide
-o que fazer com `POST /api/integrations/meetings` (segredo por-org? exigir `campaignId`/`opportunityId`
-explícito no payload em vez de busca por telefone sem escopo? outra amarração?) — a implementação segue depois
-dessa decisão, dentro desta mesma SPEC-030; (2) só então reavaliar `IMPLEMENTED`, junto com a decisão pendente
-(separada) do `role` no contrato mobile.
+### Rodada 4 (2026-09-26) — fix do vazamento cross-tenant de `POST /api/integrations/meetings`
+
+**Ponto de partida verificado antes de qualquer edição**: `npm test` 1146/1146 passando, 0 falhando;
+`npm run lint` e `npx tsc --noEmit` limpos (confirma o estado no fim da Rodada 3, acima). Único item pendente
+para fechar a SPEC: o achado registrado no fim da Rodada 3, já aprovado pelo usuário seguindo o mesmo padrão
+de `/api/integrations/leads` (SPEC-014) — exigir identificador explícito de organização/campanha no payload
+em vez de resolver o lead só por telefone/id sem escopo de org.
+
+**Decisão de design tomada (documentada, dentro do espaço já aprovado pelo usuário)**: `campaignId` passou a
+ser **sempre obrigatório** no payload do webhook de reuniões (`meetingWebhookSchema`,
+`src/lib/schemas/meeting.ts`), mesmo quando `leadId` também é informado — não só "quando `leadId` não é
+enviado". Motivo: um `leadId` (UUID) sozinho não identifica a organização, e o segredo de ingestão
+(`INGEST_SECRET`) é global — sem `campaignId`, um `leadId` adivinhado/vazado de outro tenant não tinha como
+ser rejeitado antes de tocar dados. Exigir `campaignId` sempre fecha os dois caminhos (`leadId` e `phone`) com
+a mesma regra de segurança, em vez de manter dois comportamentos diferentes no mesmo endpoint. Isto é uma
+quebra de contrato deliberada e aprovada: quem chamava este webhook sem `campaignId` passa a receber 400
+`validation_error`. Compatibilidade mantida em tudo o mais (mesmos campos, mesmos códigos de erro para os
+casos que já existiam).
+
+**Mudanças**:
+- `src/lib/schemas/meeting.ts`: `meetingWebhookSchema` ganhou `campaignId: z.uuid(...)` obrigatório (schema
+  `.strict()`, então payload sem ele = 400 `validation_error` com a mensagem padrão de campo obrigatório).
+- `src/lib/meetings/webhook.ts` (`handleMeetingWebhook`):
+  - Resolve `campaign = prisma.campaign.findUnique({where:{id:d.campaignId}, select:{orgId:true}})` **antes**
+    de qualquer busca de lead. Campanha inexistente/adivinhada = 404 `campaign_not_found` (mesmo código já
+    usado em `/api/integrations/leads` para o caso análogo).
+  - Busca por telefone passou a ser `prisma.lead.findMany({where:{campaignId: d.campaignId, phone:{in:[...]}}})`
+    — nunca mais uma busca global. Telefone repetido em outro tenant nunca colide.
+  - Resolução de `leadId` passou de `findUnique({where:{id:leadId}})` para
+    `findFirst({where:{id:leadId, campaignId:d.campaignId}})` — um `leadId` de outra campanha/org nunca
+    resolve, mesmo que o UUID seja válido e exista no banco (devolve 404 `lead_not_found`, nunca revela que
+    o lead existe em outro tenant).
+  - `createMeeting()` passou a receber `orgId: campaign.orgId` explicitamente (antes o webhook nunca passava
+    `orgId`, pulando inteiramente a validação `opp.campaign.orgId === p.orgId` que já existia em
+    `src/lib/domain/meeting.ts` desde a Rodada 1/2 — defesa em profundidade, agora realmente exercitada neste
+    caminho).
+  - Mensagens de erro mantidas em PT-BR, mesmo padrão do resto do arquivo (`campaign_not_found`,
+    `lead_not_found`, `ambiguous_lead`, `validation_error`, `opportunity_not_found`, nunca ecoa corpo/segredo).
+- `src/lib/openapi.ts`: contrato de `/integrations/meetings` atualizado (`campaignId` obrigatório no
+  `requestBody`, descrição do 404 ampliada para "Campanha/lead/oportunidade nao encontrado").
+
+**Testes**:
+- `src/lib/meetings/webhook.test.ts`: todos os payloads dos testes existentes passaram a incluir
+  `campaignId: fx.campId`; casos novos/ajustados: payload sem `campaignId` = 400 `validation_error`;
+  `campaignId` de UUID aleatório (inexistente) = 404 `campaign_not_found`; o teste de "telefone ambíguo" foi
+  reescrito porque `Lead` tem `@@unique([campaignId, phone])` — dentro da MESMA campanha não dá para ter duas
+  linhas com a mesma string de telefone, então a ambiguidade real (e ainda coberta) é a variante sem `+`
+  (`e164` vs `e164.slice(1)`, ambas aceitas pela busca) coexistindo na campanha; adicionado também um caso
+  confirmando que o MESMO telefone existindo em OUTRA campanha da mesma org não gera falso positivo de
+  ambiguidade nem vazamento (a busca por telefone é escopada por `campaignId`, não por org).
+- `src/lib/tenant/cross-tenant-leak.test.ts`: novo `describe("POST /api/integrations/meetings (webhook) —
+  vazamento cross-tenant...")`, mesmo padrão dos outros domínios (2 `Organization`s via `createTestOrg`,
+  `seedA`/`seedB`), cobrindo: payload sem `campaignId` (400, nunca tenta resolver lead); `leadId` da org A com
+  `campaignId` da org B (404 `lead_not_found`, oportunidade da org A confirmada intacta — stage não mudou);
+  `campaignId` inexistente (404 `campaign_not_found`); dois leads com o MESMO telefone em orgs diferentes —
+  confirma que o webhook resolve e cria a reunião SOMENTE no lead/campanha da org informada em `campaignId`,
+  nunca no da outra org (oportunidade da outra org confirmada intacta); caminho feliz (campaignId+leadId da
+  org B cria a reunião corretamente na org B).
+- Suíte completa após as adições: **1151 passando / 0 falhando** (1146 + 5 testes novos: 4 no
+  `cross-tenant-leak.test.ts` e ajustes/1 caso novo em `webhook.test.ts`, líquido). `npm run lint`,
+  `npx tsc --noEmit` e `npm run build` limpos.
+
+**Nada foi tocado em `../mobile/`** e nenhuma camada de compatibilidade foi implementada para o risco do
+`role` mobile — permanece fora de escopo conforme instrução explícita.
+
+### Critérios de aceitação — estado FINAL (fim da Rodada 4, 2026-09-26)
+
+| Critério | Status | Evidência |
+|---|---|---|
+| `Organization`/`Membership` no schema, migration + backfill | PASS | Rodada 1 (inalterado) |
+| Sessão carrega `orgId`+`platformRole`; login resolve org | PASS | Rodada 1 (inalterado) |
+| Nenhuma query/action de domínio de negócio roda sem passar pelo helper de escopo | **PASS** | `POST /api/integrations/meetings` corrigido nesta rodada (`campaignId` obrigatório resolve a org antes de qualquer busca; `leadId`/`phone` sempre escopados por `campaignId`; `createMeeting()` recebe `orgId` explícito) — nenhum outro ponto pendente conhecido |
+| Testes de vazamento cross-tenant cobrindo cada domínio da seção 3, todos passando | PASS | `src/lib/tenant/cross-tenant-leak.test.ts` (campanhas, leads, sequences/templates, whatsapp, email, agentes, supressão, pipeline/reuniões, dashboard, scheduler, integrações, MobileAlert, **webhook de reuniões — novo nesta rodada**) + `notifications.test.ts` (web) — todos verdes |
+| `platform_admin` só roda cross-tenant pelo caminho explícito (`admin-prisma`) | PASS | testado em `cross-tenant-leak.test.ts` ("adminPrisma... só ele, nunca scopedPrisma") |
+| Cron respeita `Organization.status` | PASS | Rodada 1 (inalterado) |
+| Contrato `/api/mobile/v1` sem quebra | FAIL (risco sinalizado, decisão do usuário: NÃO bloqueante para `IMPLEMENTED`) | `role` do login/`/auth/me` mobile continua `"provider"`/`"platform_admin"` em vez de `"admin"`/`"member"` — nenhuma camada de compatibilidade implementada, por instrução explícita |
+| build/lint/typecheck/testes OK | PASS | `npm run lint` limpo; `npx tsc --noEmit` limpo; `npm run build` conclui; `npm test` 1151 passando / 0 falhando / 0 pulados |
+
+**Por que a SPEC agora é `IMPLEMENTED`**: todos os critérios técnicos estão em PASS. O único FAIL restante
+(`role` no contrato mobile) é um risco já sinalizado e explicitamente aceito pelo usuário como não-bloqueante
+— documentado, não escondido — e não é um vazamento cross-tenant nem uma falha de enforcement. As SPECs
+031-035 podem prosseguir sobre este schema.
+
+### Próximo passo recomendado (fim da Rodada 4)
+SPEC-030 encerrada. Se o usuário decidir revisitar o risco do `role` mobile no futuro (compat layer, versão de
+contrato, ou aceitar a quebra formalmente com o time mobile), isso deve virar uma SPEC própria — não reabrir
+esta.
+
+### Arquivos alterados/criados na Rodada 4 (2026-09-26)
+`src/lib/schemas/meeting.ts` (`campaignId` obrigatório em `meetingWebhookSchema`), `src/lib/meetings/
+webhook.ts` (resolve org via `campaignId` antes de qualquer busca; `leadId`/`phone` escopados; `orgId` passado
+a `createMeeting()`), `src/lib/openapi.ts` (contrato do endpoint atualizado). Testes:
+`src/lib/meetings/webhook.test.ts` (payloads com `campaignId`, casos novos de validação/`campaign_not_found`,
+teste de ambiguidade reescrito), `src/lib/tenant/cross-tenant-leak.test.ts` (novo describe do webhook de
+reuniões).
+
+### Rodada 5 (2026-09-26) — 2 achados do QA corrigidos, varredura adicional de `@unique` global
+
+**Ponto de partida verificado antes de qualquer edição**: `npm test` 1151/1151 passando, 0 falhando;
+`npm run lint` e `npx tsc --noEmit` limpos (confirma o estado no fim da Rodada 4, acima). QA independente
+reportou 2 achados que reabriram a SPEC de `IMPLEMENTED` para `IN_PROGRESS`.
+
+**1) CRÍTICO — vazamento cross-tenant real em `createMeeting()` via idempotência global de `externalId`
+(reproduzido pelo QA) — CORRIGIDO.** `Meeting.externalId` é `@unique` GLOBALMENTE no schema (não por org —
+`prisma/schema.prisma`, linha ~381). `createMeeting()` (`src/lib/domain/meeting.ts`) fazia
+`prisma.meeting.findUnique({ where: { externalId: p.externalId } })` para checar idempotência ANTES de
+qualquer verificação de `orgId`. Como `POST /api/integrations/meetings` autentica com um segredo global
+(`INGEST_SECRET`, 1 para a plataforma inteira) e prefixava o `externalId` recebido apenas com a string
+estática `"wh:"` (sem nenhum componente de org), uma Organization B podia, usando `campaignId`/`leadId`
+legítimos da PRÓPRIA org B mas reaproveitando/adivinhando um `externalId` já usado pela Organization A,
+receber de volta a reunião da Organization A como "replay" (`idempotentReplay: true`, `meetingId` da org A) —
+mesmo com o fix da Rodada 4 (que já garantia que `campaignId`/`leadId`/`phone` nunca resolvem lead de outra
+org) intacto, porque o vazamento acontecia ANTES dessa parte do fluxo, na checagem de idempotência isolada.
+
+**Decisão de design tomada (opção (b) do achado, dentre as duas propostas)**: NÃO desnormalizar `orgId` em
+`Meeting` (opção (a)) — o spec já diz explicitamente, na seção "Modelo de dados", que tabelas como `Meeting`
+que resolvem tenant via `Campaign` NÃO devem ganhar `orgId` próprio; abrir uma exceção pontual para este
+achado exigiria contradizer essa decisão arquitetural já fechada sem necessidade real (a org já é resolvível
+via `opportunity.campaign.orgId`, disponível em toda chamada de `createMeeting()`). Escolhida a opção (b):
+o valor persistido/consultado em `Meeting.externalId` deixou de ser o `externalId` cru do chamador e passou a
+ser `scopedExternalId(orgId, externalId)` (nova função exportada em `src/lib/domain/meeting.ts`, formato
+`"org:<orgId>:<externalId-cru-do-chamador>"`) — sem migração de schema, sem coluna nova, `@unique` global
+continua correto porque a string armazenada já é única por (org, externalId cru). `orgId` é resolvido
+INTERNAMENTE por `createMeeting()` a partir da própria `opportunityId` (nunca dependendo de o chamador lembrar
+de passar `p.orgId` certo — esse parâmetro continua existindo só como defesa em profundidade extra, comparado
+contra o `orgId` real resolvido). Isso corrige o vazamento para TODOS os chamadores de `createMeeting()` de
+uma vez (webhook de reuniões E a action manual `src/lib/actions/meeting.ts`, que usa `externalId` prefixado
+com `"client:"` para o `clientRequestId` do duplo-clique — tinha o mesmo risco teórico, ainda que menos
+exposto por não usar segredo global).
+
+**Mudanças**: `src/lib/domain/meeting.ts` (`scopedExternalId()` nova, `createMeeting()` resolve `orgId` via
+`opportunity.findUnique` ANTES de checar idempotência, chave escopada usada nas 2 checagens de replay — a
+inicial e o fallback de `P2002`, e na gravação); `src/lib/meetings/webhook.ts` (comentário atualizado, nenhuma
+mudança de comportamento HTTP); `src/lib/domain/meeting.test.ts` e `src/lib/meetings/webhook.test.ts`
+(asserções que checavam o `externalId` bruto persistido atualizadas para `scopedExternalId(orgId, "...")`).
+
+**Teste do cenário EXATO reportado pelo QA** — `src/lib/tenant/cross-tenant-leak.test.ts`, novo `it` dentro do
+describe do webhook de reuniões (Rodada 4): Org A cria reunião via webhook com `externalId: "collide-1"`; Org
+B chama o mesmo webhook com `campaignId`/`leadId` da PRÓPRIA org B reaproveitando o mesmo `externalId` cru
+`"collide-1"` — confirma 201 (reunião NOVA, própria da org B, nunca 200/replay), `meetingId` diferente do da
+org A, e que o replay real DENTRO da mesma org (Org A repetindo `"collide-1"`) continua funcionando
+(200/`idempotentReplay:true`, mesmo `meetingId`) — a idempotência de verdade não regrediu, só deixou de
+cruzar org.
+
+**2) MÉDIO — `src/lib/actions/email.ts`: 4 actions sem `scopedPrisma` — CORRIGIDO.** `updateEmailAccount`,
+`deleteEmailAccount`, `setActive` e `testEmailConnection` usavam `requireUser()` (sem `orgId`) e `prisma`
+cru filtrando só por `userId: user.id`. Sem vazamento ativo HOJE (1 usuário = 1 org dona no modelo atual,
+`userId`/`orgId` equivalentes na prática — D-30-4 multi-membro não implementado), mas violação literal do
+critério de aceite "nenhuma query roda sem o helper de escopo" e frágil assim que D-30-4 existir. Migradas as
+4 para `requireProviderOrg()` + `scopedPrisma(orgId)` (mesmo padrão de `createEmailAccount`, que já estava
+correto, e de `src/lib/queries/email.ts`). Comportamento observável idêntico: mesma mensagem "Conta não
+encontrada" para id de outra org/inexistente (antes vinha de `count`/`findFirst` filtrando por `userId`;
+agora vem de `scopedPrisma` recusando o registro fora da org, com a MESMA mensagem, porque a lógica de
+"não encontrado" continuou no código da action, só a fonte da negação mudou). `createEmailAccount` não foi
+tocada (já estava correta, fora do escopo do achado).
+
+**Testes**: `src/lib/tenant/cross-tenant-leak.test.ts`, describe "email — vazamento cross-tenant" — já existia
+teste de `updateEmailAccount`; adicionados `setActive` (confirma que `isActive` da conta da org A não muda),
+`testEmailConnection` (confirma "Conta não encontrada", nunca chega a testar a conexão da conta alheia) e
+`deleteEmailAccount` (confirma que a conta da org A não é apagada). `src/lib/actions/email-auth-coverage.test.ts`
+(teste estático que já aceitava `requireProviderOrg()` como prova de autenticação) continua verde sem
+alteração.
+
+**3) Varredura adicional de `@unique` global em modelos de negócio (pedida explicitamente pelo QA)** — grep de
+`@unique`/`@@unique` em `prisma/schema.prisma` (todos os ~30 modelos). Resultado, campo a campo:
+- `Organization.slug`, `User.email` — identificadores GLOBAIS por design (org/usuário são a própria unidade
+  de tenant/identidade da plataforma); global é o comportamento correto, não um vazamento.
+- `Meeting.externalId` — era o achado #1 acima, CORRIGIDO nesta rodada.
+- `WhatsAppInstance.instanceName`/`webhookToken` — revisados e considerados SEGUROS: `webhookToken` é o
+  PRÓPRIO segredo de autenticação por instância (não um segredo global como `INGEST_SECRET`) — o webhook
+  (`src/lib/whatsapp/webhook-handler.ts:124`) resolve a instância por `findUnique({where:{webhookToken}})`
+  onde o token em si É a prova de posse daquela instância/org especifica, gerado por
+  `randomBytes(32).toString("base64url")` por instância; não há caminho onde um chamador de OUTRA org possa
+  presentear um `webhookToken` alheio sem já ter comprometido aquela instância. `instanceName` não é usado
+  como chave de busca em nenhum endpoint autenticado por segredo global. Nenhuma ação necessária.
+- `EmailAccount.email` — GLOBAL (não `@@unique([orgId,email])`). Revisado: NÃO é um vazamento cross-tenant
+  ativo (nenhuma rota resolve `EmailAccount`/dados de outra org a partir de um `email` sob um segredo
+  compartilhado — os únicos leitores são as próprias actions/queries de e-mail, sempre autenticadas por
+  sessão E agora por `scopedPrisma`). É, no máximo, uma restrição de negócio que impede duas Organizations
+  distintas de cadastrarem o MESMO endereço de e-mail de envio, e um enumeration mínimo (a mensagem genérica
+  "Já existe uma conta cadastrada com este e-mail" confirma que aquele e-mail já está em uso em ALGUMA org,
+  sem revelar qual) — documentado aqui como **risco conhecido, não corrigido nesta rodada** por ser decisão
+  de produto (permitir ou não que orgs diferentes usem o mesmo endereço de e-mail de fato é discutível, já
+  que endereços de e-mail já são globalmente únicos por natureza — dois "donos" diferentes do mesmo endereço
+  real de e-mail não faria sentido de qualquer forma). Se o usuário decidir que isso deve virar
+  `@@unique([orgId, email])`, é mudança de schema/migração — pedir como item novo, não assumida aqui.
+- `WebhookEvent.eventId` — GLOBAL, mas seguro por construção: todo `eventId` gravado hoje já embute um
+  identificador org-scoped no próprio valor (ex.: `wa:${instance.id}:upsert:${externalId}` em
+  `src/lib/whatsapp/webhook-handler.ts:60` — `instance.id` já é único por org). Nenhum caller grava `eventId`
+  cru vindo direto de um payload externo sem prefixo. Nenhuma ação necessária.
+- `Draft.agentRunId`, `MobileDevice.refreshHash`, `MobileAlert.dedupeKey` — revisados: `agentRunId` não é
+  exposto a nenhum caller externo (uso interno); `refreshHash` é o próprio segredo de rotação de token (like
+  session token, unicidade global é o comportamento esperado); `dedupeKey` de `MobileAlert` já foi corrigido
+  na Rodada 3 (`baselineKey(orgId)` embute o `orgId` real na chave, documentado em
+  `src/lib/tenant/scoped-prisma.ts`). Nenhuma ação nova necessária.
+- Demais uniques do schema (`Lead[campaignId,email/phone]`, `Opportunity[leadId,campaignId]`,
+  `Suppression[orgId,kind,value]`, `IntegrationSecret[orgId,integration,name]`, `SequenceStep[sequenceId,order]`,
+  `Touch[leadId,stepId]`, `AgentRun[leadId,stepId,trigger]`, `MobileActionLog[deviceId,idempotencyKey]`,
+  `MeetingSettings.orgId`, `AgentSettings.orgId`) já são compostos/escopados corretamente (a maioria já
+  inclui `orgId` ou uma FK que resolve para um dono já escopado) — nada a corrigir.
+
+**Resultado**: nenhum outro vazamento explorável encontrado na varredura; 1 risco de negócio documentado
+(`EmailAccount.email` global), não bloqueante e não classificado como vazamento de dados.
+
+**Suíte completa após as correções**: `npm test` **1155 passando / 0 falhando / 0 pulados** (1151 + 4 testes
+novos: 1 no cenário exato do QA em `cross-tenant-leak.test.ts` para o webhook de reuniões, 3 para as actions
+de email migradas — `setActive`, `testEmailConnection`, `deleteEmailAccount`). `npm run lint`, `npx tsc --noEmit`
+e `npm run build` limpos.
+
+**Nada foi tocado em `../mobile/`** e nenhuma camada de compatibilidade foi implementada para o risco do
+`role` mobile — permanece fora de escopo conforme instrução explícita.
+
+### Critérios de aceitação — estado FINAL (fim da Rodada 5, 2026-09-26)
+
+| Critério | Status | Evidência |
+|---|---|---|
+| `Organization`/`Membership` no schema, migration + backfill | PASS | Rodada 1 (inalterado) |
+| Sessão carrega `orgId`+`platformRole`; login resolve org | PASS | Rodada 1 (inalterado) |
+| Nenhuma query/action de domínio de negócio roda sem passar pelo helper de escopo | **PASS** | Rodada 4 fechou `POST /api/integrations/meetings`; Rodada 5 fechou `updateEmailAccount`/`deleteEmailAccount`/`setActive`/`testEmailConnection` (`src/lib/actions/email.ts`) — nenhum ponto pendente conhecido |
+| Testes de vazamento cross-tenant cobrindo cada domínio da seção 3, todos passando | PASS | `src/lib/tenant/cross-tenant-leak.test.ts` (todos os domínios anteriores + cenário exato do QA para idempotência do webhook de reuniões + `setActive`/`testEmailConnection`/`deleteEmailAccount`) + `notifications.test.ts` (web) — todos verdes |
+| `platform_admin` só roda cross-tenant pelo caminho explícito (`admin-prisma`) | PASS | testado em `cross-tenant-leak.test.ts` ("adminPrisma... só ele, nunca scopedPrisma") |
+| Cron respeita `Organization.status` | PASS | Rodada 1 (inalterado) |
+| Contrato `/api/mobile/v1` sem quebra | FAIL (risco sinalizado, decisão do usuário: NÃO bloqueante para `IMPLEMENTED`) | `role` do login/`/auth/me` mobile continua `"provider"`/`"platform_admin"` em vez de `"admin"`/`"member"` — nenhuma camada de compatibilidade implementada, por instrução explícita |
+| build/lint/typecheck/testes OK | PASS | `npm run lint` limpo; `npx tsc --noEmit` limpo; `npm run build` conclui; `npm test` 1155 passando / 0 falhando / 0 pulados |
+
+**Por que a SPEC volta a `IMPLEMENTED`**: os 2 achados do QA (1 crítico, 1 médio) foram corrigidos e cobertos
+por teste reproduzindo o cenário exato reportado. A varredura adicional de `@unique` global não encontrou
+outro vazamento explorável (1 risco de negócio documentado, não bloqueante: `EmailAccount.email`). O único
+FAIL remanescente (`role` no contrato mobile) continua sendo o mesmo risco já aceito explicitamente pelo
+usuário como não-bloqueante desde a Rodada 3/4 — não reavaliado nesta rodada por não ter sido pedido.
+
+### Próximo passo recomendado (fim da Rodada 5)
+SPEC-030 encerrada novamente. Itens que ficaram documentados como risco/decisão pendente, não bloqueantes:
+(1) risco do `role` no contrato mobile (já era conhecido); (2) `EmailAccount.email` com unicidade GLOBAL em
+vez de por-org — se o usuário quiser permitir que orgs diferentes usem o mesmo endereço, ou quiser reforçar
+que isso NUNCA deve acontecer com uma constraint composta, isso vira uma decisão de produto explícita antes
+de qualquer migração de schema.
+
+### Arquivos alterados/criados na Rodada 5 (2026-09-26)
+`src/lib/domain/meeting.ts` (`scopedExternalId()` nova; `createMeeting()` resolve `orgId` via `opportunityId`
+antes de checar idempotência; chave escopada usada em todas as leituras/gravações de `externalId`),
+`src/lib/meetings/webhook.ts` (comentário atualizado, sem mudança de comportamento HTTP),
+`src/lib/actions/email.ts` (`updateEmailAccount`/`deleteEmailAccount`/`setActive`/`testEmailConnection`
+migradas para `requireProviderOrg()`+`scopedPrisma(orgId)`). Testes: `src/lib/domain/meeting.test.ts`,
+`src/lib/meetings/webhook.test.ts` (asserções de `externalId` bruto atualizadas para `scopedExternalId`),
+`src/lib/tenant/cross-tenant-leak.test.ts` (novo teste do cenário exato do QA no describe do webhook de
+reuniões; novos testes de `setActive`/`testEmailConnection`/`deleteEmailAccount` no describe de email).
 
 ### Arquivos alterados/criados nesta rodada (3ª rodada, 2026-09-26)
 Schema/migration: `prisma/schema.prisma` (`MobileAlert.orgId`), `prisma/migrations/
