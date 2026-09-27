@@ -294,7 +294,9 @@ describe("AC7 contagem real de queries e conformidade de schema", () => {
     expect(sum).toBeLessThanOrEqual(8);
   });
   it("respostas REAIS das 8 rotas validam contra o schema do OpenAPI (additionalProperties:false)", async () => {
-    const ajv = new Ajv({ allErrors: true, unknownFormats: "ignore" });
+    // Ajv v8 removeu a option `unknownFormats` (era do v6); `strict: false` tem o mesmo efeito aqui:
+    // formatos desconhecidos (date-time etc., sem ajv-formats) são ignorados em vez de derrubar o compile.
+    const ajv = new Ajv({ allErrors: true, strict: false });
     const resolve = (path: string) => {
       const item = (spec.paths as unknown as Record<string, { get: { responses: { "200": { content: { "application/json": { schema: object } } } } } }>)[path];
       return item.get.responses["200"].content["application/json"].schema;

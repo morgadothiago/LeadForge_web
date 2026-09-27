@@ -421,7 +421,9 @@ describe("API (AC7, authz, IDOR)", () => {
 
   it("respostas REAIS validam contra o OpenAPI (sem x-status planned)", async () => {
     await raiseAlert(orgId, { kind: "handoff", severity: "alta", dedupeKey: "handoff:zz-oa", title: "Precisa de você", body: "b", refType: "lead", refId: leadId, link: "https://cal.example.com/x" });
-    const ajv = new Ajv({ allErrors: true, unknownFormats: "ignore" });
+    // Ajv v8 removeu a option `unknownFormats` (era do v6); `strict: false` tem o mesmo efeito aqui:
+    // formatos desconhecidos (date-time etc., sem ajv-formats) são ignorados em vez de derrubar o compile.
+    const ajv = new Ajv({ allErrors: true, strict: false });
     const schemaOf = (path: string, method: string) => (spec.paths as never as Record<string, Record<string, { responses: { "200": { content: { "application/json": { schema: object } } } } }>>)[path][method].responses["200"].content["application/json"].schema;
     const check = async (path: string, method: string, res: Response) => {
       expect(res.status, path).toBe(200);
