@@ -33,17 +33,12 @@ import type { CheckoutSessionInput, CheckoutSessionResult, ParsedBillingEvent, P
  * conforme a doc) NÃO é validado aqui: não é segredo nenhum, então uma verificação dele não aumentaria a
  * segurança real, só complexidade — mantido documentado como decisão explícita, não como omissão.
  *
- * LIMITAÇÃO CONHECIDA (plumbing pendente, fora do escopo desta SPEC): o AbacatePay envia `webhookSecret`
- * como QUERY PARAM da URL de callback, não como header. O receiver HTTP genérico e compartilhado entre
- * todos os providers (`src/lib/billing/webhook-handler.ts` + `src/app/api/billing/webhook/route.ts`,
- * SPEC-033) hoje só extrai `request.headers.get("stripe-signature")` e passa isso como 2º argumento de
- * `verifyWebhookSignature` — ele NUNCA lê a query string. Por instrução explícita desta SPEC ("nenhuma
- * mudança no resto do fluxo de webhook"), esse receiver genérico não foi alterado aqui. `verifyWebhookSignature`
- * abaixo está implementado corretamente (compara `presentedSecret` contra `this.webhookSecret` em tempo
- * constante) e é 100% testável isoladamente — mas, ATÉ que `webhook-handler.ts`/`route.ts` sejam ajustados
- * para extrair `webhookSecret` da query string e passá-lo aqui, o webhook do AbacatePay não fica de fato
- * autenticável em produção via essa rota compartilhada. Reportado como limitação conhecida (não uma
- * omissão silenciosa) — decisão de estender o receiver fica para o usuário/uma SPEC específica.
+ * QA fix (SPEC-047, rodada de QA): o AbacatePay envia `webhookSecret` como QUERY PARAM da URL de
+ * callback, não como header — o receiver compartilhado (`webhook-handler.ts`) agora lê
+ * `?webhookSecret=` da query quando o header `stripe-signature` está ausente e o repassa como 2º
+ * argumento de `verifyWebhookSignature` (o header continua com precedência; nada muda pro Stripe).
+ * Assim a autenticação real por conta (D-047-2) funciona de fato via rota `/api/billing/webhook`
+ * compartilhada, sem duplicar rota nem logar a URL completa (a rota só loga mensagens de erro).
  */
 
 const BASE_URL = "https://api.abacatepay.com/v2";

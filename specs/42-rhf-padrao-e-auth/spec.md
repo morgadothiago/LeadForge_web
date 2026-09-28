@@ -1,5 +1,5 @@
 # SPEC-042 — Padrao react-hook-form + piloto (Auth)
-- status: IMPLEMENTED (dev-frontend, 2026-09-27) | domain: frontend | depende de: 009,034,037,038 (formularios de auth existentes)
+- status: IMPLEMENTED (dev-frontend, 2026-09-27; QA APPROVED) | domain: frontend | depende de: 009,034,037,038 (formularios de auth existentes)
 
 ## Objetivo
 Padronizar os formularios do app com `react-hook-form` + `@hookform/resolvers` (`zodResolver`), reaproveitando os schemas Zod ja existentes em `src/lib/schemas/*` como fonte UNICA de validacao (mesmo schema no client via `zodResolver` e no server dentro da action/`safeAction` — sem duplicar regra). Hoje TODOS os formularios usam estado manual (`useState` para valores + `errors` do `ActionResult`, sem nenhuma lib de formulario) — confirmado por levantamento no codigo (ver lista completa abaixo).
@@ -117,3 +117,6 @@ const clientResetPasswordSchema = resetPasswordSchema
 ### Limitacoes conhecidas
 - Nao existe suite de testes de componente (React Testing Library/jsdom) neste projeto hoje — `vitest.config.ts` roda em `environment: "node"`, focado em actions/schemas/integracao contra banco de teste. Validacao desta migracao foi feita via `tsc`/`eslint` (contratos de tipo/API do RHF corretos) + testes de action existentes (comportamento de servidor inalterado) + leitura manual do diff comportamental (client validation nova, mesma regra, sem toast em erro so-client — preserva o padrao ja existente em `ResetPasswordForm` original). Se SPECs 043/044/045 quiserem cobertura automatizada de UI, precisam antes decidir instalar `@testing-library/react`+`jsdom` (fora do escopo desta SPEC, seria uma nova decisao de infraestrutura de teste).
 - `npm audit` mostra 4 vulnerabilidades "high" pre-existentes no `package-lock.json` (nao originadas pela instalacao de `react-hook-form`/`@hookform/resolvers` — nenhuma delas aparece nas 6 dependencias novas/alteradas), fora do escopo desta SPEC.
+
+### QA (2026-09-27) — QA APPROVED
+Reexecutado na sessao de 2026-09-27: os 4 formularios seguem com `zodResolver` sobre o schema importado de `src/lib/schemas/auth` (nenhuma regra duplicada; unico schema client-side e o `clientResetPasswordSchema` via `.extend()`, como documentado acima), banner `errors.root?.message` + `toast.error(getFormError(...))` presentes nos 4, `useTransition`/`pending` preservados, nenhum `useState` de valores restante (so `sentMessage`, legitimo, no ForgotPasswordForm). As 2 falhas pre-existentes de `auth.test.ts` citadas acima (sendSystemEmail) ja nao existem: `npm test` → 123 arquivos / 1489 testes 100% verdes; `tsc --noEmit` 0 erros; `eslint` 0 erros; `next build` executado e OK (a nota original so tinha typecheck).

@@ -1,5 +1,5 @@
 # SPEC-047 — AbacatePay como adapter adicional de PaymentProvider
-- status: APPROVED (usuario, 2026-09-27) | domain: backend | depende de: 033 (billing, interface PaymentProvider/D-33-5)
+- status: IMPLEMENTED (dev-backend, 2026-09-27; QA APPROVED) | domain: backend | depende de: 033 (billing, interface PaymentProvider/D-33-5)
 
 ## Objetivo
 Adicionar AbacatePay (gateway brasileiro, foco em PIX) como MAIS UM adapter da interface `PaymentProvider` (`src/lib/billing/provider.ts`, mesmo padrao ja usado pro `stripe.ts` stub, D-33-5): implementacao pronta, SEM chave configurada, documentada pra ativar via `PAYMENT_PROVIDER=abacatepay` quando o usuario tiver conta. NAO substitui `mock`/`stripe` — vira uma 3a opcao. Nenhuma mudanca no resto do fluxo (checkout/webhook/gating, SPEC-033/034).
@@ -37,3 +37,13 @@ D-047-2: Usar o padrao de webhook do AbacatePay como esta (`webhookSecret` na qu
 
 ## Ordem de execucao
 Backend (dev-backend), unica frente, depois QA. Aprovada, decisoes fechadas — pode implementar direto. Escopo do job de renovacao PIX (D-047-1) faz parte desta mesma SPEC, nao uma spec separada.
+
+## QA (2026-09-27) — QA APPROVED (com QA fix aplicado)
+
+Verificado: adapter `abacatepay.ts` (D-047-1 hibrido — cartao via `subscriptions/create`, PIX via `transparents/create` + `createPixCharge`); `createPortalSession` devolve erro tratado `AppError(config)` sem quebrar; `verifyWebhookSignature` compara em tempo constante (`timingSafeEqual`) e nunca loga o segredo/URL; `parseWebhookEvent` mapeia `subscription.completed`/`subscription.renewed`/`transparent.completed` pro vocabulario interno (sem `metadata.orgId/planKey/cadence` → null, nunca 500); `provider-factory.ts` so instancia com `PAYMENT_PROVIDER=abacatepay` + as 2 envs (ausentes → erro claro, app segue em mock); job `runPixRenewalJob` ligado no `run-tick.ts` (renova PIX por ciclo; PIX vencido vira `past_due` pelo MESMO `status-map.ts`, idempotente por eventId; erro de uma org nao derruba o tick); `.env.example` documenta as envs e o D-047-2; `abacatepay.test.ts` + `pix-renewal.test.ts` com fixtures/mocks, zero chamada de rede.
+
+**QA fix (critico):** o receiver compartilhado (`webhook-handler.ts`) so extraiava o header `stripe-signature` — o `?webhookSecret=` da URL de callback (unica autenticacao real por conta, D-047-2) nunca chegava em `verifyWebhookSignature` e TODO webhook do AbacatePay receberia 401 em producao, inviabilizando a confirmacao de PIX do D-047-1. Fix aplicado: fallback `header ?? searchParams.get("webhookSecret")` (header Stripe mantem precedencia — fluxo Stripe inalterado; URL completa continua nunca logada). Novos testes em `webhook-handler.test.ts`: secret correto → 200, errado → 401 sem vazar o segredo, ausente → 401, precedencia do header sobre a query.
+
+**Evidencia:** `npx vitest run src/lib/billing` → 10 arquivos / 106 testes verdes; suite completa `npm test` → 123 arquivos / 1489 testes verdes; `tsc --noEmit` 0 erros; `eslint` 0 erros; `next build` OK.
+
+**Limitacao de producao mantida:** nunca testado contra a API real do AbacatePay (sem credenciais) — campos marcados ASSUMIDO no adapter precisam de revalidacao na doc interativa antes de ativar de verdade (ja previsto em "Riscos").

@@ -75,7 +75,11 @@ export async function handleBillingWebhook(request: Request, opts: HandlerOption
     const bytes = await readBodyLimited(request, MAX_BODY_BYTES);
     if (!bytes) return json(413, { error: "payload_too_large", message: "Corpo da requisição grande demais." });
     const rawBody = new TextDecoder().decode(bytes);
-    const signature = request.headers.get("stripe-signature");
+    // QA fix (SPEC-047, D-047-2): o AbacatePay autentica por `?webhookSecret=` na URL de callback (único
+    // segredo por conta), enquanto o Stripe continua no header `stripe-signature` — que tem precedência
+    // quando presente (nada muda pro Stripe). O fallback só existe se o header estiver ausente; a URL
+    // completa (que carrega o segredo) nunca é logada, só mensagens de erro sem a URL.
+    const signature = request.headers.get("stripe-signature") ?? new URL(request.url).searchParams.get("webhookSecret");
     if (!provider.verifyWebhookSignature(rawBody, signature)) return unauthorized();
 
     let event;

@@ -1,5 +1,5 @@
 # SPEC-041 — Captacao de leads: Google Ads Lead Form + Meta Lead Ads
-- status: APPROVED (usuario, 2026-09-27) | domain: fullstack | depende de: 018 (IntegrationSecret, agora por-org via 030), 014 (padrao /api/integrations/leads), 030 (multi-tenant)
+- status: IMPLEMENTED (dev-backend+dev-frontend, 2026-09-27; QA APPROVED) | domain: fullstack | depende de: 018 (IntegrationSecret, agora por-org via 030), 014 (padrao /api/integrations/leads), 030 (multi-tenant)
 
 ## Objetivo
 Hoje o LeadForge capta leads por 3 caminhos: busca por ICP via Google Places (SPEC-015), webhook proprio `/api/integrations/leads` (SPEC-014, `campaignId` explicito no payload, Bearer `INGEST_SECRET` GLOBAL — nao por org, ver risco abaixo) e cadastro manual. NAO existe integracao com Google Ads Lead Form Extensions nem Meta Lead Ads (Facebook/Instagram). O usuario quer adicionar as duas.
@@ -36,3 +36,11 @@ D-041-4: Configuracao das credenciais em Configuracoes > Integracoes (SPEC-018),
 
 ## Ordem de execucao
 Backend (dev-backend) primeiro, depois frontend (dev-frontend) para os cartoes novos em Configuracoes > Integracoes, depois QA. Aprovada, decisoes fechadas — pode implementar direto.
+
+## QA (2026-09-27) — QA APPROVED
+
+**Backend (D-041-1/2/3):** `npx vitest run src/lib/lead-source` → 4 arquivos / 32 testes verdes (handlers Google/Meta, mapping, ingest, webhook). `LeadSourceBinding` listado em `DIRECT_ORG_MODELS` (scoped-prisma); guardas `requireActiveProviderOrg()` antes de qualquer `prisma`/`encrypt` em actions e queries (coberto por `src/lib/actions/lead-source-auth-coverage.test.ts`).
+
+**Frontend (D-041-4):** `LeadSourceCards.tsx` no padrao visual dos demais cards (2 cards com badge Ativa/Desativada, webhook URL + copy, nota de env Meta, lista de vinculos com Editar/Remover + `ConfirmDialog`), form RHF (`useForm` + `zodResolver(saveLeadSourceBindingSchema)`) com erros de servidor mapeados por campo (`setError`/`setFocus`/`toast.error(getFormError(...))`); queries `listLeadSourceBindings`/`listLeadSourceCampaigns` (arquivadas inclusas com sufixo " (arquivada)"); actions com P2002 capturado → mensagem de colisao cross-org, token Meta obrigatorio na criacao (keep em edicao vazia), audit `create`/`rotate`/`delete`.
+
+**Evidencia de teste:** `src/lib/actions/lead-source.test.ts` + `lead-source-auth-coverage.test.ts` + bloco cross-tenant novo em `src/lib/tenant/cross-tenant-leak.test.ts` → 55 testes verdes (3 arquivos); suite completa `npm test` → 123 arquivos / 1489 testes verdes; `tsc --noEmit` 0 erros; `eslint` 0 erros (8 warnings pre-existentes em `src/lib/billing/**`); `next build` OK.

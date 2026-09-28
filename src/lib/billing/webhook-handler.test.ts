@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { createTestOrg, purgeTestOrg, type TestOrg } from "@/lib/test-utils/org-fixture";
 import { POST } from "@/app/api/billing/webhook/route";
 import { MockPaymentProvider } from "./providers/mock";
+import { AbacatePayPaymentProvider } from "./providers/abacatepay";
 import { handleBillingWebhook } from "./webhook-handler";
 import type { PaymentProvider } from "./provider";
 
@@ -160,5 +161,61 @@ describe("POST /api/billing/webhook (SPEC-033, PAYMENT_PROVIDER=mock por default
       expect(res.status, status).toBe(200);
       expect((await res.json()).result, status).toBe("processed");
     }
+  });
+});
+
+describe("QA fix (SPEC-047, D-047-2) — webhookSecret do AbacatePay chega pelo query string do receiver compartilhado", () => {
+  const AB_SECRET = "abacate-webhook-secret-abc-123-456-xyz";
+  // Evento fora de EVENTS_HANDLED (checkout.completed não é gerado por este adapter) -> parseWebhookEvent
+  // devolve null -> 200 "ignored": valida o caminho de AUTENTICAÇÃO de ponta a ponta sem tocar o banco.
+  const ignoredPayload = () => JSON.stringify({ id: "evt-ab-1", event: "checkout.completed", data: {} });
+  const callAbacate = (url: string) =>
+    handleBillingWebhook(new Request(url, { method: "POST", body: ignoredPayload() }), {
+      provider: new AbacatePayPaymentProvider({ apiKey: "test-key", webhookSecret: AB_SECRET }),
+    });
+
+  it("?webhookSecret= correto (sem header stripe-signature): autentica e processa (evento ignorado -> 200)", async () => {
+    const res = await callAbacate(`http://app.test/api/billing/webhook?webhookSecret=${AB_SECRET}`);
+    expect(res.status).toBe(200);
+    expect((await res.json()).result).toBe("ignored");
+  });
+
+  it("?webhookSecret= errado: 401 (comparação em tempo constante, sem vazar o segredo)", async () => {
+    const res = await callAbacate("http://app.test/api/billing/webhook?webhookSecret=segredo-forjado-xyz-qualquer");
+    expect(res.status).toBe(401);
+    expect(JSON.stringify(await res.json())).not.toMatch(new RegExp(AB_SECRET, "i"));
+  });
+
+  it("sem header e sem query param: 401 (nunca aberto por omissão)", async () => {
+    const res = await callAbacate("http://app.test/api/billing/webhook");
+    expect(res.status).toBe(401);
+  });
+
+  it("header stripe-signature tem precedência sobre a query (Stripe permanece inalterado)", async () => {
+    let seen: string | null | undefined;
+    const fake: PaymentProvider = {
+      name: "abacatepay",
+      async createCheckoutSession() {
+        throw new Error("not used");
+      },
+      async createPortalSession() {
+        throw new Error("not used");
+      },
+      verifyWebhookSignature: (_raw, presented) => {
+        seen = presented;
+        return true;
+      },
+      parseWebhookEvent: () => null,
+    };
+    const res = await handleBillingWebhook(
+      new Request("http://app.test/api/billing/webhook?webhookSecret=valor-da-query", {
+        method: "POST",
+        body: ignoredPayload(),
+        headers: { "stripe-signature": "valor-do-header" },
+      }),
+      { provider: fake },
+    );
+    expect(res.status).toBe(200);
+    expect(seen).toBe("valor-do-header");
   });
 });
