@@ -2,6 +2,9 @@
 import * as React from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { useForm, type FieldPath } from "react-hook-form";
+import { z } from "zod";
 import { Pencil, Plus, Trash2, TriangleAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -9,11 +12,12 @@ import { Input } from "@/components/ui/input";
 import { ConfirmDialog } from "@/components/campaigns/ConfirmDialog";
 import { Field } from "@/components/campaigns/Field";
 import { OptionSelect } from "@/components/campaigns/OptionSelect";
-import { fieldError } from "@/components/campaigns/form-utils";
+import { getFormError } from "@/components/campaigns/form-utils";
 import { ChannelBadge } from "@/components/domain/ChannelBadge";
 import { CHANNELS, CHANNEL_LABELS, type ChannelKey } from "@/lib/domain";
 import { createTemplate, deleteTemplate, previewTemplate, updateTemplate, type TemplatePreview } from "@/lib/actions/template";
-import type { ActionResult, FieldErrors } from "@/lib/actions/result";
+import type { FieldErrors } from "@/lib/actions/result";
+import { templateCreateSchema, templateUpdateSchema } from "@/lib/schemas/template";
 import { TEMPLATE_VARIABLES } from "@/lib/templates/render";
 
 export interface TemplateRow {
@@ -28,49 +32,116 @@ export interface TemplateRow {
 const MAX_BODY = 5000;
 const CHANNEL_OPTIONS = CHANNELS.map((c) => ({ value: c, label: CHANNEL_LABELS[c] }));
 
+/** Valores do formulário (SPEC-044). `subject` vive como texto e vira `null` fora do e-mail no submit. */
+interface TemplateFormValues {
+  name: string;
+  channel: ChannelKey;
+  subject: string;
+  body: string;
+}
+
+type TemplateSubmit = z.output<typeof templateCreateSchema> | z.output<typeof templateUpdateSchema>;
+
 function TemplateForm({ campaignId, template, onDone }: { campaignId: string; template?: TemplateRow; onDone: () => void }) {
   const router = useRouter();
-  const [name, setName] = React.useState(template?.name ?? "");
-  const [channel, setChannel] = React.useState<string | null>(template?.channel ?? "email");
-  const [subject, setSubject] = React.useState(template?.subject ?? "");
-  const [body, setBody] = React.useState(template?.body ?? "");
   const [preview, setPreview] = React.useState<TemplatePreview | null>(null);
   const [previewing, startPreview] = React.useTransition();
-  const [localErrors, setLocalErrors] = React.useState<FieldErrors | undefined>();
+  const [pending, startTransition] = React.useTransition();
   const bodyRef = React.useRef<HTMLTextAreaElement>(null);
   const subjectRef = React.useRef<HTMLInputElement>(null);
   const lastFocus = React.useRef<"body" | "subject">("body");
+
+  // `subject: null` fora do e-mail espelha o `payload()` original — sem isso o refine "Assunto só é permitido
+  // para e-mail." dispararia ao trocar o canal com um assunto digitado.
+  const resolver = React.useMemo(
+    () =>
+      zodResolver(
+        z.preprocess(
+          (v: TemplateFormValues) => ({
+            campaignId,
+            channel: v.channel,
+            name: v.name,
+            subject: v.channel === "email" ? v.subject : null,
+            body: v.body,
+            ...(template ? { id: template.id } : {}),
+          }),
+          template ? templateUpdateSchema : templateCreateSchema,
+        ),
+      ),
+    [campaignId, template],
+  );
+
+  const { register, handleSubmit, watch, getValues, setValue, setError, setFocus, clearErrors, formState } = useForm<
+    TemplateFormValues,
+    unknown,
+    TemplateSubmit
+  >({
+    resolver,
+    defaultValues: { name: template?.name ?? "", channel: template?.channel ?? "email", subject: template?.subject ?? "", body: template?.body ?? "" },
+  });
+  const { errors } = formState;
+
+  const channel = watch("channel");
+  const body = watch("body");
   const isEmail = channel === "email";
+  const locked = (template?.usedInSteps ?? 0) > 0;
+  const over = body.length > MAX_BODY;
 
-  const payload = () => ({ campaignId, channel, name, subject: isEmail ? subject : null, body });
+  const subjectReg = register("subject");
+  const bodyReg = register("body");
 
-  const [state, action, pending] = React.useActionState(async (): Promise<ActionResult<{ id: string; warnings: string[] }>> => {
-    setLocalErrors(undefined);
-    return template ? updateTemplate({ ...payload(), id: template.id }) : createTemplate(payload());
-  }, null);
+  /** Erros vindos do server (ActionResult). `campaignId` não é campo do form: cai no banner (mesmo lugar do legado). */
+  function applyServerErrors(errs: FieldErrors) {
+    clearErrors();
+    let first: FieldPath<TemplateFormValues> | undefined;
+    for (const [key, msgs] of Object.entries(errs)) {
+      if (key === "_form" || key === "campaignId") continue;
+      const path = key as FieldPath<TemplateFormValues>;
+      first ??= path;
+      setError(path, { type: "server", message: msgs.join(" ") });
+    }
+    const banner = [errs._form, errs.campaignId].flatMap((m) => m ?? []).join(" ");
+    if (banner) setError("root", { type: "server", message: banner });
+    toast.error(getFormError(errs));
+    if (first) setFocus(first as FieldPath<TemplateFormValues>);
+  }
 
-  React.useEffect(() => {
-    if (state?.ok) {
+  /** Falha da pré-visualização: só erros em campo/banner, sem toast (comportamento original). */
+  function applyPreviewErrors(errs: FieldErrors) {
+    clearErrors();
+    for (const [key, msgs] of Object.entries(errs)) {
+      if (key === "_form" || key === "campaignId") continue;
+      setError(key as FieldPath<TemplateFormValues>, { type: "server", message: msgs.join(" ") });
+    }
+    const banner = [errs._form, errs.campaignId].flatMap((m) => m ?? []).join(" ");
+    if (banner) setError("root", { type: "server", message: banner });
+  }
+
+  const onSubmit = handleSubmit((values) => {
+    startTransition(async () => {
+      const r = template ? await updateTemplate(values) : await createTemplate(values);
+      if (!r.ok) {
+        applyServerErrors(r.errors);
+        return;
+      }
       toast.success(template ? "Template atualizado." : "Template criado.");
-      if (state.data.warnings.length > 0) {
-        toast.warning(`Template salvo com ${state.data.warnings.length} aviso${state.data.warnings.length === 1 ? "" : "s"}: ${state.data.warnings.join(" ")}`, { duration: 15000 });
+      if (r.data.warnings.length > 0) {
+        toast.warning(`Template salvo com ${r.data.warnings.length} aviso${r.data.warnings.length === 1 ? "" : "s"}: ${r.data.warnings.join(" ")}`, { duration: 15000 });
       }
       router.refresh();
       onDone();
-    }
-  }, [state, template, router, onDone]);
-
-  const errors: FieldErrors | undefined = localErrors ?? (state && !state.ok ? state.errors : undefined);
+    });
+  });
 
   function insertVar(v: string) {
     const token = `{{${v}}}`;
+    const vals = getValues();
     const useSubject = isEmail && lastFocus.current === "subject";
     const el = useSubject ? subjectRef.current : bodyRef.current;
-    const value = useSubject ? subject : body;
-    const set = useSubject ? setSubject : setBody;
+    const value = useSubject ? vals.subject : vals.body;
     const start = el?.selectionStart ?? value.length;
     const end = el?.selectionEnd ?? value.length;
-    set(value.slice(0, start) + token + value.slice(end));
+    setValue(useSubject ? "subject" : "body", value.slice(0, start) + token + value.slice(end));
     requestAnimationFrame(() => {
       el?.focus();
       el?.setSelectionRange(start + token.length, start + token.length);
@@ -78,28 +149,23 @@ function TemplateForm({ campaignId, template, onDone }: { campaignId: string; te
   }
 
   function runPreview() {
-    setLocalErrors(undefined);
+    clearErrors();
     startPreview(async () => {
-      const r = await previewTemplate(payload());
+      const v = getValues();
+      const r = await previewTemplate({ campaignId, channel: v.channel, name: v.name, subject: v.channel === "email" ? v.subject : null, body: v.body });
       if (r.ok) setPreview(r.data);
       else {
         setPreview(null);
-        setLocalErrors(r.errors);
+        applyPreviewErrors(r.errors);
       }
     });
   }
 
-  const formError = fieldError(errors, "_form") ?? fieldError(errors, "campaignId");
-  const locked = (template?.usedInSteps ?? 0) > 0;
-  const over = body.length > MAX_BODY;
+  const formError = errors.root?.message;
 
   return (
     <Card className="p-5">
-      <form
-        action={action}
-        className="space-y-4"
-        noValidate
-      >
+      <form onSubmit={onSubmit} className="space-y-4" noValidate>
         <h3 className="font-heading text-base font-semibold">{template ? "Editar template" : "Novo template"}</h3>
         {formError && (
           <p role="alert" className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">
@@ -107,21 +173,21 @@ function TemplateForm({ campaignId, template, onDone }: { campaignId: string; te
           </p>
         )}
         <div className="grid gap-4 sm:grid-cols-[1fr_12rem]">
-          <Field id="t-name" label="Nome" required error={fieldError(errors, "name")}>
-            {(a) => <Input {...a} value={name} maxLength={120} onChange={(e) => setName(e.target.value)} />}
+          <Field id="t-name" label="Nome" required error={errors.name?.message}>
+            {(a) => <Input {...a} {...register("name")} maxLength={120} />}
           </Field>
           <Field
             id="t-channel"
             label="Canal"
             required
-            error={fieldError(errors, "channel")}
+            error={errors.channel?.message}
             hint={locked ? "Bloqueado: o template é usado em passos." : undefined}
           >
             {(a) => (
               <OptionSelect
                 id={a.id}
                 value={channel}
-                onChange={setChannel}
+                onChange={(v) => v && setValue("channel", v as ChannelKey)}
                 options={CHANNEL_OPTIONS}
                 placeholder="Canal"
                 disabled={locked}
@@ -133,30 +199,34 @@ function TemplateForm({ campaignId, template, onDone }: { campaignId: string; te
         </div>
 
         {isEmail && (
-          <Field id="t-subject" label="Assunto" required error={fieldError(errors, "subject")}>
+          <Field id="t-subject" label="Assunto" required error={errors.subject?.message}>
             {(a) => (
               <Input
                 {...a}
-                ref={subjectRef}
-                value={subject}
+                {...subjectReg}
+                ref={(el) => {
+                  subjectRef.current = el;
+                  subjectReg.ref(el);
+                }}
                 maxLength={200}
                 onFocus={() => (lastFocus.current = "subject")}
-                onChange={(e) => setSubject(e.target.value)}
               />
             )}
           </Field>
         )}
 
         <div className="space-y-2">
-          <Field id="t-body" label="Mensagem" required error={fieldError(errors, "body")}>
+          <Field id="t-body" label="Mensagem" required error={errors.body?.message}>
             {(a) => (
               <textarea
                 {...a}
-                ref={bodyRef}
+                {...bodyReg}
+                ref={(el) => {
+                  bodyRef.current = el;
+                  bodyReg.ref(el);
+                }}
                 rows={8}
-                value={body}
                 onFocus={() => (lastFocus.current = "body")}
-                onChange={(e) => setBody(e.target.value)}
                 className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm outline-none transition-all placeholder:text-muted-foreground focus:border-primary focus:ring-[3px] focus:ring-primary/20 aria-invalid:border-destructive aria-invalid:ring-destructive/20"
               />
             )}

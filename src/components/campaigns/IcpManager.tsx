@@ -2,58 +2,78 @@
 import * as React from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { useForm, type FieldPath } from "react-hook-form";
+import { z } from "zod";
 import { Pencil, Plus, Trash2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { createIcp, deleteIcp, updateIcp } from "@/lib/actions/icp";
-import type { FieldErrors } from "@/lib/actions/result";
+import { icpInputSchema, icpUpdateSchema } from "@/lib/schemas/icp";
 import type { IcpSummary } from "@/lib/queries/campaigns";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { IcpFields } from "./IcpFields";
-import { EMPTY_ICP, fieldError, icpToValues, toIcpInput, type IcpValues } from "./form-utils";
+import { EMPTY_ICP, getFormError, icpToValues, toIcpInput, type IcpValues } from "./form-utils";
+
+type IcpSubmit = z.output<typeof icpInputSchema> | z.output<typeof icpUpdateSchema>;
 
 function IcpFormDialog({ icp, open, onOpenChange }: { icp: IcpSummary | null; open: boolean; onOpenChange: (o: boolean) => void }) {
   const router = useRouter();
-  const [values, setValues] = React.useState<IcpValues>(icp ? icpToValues(icp) : EMPTY_ICP);
-  const [errors, setErrors] = React.useState<FieldErrors>();
   const [pending, start] = React.useTransition();
+  // SPEC-043: mesmo schema da action (icpInputSchema/icpUpdateSchema); o preprocess só adapta as
+  // listas de texto com vírgula da UI para os arrays que o servidor espera — nenhuma regra duplicada.
+  const resolver = React.useMemo(
+    () =>
+      icp
+        ? zodResolver(z.preprocess((v: IcpValues) => ({ ...toIcpInput(v), id: icp.id }), icpUpdateSchema))
+        : zodResolver(z.preprocess((v: IcpValues) => toIcpInput(v), icpInputSchema)),
+    [icp],
+  );
+  const { register, handleSubmit, setError, formState } = useForm<IcpValues, unknown, IcpSubmit>({
+    resolver,
+    defaultValues: icp ? icpToValues(icp) : EMPTY_ICP,
+  });
+  const { errors } = formState;
 
-  function submit(e: React.FormEvent) {
-    e.preventDefault();
+  const onSubmit = handleSubmit((values) => {
     start(async () => {
-      const input = toIcpInput(values);
-      const r = icp ? await updateIcp({ ...input, id: icp.id }) : await createIcp(input);
+      const r = icp ? await updateIcp(values) : await createIcp(values);
       if (r.ok) {
         toast.success(icp ? "ICP atualizado." : "ICP criado.");
-        setErrors(undefined);
         onOpenChange(false);
         router.refresh();
-      } else setErrors(r.errors);
+        return;
+      }
+      for (const [key, msgs] of Object.entries(r.errors)) {
+        if (key === "_form") continue;
+        setError(key as FieldPath<IcpValues>, { type: "server", message: msgs.join(" ") });
+      }
+      if (r.errors._form) setError("root", { type: "server", message: r.errors._form.join(" ") });
+      toast.error(getFormError(r.errors));
     });
-  }
-  const formError = fieldError(errors, "_form");
+  });
+
   return (
-    <Dialog
-      open={open}
-      onOpenChange={(o) => {
-        if (!o) setErrors(undefined);
-        onOpenChange(o);
-      }}
-    >
+    <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[90vh] max-w-2xl overflow-y-auto">
         <DialogHeader>
           <DialogTitle>{icp ? "Editar ICP" : "Novo ICP"}</DialogTitle>
           <DialogDescription>Descreva o perfil de cliente ideal usado na busca de leads.</DialogDescription>
         </DialogHeader>
-        <form onSubmit={submit} className="space-y-4" noValidate>
-          {formError && (
+        <form onSubmit={onSubmit} className="space-y-4" noValidate>
+          {errors.root?.message && (
             <p role="alert" className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">
-              {formError}
+              {errors.root.message}
             </p>
           )}
-          <IcpFields idPrefix="icp-dlg" prefix="" values={values} onChange={setValues} errors={errors} />
+          <IcpFields
+            idPrefix="icp-dlg"
+            prefix=""
+            register={(n) => register(n as FieldPath<IcpValues>)}
+            errors={errors}
+          />
           <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
               Cancelar

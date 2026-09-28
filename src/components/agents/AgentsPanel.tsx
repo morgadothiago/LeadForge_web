@@ -3,17 +3,22 @@ import * as React from "react";
 import { useRouter } from "next/navigation";
 import { AlertTriangle, Bot, Plus, Power } from "lucide-react";
 import { toast } from "sonner";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { useForm, type FieldPath } from "react-hook-form";
+import { z } from "zod";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Field } from "@/components/campaigns/Field";
-import { fieldError, getFormError } from "@/components/campaigns/form-utils";
+import { getFormError } from "@/components/campaigns/form-utils";
 import { ConfirmDialog } from "@/components/campaigns/ConfirmDialog";
 import { createAgent, getAgentRuns, type AgentRunView, deleteKnowledge, saveKnowledge, setAgentActive, setAgentAutonomy, simulateAgentAction, updateAgent, updateAgentSettings } from "@/lib/actions/agent";
 import type { FieldErrors } from "@/lib/actions/result";
 import type { SimulationResult } from "@/lib/agents/simulate";
+import type { AgentTool } from "@/lib/agents/types";
+import { agentFieldsSchema, createAgentSchema, globalSettingsSchema, knowledgeSchema, simulateSchema, updateAgentSchema } from "@/lib/schemas/agent";
 import { AUTONOMY_LABELS, ROLE_LABELS, formatBRLCents, RUN_STATUS_LABELS, budgetToInput, canConfirmAuto, disclosureOffDowngrades, formatMicroUsd, guardrailsLabel, needsAutoConfirm, parseLines, resolveBudgetInput, usageLevel, usagePercent } from "./agent-format";
 
 type Role = keyof typeof ROLE_LABELS;
@@ -94,25 +99,52 @@ export function AgentsPanel({ agents, settings }: { agents: AgentView[]; setting
   );
 }
 
+/** Valores do form (SPEC-044): números ficam como texto na UI e viram número no submit; erros usam as chaves do schema ("monthlyBudgetCents", "dailyMessageLimit", ...). */
+interface GlobalBudgetValues {
+  monthlyBudgetCents: string;
+}
+
+type GlobalBudgetSubmit = z.output<typeof globalSettingsSchema>;
+
+/** Texto em reais → cents; vazio/inválido vira `null` (o formato é checado em `onSubmit` com as mensagens originais). */
+function budgetCentsOf(text: string): number | null {
+  if (!text.trim()) return null;
+  const r = resolveBudgetInput(text);
+  return r.ok ? r.cents : null;
+}
+
 function GlobalBudget({ current }: { current: number | null }) {
-  const [v, setV] = React.useState(budgetToInput(current));
-  const [err, setErr] = React.useState<string>();
   const [confirmClear, setConfirmClear] = React.useState(false);
   const { run, pending } = useRun();
-  function save() {
-    if (!v.trim()) { if (current) setConfirmClear(true); else setErr("Informe um valor em reais maior que zero."); return; }
-    const r = resolveBudgetInput(v);
-    if (!r.ok) return setErr(r.error);
-    setErr(undefined);
+  const resolver = React.useMemo(
+    () => zodResolver(z.preprocess((v: GlobalBudgetValues) => ({ monthlyBudgetCents: budgetCentsOf(v.monthlyBudgetCents) }), globalSettingsSchema)),
+    [],
+  );
+  const { register, handleSubmit, getValues, setError, formState } = useForm<GlobalBudgetValues, unknown, GlobalBudgetSubmit>({
+    resolver,
+    defaultValues: { monthlyBudgetCents: budgetToInput(current) },
+  });
+  const { errors } = formState;
+
+  const onSubmit = handleSubmit(() => {
+    const text = getValues().monthlyBudgetCents;
+    if (!text.trim()) {
+      if (current) { setConfirmClear(true); return; }
+      setError("monthlyBudgetCents", { type: "client", message: "Informe um valor em reais maior que zero." });
+      return;
+    }
+    const r = resolveBudgetInput(text);
+    if (!r.ok) { setError("monthlyBudgetCents", { type: "client", message: r.error }); return; }
     run(() => updateAgentSettings({ monthlyBudgetCents: r.cents }), "Teto global salvo.");
-  }
+  });
+
   return (
-    <form className="flex flex-col gap-1" onSubmit={(e) => { e.preventDefault(); save(); }} noValidate>
+    <form onSubmit={onSubmit} className="flex flex-col gap-1" noValidate>
       <div className="flex gap-2">
-        <Input aria-label="Teto global mensal em reais" aria-invalid={!!err} inputMode="decimal" className="w-28" placeholder="R$ teto" value={v} onChange={(e) => { setV(e.target.value); setErr(undefined); }} />
+        <Input aria-label="Teto global mensal em reais" inputMode="decimal" className="w-28" placeholder="R$ teto" {...register("monthlyBudgetCents")} />
         <Button type="submit" variant="outline" disabled={pending}>Salvar teto</Button>
       </div>
-      {err && <p role="alert" className="text-xs text-destructive">{err}</p>}
+      {errors.monthlyBudgetCents && <p role="alert" className="text-xs text-destructive">{errors.monthlyBudgetCents.message}</p>}
       <ConfirmDialog open={confirmClear} onOpenChange={setConfirmClear} title="Remover teto global?" description="Sem teto global, o gasto mensal dos agentes deixa de ter limite conjunto." confirmLabel="Remover teto" destructive pending={pending}
         onConfirm={() => run(() => updateAgentSettings({ monthlyBudgetCents: null }), "Teto global removido.", undefined, () => setConfirmClear(false))} />
     </form>
@@ -235,16 +267,33 @@ function CloserAutoDialog({ agent, autonomy, onClose }: { agent: AgentView; auto
   );
 }
 
+/** Valores do form de simulação (SPEC-044): `text` vira `inboundText` só quando preenchido (trim), como no original. */
+interface SimulateValues {
+  text: string;
+}
+
+type SimulateSubmit = z.output<typeof simulateSchema>;
+
 function SimulateDialog({ agent, onClose }: { agent: AgentView; onClose: () => void }) {
-  const [text, setText] = React.useState("");
   const [res, setRes] = React.useState<SimulationResult | null>(null);
   const [pending, start] = React.useTransition();
-  function go() {
+  const resolver = React.useMemo(
+    () =>
+      zodResolver(
+        z.preprocess(
+          (v: SimulateValues) => ({ agentId: agent.id, ...(v.text.trim() ? { inboundText: v.text.trim() } : {}) }),
+          simulateSchema,
+        ),
+      ),
+    [agent.id],
+  );
+  const { register, handleSubmit } = useForm<SimulateValues, unknown, SimulateSubmit>({ resolver, defaultValues: { text: "" } });
+  const onSubmit = handleSubmit((values) => {
     start(async () => {
-      const r = await simulateAgentAction({ agentId: agent.id, ...(text.trim() ? { inboundText: text.trim() } : {}) });
+      const r = await simulateAgentAction(values);
       if (r.ok) setRes(r.data); else toast.error(getFormError(r.errors));
     });
-  }
+  });
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="max-h-[90dvh] max-w-xl overflow-y-auto">
@@ -252,10 +301,12 @@ function SimulateDialog({ agent, onClose }: { agent: AgentView; onClose: () => v
           <DialogTitle>Simular: {agent.name}</DialogTitle>
           <DialogDescription>Teste com um lead de exemplo. Nada é enviado nem salvo, mas a chamada ao modelo tem custo.</DialogDescription>
         </DialogHeader>
-        <Field id="sim-text" label="Mensagem do lead (opcional)" hint="Vazio simula o primeiro contato.">
-          {(f) => <textarea {...f} className={areaCls} maxLength={1000} value={text} onChange={(e) => setText(e.target.value)} />}
-        </Field>
-        <Button onClick={go} disabled={pending}>{pending ? "Simulando…" : "Simular"}</Button>
+        <form onSubmit={onSubmit} className="space-y-4" noValidate>
+          <Field id="sim-text" label="Mensagem do lead (opcional)" hint="Vazio simula o primeiro contato.">
+            {(f) => <textarea {...f} {...register("text")} className={areaCls} maxLength={1000} />}
+          </Field>
+          <Button type="submit" disabled={pending}>{pending ? "Simulando…" : "Simular"}</Button>
+        </form>
         {res && (
           <div className="space-y-2 rounded-md border border-border p-3 text-sm" aria-live="polite">
             <p><strong>Ação:</strong> {res.output.action} · confiança {Math.round(res.output.confidence * 100)}%</p>
@@ -269,101 +320,180 @@ function SimulateDialog({ agent, onClose }: { agent: AgentView; onClose: () => v
   );
 }
 
+/** Valores do formulário (SPEC-044). Números entram como texto; as chaves de erro espelham o schema do server. */
+interface AgentFormValues {
+  role: Role;
+  name: string;
+  persona: string;
+  objective: string;
+  tone: string;
+  model: string;
+  monthlyBudgetCents: string;
+  clearBudget: boolean;
+  dailyMessageLimit: string;
+  maxTurnsPerLead: string;
+  samplePercent: string;
+  link: boolean;
+  tag: boolean;
+  keywords: string;
+  forbidden: string;
+  humanReq: boolean;
+  disclosure: boolean;
+  disclosureText: string;
+  callLink: string;
+}
+
+type AgentSubmit = z.output<typeof createAgentSchema> | z.output<typeof updateAgentSchema>;
+
+/** Monta o body do submit (mesmo shape do original). Erro de formato do teto vira `null` aqui e é barrado em `onSubmit`. */
+function buildBody(v: AgentFormValues, agent: AgentView | null): z.input<typeof agentFieldsSchema> {
+  const hadBudget = !!agent?.monthlyBudgetCents;
+  const b = !v.monthlyBudgetCents.trim() && !hadBudget ? ({ ok: true, cents: null } as const) : resolveBudgetInput(v.monthlyBudgetCents, v.clearBudget);
+  const allowedTools: AgentTool[] = [];
+  if (v.link) allowedTools.push("link");
+  if (v.tag) allowedTools.push("tag");
+  return {
+    name: v.name,
+    persona: v.persona,
+    objective: v.objective,
+    tone: v.tone,
+    model: v.model,
+    monthlyBudgetCents: b.ok ? b.cents : null,
+    dailyMessageLimit: Number(v.dailyMessageLimit),
+    maxTurnsPerLead: Number(v.maxTurnsPerLead),
+    samplePercent: Number(v.samplePercent),
+    allowedTools,
+    escalationRules: { keywords: parseLines(v.keywords), forbiddenPhrases: parseLines(v.forbidden), handoffOnHumanRequest: v.humanReq },
+    disclosureEnabled: v.disclosure,
+    disclosureText: v.disclosureText.trim() || null,
+    ...(v.role === "closer" ? { callLink: v.callLink.trim() || null } : {}),
+  };
+}
+
 function AgentForm({ agent, availableRoles, onDone }: { agent: AgentView | null; availableRoles: Role[]; onDone: () => void }) {
   const uid = React.useId();
   const rules = (agent?.escalationRules ?? {}) as { keywords?: string[]; forbiddenPhrases?: string[]; handoffOnHumanRequest?: boolean };
-  const [role, setRole] = React.useState<Role>(agent?.role ?? availableRoles[0] ?? "sdr");
-  const [name, setName] = React.useState(agent?.name ?? "");
-  const [persona, setPersona] = React.useState(agent?.persona ?? "");
-  const [objective, setObjective] = React.useState(agent?.objective ?? "");
-  const [tone, setTone] = React.useState(agent?.tone ?? "");
-  const [model, setModel] = React.useState(agent?.model ?? "claude-haiku-4-5");
-  const [budget, setBudget] = React.useState(budgetToInput(agent?.monthlyBudgetCents ?? null));
-  const [clearBudget, setClearBudget] = React.useState(false);
-  const [daily, setDaily] = React.useState(String(agent?.dailyMessageLimit ?? 20));
-  const [turns, setTurns] = React.useState(String(agent?.maxTurnsPerLead ?? 5));
-  const [sample, setSample] = React.useState(String(agent?.samplePercent ?? 20));
-  const [link, setLink] = React.useState(agent?.allowedTools.includes("link") ?? false);
-  const [tag, setTag] = React.useState(agent?.allowedTools.includes("tag") ?? false);
-  const [keywords, setKeywords] = React.useState((rules.keywords ?? []).join("\n"));
-  const [forbidden, setForbidden] = React.useState((rules.forbiddenPhrases ?? []).join("\n"));
-  const [humanReq, setHumanReq] = React.useState(rules.handoffOnHumanRequest ?? true);
-  const [disclosure, setDisclosure] = React.useState(agent?.disclosureEnabled ?? role === "closer");
-  const [disclosureText, setDisclosureText] = React.useState(agent?.disclosureText ?? "");
-  const [callLink, setCallLink] = React.useState(agent?.callLink ?? "");
-  const [errors, setErrors] = React.useState<FieldErrors>();
   const { run, pending } = useRun();
 
-  function submit(e: React.FormEvent) {
-    e.preventDefault();
-    const hadBudget = !!agent?.monthlyBudgetCents;
-    const b = !budget.trim() && !hadBudget ? ({ ok: true, cents: null } as const) : resolveBudgetInput(budget, clearBudget);
-    if (!b.ok) return setErrors({ monthlyBudgetCents: [b.error] });
-    const body = {
-      name, persona, objective, tone, model,
-      monthlyBudgetCents: b.cents,
-      dailyMessageLimit: Number(daily), maxTurnsPerLead: Number(turns), samplePercent: Number(sample),
-      allowedTools: [...(link ? ["link"] : []), ...(tag ? ["tag"] : [])],
-      escalationRules: { keywords: parseLines(keywords), forbiddenPhrases: parseLines(forbidden), handoffOnHumanRequest: humanReq },
-      disclosureEnabled: disclosure, disclosureText: disclosureText.trim() || null,
-      ...(role === "closer" ? { callLink: callLink.trim() || null } : {}),
-    };
-    setErrors(undefined);
-    run(() => (agent ? updateAgent({ id: agent.id, ...body }) : createAgent({ role, ...body })), agent ? "Agente salvo." : "Agente criado (desligado, em rascunho).", setErrors, onDone);
-  }
-  const area = (id: string, label: string, v: string, set: (s: string) => void, hint?: string) => (
-    <Field id={`${uid}-${id}`} label={label} hint={hint} error={fieldError(errors, id)}>{(f) => <textarea {...f} className={areaCls} value={v} onChange={(e) => set(e.target.value)} />}</Field>
+  const resolver = React.useMemo(
+    () =>
+      agent
+        ? zodResolver(z.preprocess((v: AgentFormValues) => ({ ...buildBody(v, agent), id: agent.id }), updateAgentSchema))
+        : zodResolver(z.preprocess((v: AgentFormValues) => ({ ...buildBody(v, null), role: v.role }), createAgentSchema)),
+    [agent],
   );
-  const num = (id: string, label: string, v: string, set: (s: string) => void) => (
-    <Field id={`${uid}-${id}`} label={label} error={fieldError(errors, id)}>{(f) => <Input {...f} inputMode="numeric" value={v} onChange={(e) => set(e.target.value)} />}</Field>
+
+  const { register, handleSubmit, watch, getValues, setValue, setError, setFocus, formState } = useForm<AgentFormValues, unknown, AgentSubmit>({
+    resolver,
+    defaultValues: {
+      role: agent?.role ?? availableRoles[0] ?? "sdr",
+      name: agent?.name ?? "",
+      persona: agent?.persona ?? "",
+      objective: agent?.objective ?? "",
+      tone: agent?.tone ?? "",
+      model: agent?.model ?? "claude-haiku-4-5",
+      monthlyBudgetCents: budgetToInput(agent?.monthlyBudgetCents ?? null),
+      clearBudget: false,
+      dailyMessageLimit: String(agent?.dailyMessageLimit ?? 20),
+      maxTurnsPerLead: String(agent?.maxTurnsPerLead ?? 5),
+      samplePercent: String(agent?.samplePercent ?? 20),
+      link: agent?.allowedTools.includes("link") ?? false,
+      tag: agent?.allowedTools.includes("tag") ?? false,
+      keywords: (rules.keywords ?? []).join("\n"),
+      forbidden: (rules.forbiddenPhrases ?? []).join("\n"),
+      humanReq: rules.handoffOnHumanRequest ?? true,
+      disclosure: agent?.disclosureEnabled ?? (agent?.role ?? availableRoles[0] ?? "sdr") === "closer",
+      disclosureText: agent?.disclosureText ?? "",
+      callLink: agent?.callLink ?? "",
+    },
+  });
+  const { errors } = formState;
+
+  const role = watch("role");
+  const disclosure = watch("disclosure");
+  const clearBudget = watch("clearBudget");
+
+  /** Erros vindos do server (ActionResult): chaves do schema ("name", "dailyMessageLimit", "escalationRules.keywords", ...) + `_form` no banner. */
+  function applyServerErrors(errs: FieldErrors) {
+    let first: FieldPath<AgentFormValues> | undefined;
+    for (const [key, msgs] of Object.entries(errs)) {
+      if (key === "_form") continue;
+      const path = key as FieldPath<AgentFormValues>;
+      first ??= path;
+      setError(path, { type: "server", message: msgs.join(" ") });
+    }
+    if (errs._form) setError("root", { type: "server", message: errs._form.join(" ") });
+    if (first) setFocus(first.replace(/\.\d+$/, "") as FieldPath<AgentFormValues>);
+  }
+
+  const onSubmit = handleSubmit((values) => {
+    // Pré-checagem do teto (regra só existente na UI): mensagens originais de resolveBudgetInput.
+    const fv = getValues();
+    const hadBudget = !!agent?.monthlyBudgetCents;
+    const b = !fv.monthlyBudgetCents.trim() && !hadBudget ? ({ ok: true, cents: null } as const) : resolveBudgetInput(fv.monthlyBudgetCents, fv.clearBudget);
+    if (!b.ok) {
+      setError("monthlyBudgetCents", { type: "client", message: b.error });
+      setFocus("monthlyBudgetCents");
+      return;
+    }
+    run(() => (agent ? updateAgent(values) : createAgent(values)), agent ? "Agente salvo." : "Agente criado (desligado, em rascunho).", applyServerErrors, onDone);
+  });
+
+  const area = (id: "persona" | "objective" | "tone" | "keywords" | "forbidden", label: string, hint?: string) => (
+    <Field id={`${uid}-${id}`} label={label} hint={hint} error={errors[id]?.message}>{(f) => <textarea {...f} {...register(id)} className={areaCls} />}</Field>
+  );
+  const num = (id: "dailyMessageLimit" | "maxTurnsPerLead" | "samplePercent", label: string) => (
+    <Field id={`${uid}-${id}`} label={label} error={errors[id]?.message}>{(f) => <Input {...f} {...register(id)} inputMode="numeric" />}</Field>
   );
   return (
-    <form onSubmit={submit} className="grid gap-4" noValidate>
+    <form onSubmit={onSubmit} className="grid gap-4" noValidate>
       <DialogHeader>
         <DialogTitle>{agent ? `Editar ${agent.name}` : "Novo agente"}</DialogTitle>
         <DialogDescription>Cada alteração gera uma nova versão do prompt base.</DialogDescription>
       </DialogHeader>
-      {fieldError(errors, "_form") && <p role="alert" className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">{fieldError(errors, "_form")}</p>}
+      {errors.root?.message && <p role="alert" className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">{errors.root.message}</p>}
       <div className="grid gap-4 sm:grid-cols-2">
         <Field id={`${uid}-role`} label="Papel" required>
-          {(f) => <select {...f} className={selectCls} value={role} disabled={!!agent} onChange={(e) => { setRole(e.target.value as Role); setDisclosure(e.target.value === "closer"); }}>
+          {(f) => <select {...f} className={selectCls} value={role} disabled={!!agent} onChange={(e) => { const r = e.target.value as Role; setValue("role", r); setValue("disclosure", r === "closer"); }}>
             {(agent ? [agent.role] : availableRoles).map((r) => <option key={r} value={r}>{ROLE_LABELS[r]}</option>)}
           </select>}
         </Field>
-        <Field id={`${uid}-name`} label="Nome" required error={fieldError(errors, "name")}>{(f) => <Input {...f} value={name} maxLength={80} onChange={(e) => setName(e.target.value)} />}</Field>
+        <Field id={`${uid}-name`} label="Nome" required error={errors.name?.message}>{(f) => <Input {...f} {...register("name")} maxLength={80} />}</Field>
       </div>
-      {area("persona", "Persona", persona, setPersona, "Quem é o agente e como se apresenta.")}
-      {area("objective", "Objetivo", objective, setObjective)}
-      {area("tone", "Tom de voz", tone, setTone)}
+      {area("persona", "Persona", "Quem é o agente e como se apresenta.")}
+      {area("objective", "Objetivo")}
+      {area("tone", "Tom de voz")}
       <div className="grid gap-4 sm:grid-cols-2">
-        <Field id={`${uid}-model`} label="Modelo" error={fieldError(errors, "model")}>{(f) => <Input {...f} value={model} onChange={(e) => setModel(e.target.value)} />}</Field>
-        <Field id={`${uid}-budget`} label="Teto mensal (R$)" hint="Obrigatório para ativar." error={fieldError(errors, "monthlyBudgetCents")}>{(f) => <div className="space-y-1"><Input {...f} inputMode="decimal" value={budget} disabled={clearBudget} onChange={(e) => setBudget(e.target.value)} />
-          {agent?.monthlyBudgetCents ? <label className="flex gap-2 text-xs"><input type="checkbox" checked={clearBudget} onChange={(e) => { setClearBudget(e.target.checked); if (e.target.checked) setBudget(""); else setBudget(budgetToInput(agent.monthlyBudgetCents)); }} /> Remover teto (o agente não poderá ficar ativo)</label> : null}</div>}</Field>
-        {num("dailyMessageLimit", "Limite diário de mensagens", daily, setDaily)}
-        {num("maxTurnsPerLead", "Turnos máximos por lead", turns, setTurns)}
-        {num("samplePercent", "% revisado na amostragem", sample, setSample)}
+        <Field id={`${uid}-model`} label="Modelo" error={errors.model?.message}>{(f) => <Input {...f} {...register("model")} />}</Field>
+        <Field id={`${uid}-budget`} label="Teto mensal (R$)" hint="Obrigatório para ativar." error={errors.monthlyBudgetCents?.message}>
+          {(f) => <div className="space-y-1"><Input {...f} {...register("monthlyBudgetCents")} inputMode="decimal" disabled={clearBudget} />
+            {agent?.monthlyBudgetCents ? <label className="flex gap-2 text-xs"><input type="checkbox" checked={clearBudget} onChange={(e) => { const on = e.target.checked; setValue("clearBudget", on); setValue("monthlyBudgetCents", on ? "" : budgetToInput(agent.monthlyBudgetCents), { shouldValidate: true }); }} /> Remover teto (o agente não poderá ficar ativo)</label> : null}</div>}
+        </Field>
+        {num("dailyMessageLimit", "Limite diário de mensagens")}
+        {num("maxTurnsPerLead", "Turnos máximos por lead")}
+        {num("samplePercent", "% revisado na amostragem")}
       </div>
       <fieldset className="space-y-2">
         <legend className="text-sm font-medium">Ferramentas permitidas</legend>
-        <label className="flex gap-2 text-sm"><input type="checkbox" checked={link} onChange={(e) => setLink(e.target.checked)} /> Incluir links nas mensagens</label>
-        <label className="flex gap-2 text-sm"><input type="checkbox" checked={tag} onChange={(e) => setTag(e.target.checked)} /> Aplicar tags aos leads</label>
+        <label className="flex gap-2 text-sm"><input type="checkbox" {...register("link")} /> Incluir links nas mensagens</label>
+        <label className="flex gap-2 text-sm"><input type="checkbox" {...register("tag")} /> Aplicar tags aos leads</label>
       </fieldset>
       <fieldset className="grid gap-3 rounded-md border border-border p-3">
         <legend className="px-1 text-sm font-medium">Regras de escalonamento (passar para humano)</legend>
-        {area("keywords", "Palavras/temas sensíveis (um por linha)", keywords, setKeywords)}
-        {area("forbidden", "Frases proibidas (uma por linha)", forbidden, setForbidden)}
-        <label className="flex gap-2 text-sm"><input type="checkbox" checked={humanReq} onChange={(e) => setHumanReq(e.target.checked)} /> Passar para humano quando o lead pedir</label>
+        {area("keywords", "Palavras/temas sensíveis (um por linha)")}
+        {area("forbidden", "Frases proibidas (uma por linha)")}
+        <label className="flex gap-2 text-sm"><input type="checkbox" {...register("humanReq")} /> Passar para humano quando o lead pedir</label>
       </fieldset>
       {role === "closer" && (
-        <Field id={`${uid}-call`} label="Link da call" hint="Será o único link permitido na mensagem e vai ao humano no handoff." error={fieldError(errors, "callLink")}>
-          {(f) => <Input {...f} type="url" inputMode="url" placeholder="https://" value={callLink} onChange={(e) => setCallLink(e.target.value)} />}
+        <Field id={`${uid}-call`} label="Link da call" hint="Será o único link permitido na mensagem e vai ao humano no handoff." error={errors.callLink?.message}>
+          {(f) => <Input {...f} {...register("callLink")} type="url" inputMode="url" placeholder="https://" />}
         </Field>
       )}
       <fieldset className="grid gap-3 rounded-md border border-border p-3">
         <legend className="px-1 text-sm font-medium">Transparência</legend>
-        <label className="flex gap-2 text-sm"><input type="checkbox" checked={disclosure} onChange={(e) => setDisclosure(e.target.checked)} /> Avisar que é um assistente de IA{role === "closer" ? " (recomendado no Closer)" : ""}</label>
+        <label className="flex gap-2 text-sm"><input type="checkbox" checked={disclosure} onChange={(e) => setValue("disclosure", e.target.checked)} /> Avisar que é um assistente de IA{role === "closer" ? " (recomendado no Closer)" : ""}</label>
         {agent && !disclosure && disclosureOffDowngrades(agent.role, agent.autonomy, disclosure) && <p role="alert" className="text-sm text-warning">Ao desligar o aviso, este Closer autônomo volta para o modo rascunho (você aprova tudo).</p>}
-        {disclosure && <Field id={`${uid}-dt`} label="Texto do aviso" hint="Vazio usa o texto padrão.">{(f) => <Input {...f} maxLength={300} value={disclosureText} onChange={(e) => setDisclosureText(e.target.value)} />}</Field>}
+        {disclosure && <Field id={`${uid}-dt`} label="Texto do aviso" hint="Vazio usa o texto padrão.">{(f) => <Input {...f} {...register("disclosureText")} maxLength={300} />}</Field>}
       </fieldset>
       {agent && <KnowledgeSection agent={agent} />}
       <DialogFooter>
@@ -374,11 +504,40 @@ function AgentForm({ agent, availableRoles, onDone }: { agent: AgentView | null;
   );
 }
 
+/** Valores do form de conhecimento (SPEC-044): `agentId` é injetado no submit. */
+interface KnowledgeValues {
+  title: string;
+  content: string;
+}
+
+type KnowledgeSubmit = z.output<typeof knowledgeSchema>;
+
 function KnowledgeSection({ agent }: { agent: AgentView }) {
-  const [title, setTitle] = React.useState("");
-  const [content, setContent] = React.useState("");
   const { run, pending } = useRun();
   const [removing, setRemoving] = React.useState<{ id: string; title: string } | null>(null);
+  const resolver = React.useMemo(
+    () => zodResolver(z.preprocess((v: KnowledgeValues) => ({ agentId: agent.id, title: v.title, content: v.content }), knowledgeSchema)),
+    [agent.id],
+  );
+  const { register, handleSubmit, setError, reset, formState } = useForm<KnowledgeValues, unknown, KnowledgeSubmit>({
+    resolver,
+    defaultValues: { title: "", content: "" },
+  });
+  const { errors } = formState;
+
+  function applyServerErrors(errs: FieldErrors) {
+    for (const [key, msgs] of Object.entries(errs)) {
+      if (key === "_form") continue;
+      setError(key as FieldPath<KnowledgeValues>, { type: "server", message: msgs.join(" ") });
+    }
+    if (errs._form) setError("root", { type: "server", message: errs._form.join(" ") });
+  }
+
+  // Botão `type="button"` dentro do form do AgentForm: o submit do knowledge é disparado via handleSubmit explícito.
+  const onAdd = handleSubmit((values) => {
+    run(() => saveKnowledge(values), "Documento salvo.", applyServerErrors, () => reset({ title: "", content: "" }));
+  });
+
   return (
     <fieldset className="grid gap-3 rounded-md border border-border p-3">
       <ConfirmDialog open={removing !== null} onOpenChange={(o) => !o && setRemoving(null)} title="Remover documento?" description={`"${removing?.title ?? ""}" deixará de ser usado pelo agente. Esta ação não pode ser desfeita.`} confirmLabel="Remover" destructive pending={pending}
@@ -391,9 +550,11 @@ function KnowledgeSection({ agent }: { agent: AgentView }) {
             <Button type="button" size="sm" variant="ghost" disabled={pending} onClick={() => setRemoving({ id: k.id, title: k.title })}>Remover</Button></li>
         ))}
       </ul>
-      <Input aria-label="Título do documento" placeholder="Título" value={title} maxLength={120} onChange={(e) => setTitle(e.target.value)} />
-      <textarea aria-label="Conteúdo do documento" className={areaCls} placeholder="Conteúdo (texto)" value={content} maxLength={20000} onChange={(e) => setContent(e.target.value)} />
-      <Button type="button" variant="outline" disabled={pending || !title.trim() || !content.trim()} onClick={() => run(() => saveKnowledge({ agentId: agent.id, title, content }), "Documento salvo.", undefined, () => { setTitle(""); setContent(""); })}>Adicionar documento</Button>
+      <Input aria-label="Título do documento" placeholder="Título" maxLength={120} aria-invalid={!!errors.title} {...register("title")} />
+      {errors.title && <p role="alert" className="text-xs text-destructive">{errors.title.message}</p>}
+      <textarea aria-label="Conteúdo do documento" className={areaCls} placeholder="Conteúdo (texto)" maxLength={20000} aria-invalid={!!errors.content} {...register("content")} />
+      {errors.content && <p role="alert" className="text-xs text-destructive">{errors.content.message}</p>}
+      <Button type="button" variant="outline" disabled={pending} onClick={onAdd}>Adicionar documento</Button>
     </fieldset>
   );
 }

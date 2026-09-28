@@ -3,17 +3,21 @@ import * as React from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { useForm, type FieldPath } from "react-hook-form";
+import { z } from "zod";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { CAMPAIGN_STATUS_LABELS } from "@/lib/domain";
 import { createCampaign, updateCampaign } from "@/lib/actions/campaign";
-import type { ActionResult, FieldErrors } from "@/lib/actions/result";
+import { campaignCreateSchema, campaignUpdateSchema } from "@/lib/schemas/campaign";
+import type { FieldErrors } from "@/lib/actions/result";
 import { AUTO_START_WARNING } from "@/components/sequences/sequence-start-format";
 import { Field } from "./Field";
 import { IcpFields } from "./IcpFields";
 import { OptionSelect } from "./OptionSelect";
-import { EMPTY_ICP, fieldError, toIcpInput, type IcpValues } from "./form-utils";
+import { EMPTY_ICP, getFormError, toIcpInput, type IcpValues } from "./form-utils";
 
 interface Props {
   mode: "create" | "edit";
@@ -37,73 +41,137 @@ const STATUS_OPTIONS = (Object.keys(CAMPAIGN_STATUS_LABELS) as (keyof typeof CAM
   label: CAMPAIGN_STATUS_LABELS[v],
 }));
 
+/** Valores do formulário (SPEC-043): listas do ICP ficam como texto com vírgula na UI e viram arrays no submit. */
+interface CampaignFormValues {
+  name: string;
+  description: string;
+  status: "active" | "paused" | "archived";
+  sequenceId: string | null;
+  whatsappInstanceId: string | null;
+  autoStart: boolean;
+  icpId: string | null;
+  icp: IcpValues;
+}
+
+type CampaignSubmit = z.output<typeof campaignCreateSchema> | z.output<typeof campaignUpdateSchema>;
+
+function toCreateInput(v: CampaignFormValues, icpMode: "existing" | "new"): z.input<typeof campaignCreateSchema> {
+  const base = {
+    name: v.name,
+    description: v.description,
+    status: v.status,
+    sequenceId: v.sequenceId,
+    whatsappInstanceId: v.whatsappInstanceId,
+    autoStart: v.autoStart,
+  };
+  return icpMode === "new" ? { ...base, icp: toIcpInput(v.icp) } : { ...base, icpId: v.icpId ?? undefined };
+}
+
+function toUpdateInput(v: CampaignFormValues, id: string): z.input<typeof campaignUpdateSchema> {
+  return {
+    id,
+    name: v.name,
+    description: v.description,
+    status: v.status,
+    sequenceId: v.sequenceId,
+    whatsappInstanceId: v.whatsappInstanceId,
+    autoStart: v.autoStart,
+    icpId: v.icpId ?? "",
+  };
+}
+
 export function CampaignForm({ mode, campaign, icps, sequences, whatsappInstances }: Props) {
   const router = useRouter();
-  const [name, setName] = React.useState(campaign?.name ?? "");
-  const [description, setDescription] = React.useState(campaign?.description ?? "");
-  const [status, setStatus] = React.useState<string | null>(campaign?.status ?? "active");
-  const [sequenceId, setSequenceId] = React.useState<string | null>(campaign?.sequenceId ?? null);
-  const [waId, setWaId] = React.useState<string | null>(campaign?.whatsappInstanceId ?? null);
-  const [autoStart, setAutoStart] = React.useState(campaign?.autoStart ?? false);
   const [icpMode, setIcpMode] = React.useState<"existing" | "new">(icps.length === 0 && mode === "create" ? "new" : "existing");
-  const [icpId, setIcpId] = React.useState<string | null>(campaign?.icpId ?? null);
-  const [icp, setIcp] = React.useState<IcpValues>(EMPTY_ICP);
+  const [pending, startTransition] = React.useTransition();
+  const campaignId = campaign?.id;
 
-  const [state, action, pending] = React.useActionState(
-    async (): Promise<ActionResult<{ id: string }>> => {
-      const base = { name, description, sequenceId, whatsappInstanceId: waId, autoStart };
-      if (mode === "edit" && campaign) {
-        return updateCampaign({ ...base, id: campaign.id, status, icpId });
-      }
-      return createCampaign({
-        ...base,
-        status,
-        ...(icpMode === "new" ? { icp: toIcpInput(icp) } : { icpId }),
-      });
-    },
-    null,
+  const resolver = React.useMemo(
+    () =>
+      mode === "edit" && campaignId
+        ? zodResolver(z.preprocess((v: CampaignFormValues) => toUpdateInput(v, campaignId), campaignUpdateSchema))
+        : zodResolver(z.preprocess((v: CampaignFormValues) => toCreateInput(v, icpMode), campaignCreateSchema)),
+    [mode, campaignId, icpMode],
   );
 
-  React.useEffect(() => {
-    if (state?.ok) {
-      toast.success(mode === "create" ? "Campanha criada." : "Campanha atualizada.");
-      router.push("/campanhas");
-    }
-  }, [state, mode, router]);
+  const { register, handleSubmit, setError, setFocus, watch, setValue, formState } = useForm<CampaignFormValues, unknown, CampaignSubmit>({
+    resolver,
+    defaultValues: {
+      name: campaign?.name ?? "",
+      description: campaign?.description ?? "",
+      status: campaign?.status ?? "active",
+      sequenceId: campaign?.sequenceId ?? null,
+      whatsappInstanceId: campaign?.whatsappInstanceId ?? null,
+      autoStart: campaign?.autoStart ?? false,
+      icpId: campaign?.icpId ?? null,
+      icp: EMPTY_ICP,
+    },
+  });
+  const { errors } = formState;
 
-  const errors: FieldErrors | undefined = state && !state.ok ? state.errors : undefined;
-  const formError = fieldError(errors, "_form");
+  const status = watch("status");
+  const icpId = watch("icpId");
+  const sequenceId = watch("sequenceId");
+  const waId = watch("whatsappInstanceId");
+  const autoStart = watch("autoStart");
+
+  function applyServerErrors(errs: FieldErrors) {
+    let first: FieldPath<CampaignFormValues> | undefined;
+    for (const [key, msgs] of Object.entries(errs)) {
+      if (key === "_form") continue;
+      const path = key as FieldPath<CampaignFormValues>;
+      first ??= path;
+      setError(path, { type: "server", message: msgs.join(" ") });
+    }
+    if (errs._form) setError("root", { type: "server", message: errs._form.join(" ") });
+    const msg = getFormError(errs);
+    toast.error(msg);
+    if (first) setFocus(first.replace(/\.\d+$/, "") as FieldPath<CampaignFormValues>);
+  }
+
+  const onSubmit = handleSubmit((values) => {
+    startTransition(async () => {
+      const r = mode === "edit" && campaignId ? await updateCampaign(values) : await createCampaign(values);
+      if (r.ok) {
+        toast.success(mode === "create" ? "Campanha criada." : "Campanha atualizada.");
+        router.push("/campanhas");
+        return;
+      }
+      applyServerErrors(r.errors);
+    });
+  });
+
+  const icpRegister = (n: string): ReturnType<typeof register> => register(n as FieldPath<CampaignFormValues>);
 
   return (
-    <form action={action} className="mx-auto max-w-3xl space-y-6" noValidate>
-      {formError && (
+    <form onSubmit={onSubmit} className="mx-auto max-w-3xl space-y-6" noValidate>
+      {errors.root?.message && (
         <p role="alert" className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">
-          {formError}
+          {errors.root.message}
         </p>
       )}
 
       <Card className="space-y-4 p-5">
         <h2 className="font-heading text-base font-semibold">Dados da campanha</h2>
-        <Field id="c-name" label="Nome" required error={fieldError(errors, "name")}>
-          {(a) => <Input {...a} value={name} onChange={(e) => setName(e.target.value)} placeholder="Ex.: Sites para Advogados" maxLength={120} />}
+        <Field id="c-name" label="Nome" required error={errors.name?.message}>
+          {(a) => <Input {...a} {...register("name")} placeholder="Ex.: Sites para Advogados" maxLength={120} />}
         </Field>
-        <Field id="c-desc" label="Descrição" error={fieldError(errors, "description")}>
+        <Field id="c-desc" label="Descrição" error={errors.description?.message}>
           {(a) => (
             <textarea
               {...a}
+              {...register("description")}
               rows={3}
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
               className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm outline-none transition-all placeholder:text-muted-foreground focus:border-primary focus:ring-[3px] focus:ring-primary/20 aria-invalid:border-destructive"
             />
           )}
         </Field>
-        <Field id="c-status" label="Status" error={fieldError(errors, "status")}>
+        <Field id="c-status" label="Status" error={errors.status?.message}>
           {(a) => (
             <OptionSelect
               id={a.id}
               value={status}
-              onChange={setStatus}
+              onChange={(v) => v && setValue("status", v as CampaignFormValues["status"])}
               options={STATUS_OPTIONS}
               placeholder="Selecione"
               invalid={a["aria-invalid"]}
@@ -139,12 +207,12 @@ export function CampaignForm({ mode, campaign, icps, sequences, whatsappInstance
           icps.length === 0 ? (
             <p className="text-sm text-muted-foreground">Nenhum ICP cadastrado ainda. Escolha “Criar novo”.</p>
           ) : (
-            <Field id="c-icp" label="ICP" required error={fieldError(errors, "icpId")}>
+            <Field id="c-icp" label="ICP" required error={errors.icpId?.message}>
               {(a) => (
                 <OptionSelect
                   id={a.id}
                   value={icpId}
-                  onChange={setIcpId}
+                  onChange={(v) => setValue("icpId", v)}
                   options={icps.map((i) => ({ value: i.id, label: `${i.name} · ${i.niche}` }))}
                   placeholder="Selecione um ICP"
                   invalid={a["aria-invalid"]}
@@ -154,7 +222,7 @@ export function CampaignForm({ mode, campaign, icps, sequences, whatsappInstance
             </Field>
           )
         ) : (
-          <IcpFields idPrefix="c-icp" prefix="icp." values={icp} onChange={setIcp} errors={errors} />
+          <IcpFields idPrefix="c-icp" prefix="icp." register={icpRegister} errors={errors} />
         )}
       </Card>
 
@@ -164,14 +232,14 @@ export function CampaignForm({ mode, campaign, icps, sequences, whatsappInstance
           <Field
             id="c-seq"
             label="Sequência"
-            error={fieldError(errors, "sequenceId")}
+            error={errors.sequenceId?.message}
             hint={sequences.length === 0 ? "Nenhuma sequência disponível ainda — o módulo de sequências chega em breve." : undefined}
           >
             {(a) => (
               <OptionSelect
                 id={a.id}
                 value={sequenceId}
-                onChange={setSequenceId}
+                onChange={(v) => setValue("sequenceId", v)}
                 options={sequences.map((s) => ({ value: s.id, label: s.name }))}
                 placeholder="Sem sequência"
                 allowNone
@@ -184,7 +252,7 @@ export function CampaignForm({ mode, campaign, icps, sequences, whatsappInstance
           <Field
             id="c-wa"
             label="Instância de WhatsApp"
-            error={fieldError(errors, "whatsappInstanceId")}
+            error={errors.whatsappInstanceId?.message}
             hint={
               whatsappInstances.length === 0
                 ? "Nenhuma instância cadastrada. Crie uma em Configurações > WhatsApp."
@@ -195,7 +263,7 @@ export function CampaignForm({ mode, campaign, icps, sequences, whatsappInstance
               <OptionSelect
                 id={a.id}
                 value={waId}
-                onChange={setWaId}
+                onChange={(v) => setValue("whatsappInstanceId", v)}
                 options={whatsappInstances.map((w) => ({
                   value: w.id,
                   label: w.status ? `${w.instanceName} (${{ connected: "conectada", connecting: "conectando", disconnected: "desconectada" }[w.status]})` : w.instanceName,
@@ -229,7 +297,7 @@ export function CampaignForm({ mode, campaign, icps, sequences, whatsappInstance
             aria-checked={autoStart}
             aria-labelledby="c-autostart-label"
             aria-describedby="c-autostart-hint"
-            onClick={() => setAutoStart((v) => !v)}
+            onClick={() => setValue("autoStart", !autoStart)}
             className={`relative mt-0.5 h-6 w-11 shrink-0 rounded-full outline-none transition-colors focus-visible:ring-2 focus-visible:ring-primary/40 ${autoStart ? "bg-primary" : "bg-muted"}`}
           >
             <span className={`absolute left-0.5 top-0.5 size-5 rounded-full bg-white transition-transform ${autoStart ? "translate-x-5" : ""}`} />
@@ -240,7 +308,7 @@ export function CampaignForm({ mode, campaign, icps, sequences, whatsappInstance
             {AUTO_START_WARNING}
           </p>
         )}
-        {fieldError(errors, "autoStart") && <p className="text-xs text-destructive">{fieldError(errors, "autoStart")}</p>}
+        {errors.autoStart?.message && <p className="text-xs text-destructive">{errors.autoStart.message}</p>}
       </Card>
 
       <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">

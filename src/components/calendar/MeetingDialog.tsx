@@ -3,18 +3,22 @@ import * as React from "react";
 import { useRouter } from "next/navigation";
 import { AlertTriangle, CheckCircle2, ExternalLink, UserX } from "lucide-react";
 import { toast } from "sonner";
-import { getFormError, fieldError } from "@/components/campaigns/form-utils";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { useForm, type FieldPath } from "react-hook-form";
+import { z } from "zod";
+import { getFormError, rhfErrorAt } from "@/components/campaigns/form-utils";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { cancelMeeting, createMeeting, markMeetingDone, markMeetingNoShow, updateMeeting, type MeetingResult } from "@/lib/actions/meeting";
 import { searchMeetingLeads } from "@/lib/actions/meeting-search";
-import type { ActionResult, FieldErrors } from "@/lib/actions/result";
+import type { FieldErrors } from "@/lib/actions/result";
 import type { LeadOpportunityOption } from "@/lib/queries/meetings";
+import { createMeetingSchema, updateMeetingSchema } from "@/lib/schemas/meeting";
 import {
-  MEETING_STATUS_LABELS, TIMEZONE_OPTIONS, initialValues, timeLabel, timeOptions, toPayload, validate, valuesFromMeeting, type FormErrors, type FormValues,
+  MEETING_STATUS_LABELS, TIMEZONE_OPTIONS, initialValues, timeLabel, timeOptions, toPayload, valuesFromMeeting, type FormValues,
 } from "@/lib/calendar/form";
-import { findConflicts, formatDayShort, formatTime } from "@/lib/calendar/tz";
+import { findConflicts, formatDayShort, formatTime, instantAt } from "@/lib/calendar/tz";
 import type { ParsedMeeting } from "./types";
 
 export type DialogState = { mode: "create"; dateKey: string } | { mode: "edit"; meeting: ParsedMeeting } | null;
@@ -30,6 +34,13 @@ function Field({ id, label, error, children }: { id: string; label: string; erro
       {error ? <p id={`${id}-error`} className="text-xs text-destructive">{error}</p> : null}
     </div>
   );
+}
+
+/** `FormValues` (dateKey/startMin/endMin) → `startsAt` ISO do schema. Data impossível vira `""` e cai no refine (nunca `toISOString()` de NaN). */
+function startsAtISO(v: FormValues): string {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(v.dateKey)) return "";
+  const d = instantAt(v.dateKey, v.startMin, v.timezone);
+  return Number.isNaN(d.getTime()) ? "" : d.toISOString();
 }
 
 export function MeetingDialog({ state, meetings, onClose }: { state: DialogState; meetings: ParsedMeeting[]; onClose: () => void }) {
@@ -48,60 +59,111 @@ function MeetingForm({ state, meetings, onClose }: { state: NonNullable<DialogSt
   const router = useRouter();
   const edit = state.mode === "edit" ? state.meeting : null;
   const editable = !edit || edit.status === "scheduled";
-  const [v, setV] = React.useState<FormValues>(() => (edit ? valuesFromMeeting(edit) : initialValues(state.mode === "create" ? state.dateKey : "")));
-  const [errors, setErrors] = React.useState<FormErrors>({});
-  const [serverErrors, setServerErrors] = React.useState<FieldErrors | undefined>();
   const [pending, startTransition] = React.useTransition();
   const [confirmCancel, setConfirmCancel] = React.useState(false);
   const [picked, setPicked] = React.useState<LeadOpportunityOption | null>(null);
   const [requestId] = React.useState(() => `m-${globalThis.crypto?.randomUUID?.() ?? Date.now().toString(36)}`);
-  const set = <K extends keyof FormValues>(k: K, val: FormValues[K]) => setV((cur) => ({ ...cur, [k]: val }));
 
-  const payload = React.useMemo(() => (v.endMin > v.startMin && /^\d{4}-\d{2}-\d{2}$/.test(v.dateKey) ? toPayload(v) : null), [v]);
+  // Mesmo build do `toPayload()` original (trim de link/notes, duração = fim - início); create injeta opportunityId/clientRequestId.
+  const resolver = React.useMemo(() => {
+    const base = (v: FormValues) => ({
+      startsAt: startsAtISO(v),
+      durationMin: v.endMin - v.startMin,
+      timezone: v.timezone,
+      link: v.link.trim(),
+      notes: v.notes.trim(),
+    });
+    return edit
+      ? zodResolver(z.preprocess((v: FormValues) => ({ ...base(v), id: edit.id }), updateMeetingSchema))
+      : zodResolver(z.preprocess((v: FormValues) => ({ ...base(v), opportunityId: v.opportunityId, clientRequestId: requestId }), createMeetingSchema));
+  }, [edit, requestId]);
+
+  const { register, handleSubmit, watch, setValue, setError, clearErrors, setFocus, formState } = useForm<FormValues, unknown, z.output<typeof createMeetingSchema> | z.output<typeof updateMeetingSchema>>({
+    resolver,
+    defaultValues: edit ? valuesFromMeeting(edit) : initialValues(state.mode === "create" ? state.dateKey : ""),
+  });
+  const { errors } = formState;
+
+  const dateKey = watch("dateKey");
+  const startMin = watch("startMin");
+  const endMin = watch("endMin");
+  const timezone = watch("timezone");
+
+  const payload = React.useMemo(
+    () => (endMin > startMin && /^\d{4}-\d{2}-\d{2}$/.test(dateKey) ? toPayload({ dateKey, startMin, endMin, timezone, link: "", notes: "", opportunityId: "" }) : null),
+    [dateKey, startMin, endMin, timezone],
+  );
   const conflicts = React.useMemo(
     () => (payload ? findConflicts(meetings, new Date(payload.startsAt), payload.endsAt, edit?.id) : []),
     [meetings, payload, edit?.id],
   );
 
-  const finish = (r: ActionResult<MeetingResult>, okMsg: string) => {
-    if (!r.ok) {
-      setServerErrors(r.errors);
-      return;
+  /** Erros vindos do server (ActionResult). Mesmos caminhos do schema ("startsAt", "durationMin", "opportunityId", ...). */
+  function applyServerErrors(errs: FieldErrors) {
+    clearErrors();
+    let first: FieldPath<FormValues> | undefined;
+    for (const [key, msgs] of Object.entries(errs)) {
+      if (key === "_form") continue;
+      const path = key as FieldPath<FormValues>;
+      first ??= path;
+      setError(path, { type: "server", message: msgs.join(" ") });
     }
+    if (errs._form) setError("root", { type: "server", message: errs._form.join(" ") });
+    toast.error(getFormError(errs));
+    // No-op seguro para caminhos não registrados (data/fim): o RHF só foca se houver ref.
+    if (first) setFocus(first);
+  }
+
+  const finishOk = (r: MeetingResult, okMsg: string) => {
     toast.success(okMsg);
-    if (r.data.conflicts.length) toast.warning("Este horário conflita com outra reunião agendada.");
-    if (r.data.warning) toast.warning(r.data.warning);
+    if (r.conflicts.length) toast.warning("Este horário conflita com outra reunião agendada.");
+    if (r.warning) toast.warning(r.warning);
     onClose();
     router.refresh();
   };
 
-  const onSave = (e: React.FormEvent) => {
-    e.preventDefault();
-    setServerErrors(undefined);
-    const errs = validate(v, edit ? "edit" : "create");
-    setErrors(errs);
-    if (Object.keys(errs).length || !payload) return;
+  const onSubmit = handleSubmit((values) => {
+    clearErrors();
     startTransition(async () => {
-      if (edit) {
-        finish(await updateMeeting({ id: edit.id, startsAt: payload.startsAt, durationMin: payload.durationMin, timezone: v.timezone, link: v.link.trim(), notes: v.notes.trim() }), "Reunião atualizada.");
-      } else {
-        finish(
-          await createMeeting({ opportunityId: v.opportunityId, startsAt: payload.startsAt, durationMin: payload.durationMin, timezone: v.timezone, link: v.link.trim(), notes: v.notes.trim(), clientRequestId: requestId }),
-          "Reunião agendada.",
-        );
+      const startsAt = values.startsAt instanceof Date ? values.startsAt.toISOString() : "";
+      const r = edit
+        ? await updateMeeting({ id: edit.id, startsAt, durationMin: values.durationMin, timezone: values.timezone, link: values.link, notes: values.notes })
+        : await createMeeting({
+            opportunityId: (values as z.output<typeof createMeetingSchema>).opportunityId,
+            startsAt,
+            durationMin: values.durationMin,
+            timezone: values.timezone,
+            link: values.link,
+            notes: values.notes,
+            clientRequestId: (values as z.output<typeof createMeetingSchema>).clientRequestId,
+          });
+      if (!r.ok) {
+        applyServerErrors(r.errors);
+        return;
       }
+      finishOk(r.data, edit ? "Reunião atualizada." : "Reunião agendada.");
     });
-  };
+  });
+
   const transition = (fn: typeof cancelMeeting, msg: string) => {
     if (!edit) return;
-    setServerErrors(undefined);
-    startTransition(async () => finish(await fn({ id: edit.id }), msg));
+    startTransition(async () => {
+      const r = await fn({ id: edit.id });
+      if (!r.ok) {
+        // Só banner, sem toast (comportamento original das transições).
+        setError("root", { type: "server", message: getFormError(r.errors) });
+        return;
+      }
+      finishOk(r.data, msg);
+    });
   };
 
-  const startOpts = timeOptions(0, 24 * 60 - 15, v.startMin);
-  const endOpts = timeOptions(v.startMin + 15, 24 * 60, v.endMin);
-  const tzOpts = TIMEZONE_OPTIONS.some((o) => o.value === v.timezone) ? TIMEZONE_OPTIONS : [...TIMEZONE_OPTIONS, { value: v.timezone, label: v.timezone }];
-  const formError = serverErrors ? getFormError(serverErrors) : undefined;
+  const startOpts = timeOptions(0, 24 * 60 - 15, startMin);
+  const endOpts = timeOptions(startMin + 15, 24 * 60, endMin);
+  const tzOpts = TIMEZONE_OPTIONS.some((o) => o.value === timezone) ? TIMEZONE_OPTIONS : [...TIMEZONE_OPTIONS, { value: timezone, label: timezone }];
+  const dateErr = rhfErrorAt(errors, "startsAt");
+  const durationErr = rhfErrorAt(errors, "durationMin");
+  const formError = errors.root?.message;
 
   return (
     <>
@@ -118,22 +180,23 @@ function MeetingForm({ state, meetings, onClose }: { state: NonNullable<DialogSt
         </p>
       ) : null}
 
-      <form onSubmit={onSave} className="grid gap-4" noValidate aria-busy={pending}>
-        {!edit ? <LeadPicker picked={picked} error={errors.opportunityId ?? fieldError(serverErrors, "opportunityId")} onPick={(o) => { setPicked(o); set("opportunityId", o?.opportunityId ?? ""); }} /> : null}
+      <form onSubmit={onSubmit} className="grid gap-4" noValidate aria-busy={pending}>
+        {!edit ? <LeadPicker picked={picked} error={errors.opportunityId?.message} onPick={(o) => { setPicked(o); setValue("opportunityId", o?.opportunityId ?? ""); }} /> : null}
 
         <div className="grid gap-4 sm:grid-cols-3">
-          <Field id="mt-date" label="Data" error={errors.dateKey ?? fieldError(serverErrors, "startsAt")}>
-            <Input id="mt-date" type="date" value={v.dateKey} disabled={!editable} onChange={(e) => set("dateKey", e.target.value)} aria-invalid={!!errors.dateKey} aria-describedby={errors.dateKey ? "mt-date-error" : undefined} />
+          <Field id="mt-date" label="Data" error={dateErr}>
+            <Input id="mt-date" type="date" {...register("dateKey")} disabled={!editable} aria-invalid={!!dateErr} aria-describedby={dateErr ? "mt-date-error" : undefined} />
           </Field>
           <Field id="mt-start" label="Início">
             <select
               id="mt-start"
               className={nativeCls}
               disabled={!editable}
-              value={v.startMin}
+              value={startMin}
               onChange={(e) => {
                 const s = Number(e.target.value);
-                setV((cur) => ({ ...cur, startMin: s, endMin: Math.min(1440, s + (cur.endMin - cur.startMin)) }));
+                setValue("startMin", s);
+                setValue("endMin", Math.min(1440, s + (endMin - startMin)));
               }}
             >
               {startOpts.map((m) => (
@@ -141,8 +204,8 @@ function MeetingForm({ state, meetings, onClose }: { state: NonNullable<DialogSt
               ))}
             </select>
           </Field>
-          <Field id="mt-end" label="Fim" error={errors.endMin ?? fieldError(serverErrors, "durationMin")}>
-            <select id="mt-end" className={nativeCls} disabled={!editable} value={v.endMin} onChange={(e) => set("endMin", Number(e.target.value))} aria-invalid={!!errors.endMin} aria-describedby={errors.endMin ? "mt-end-error" : undefined}>
+          <Field id="mt-end" label="Fim" error={durationErr}>
+            <select id="mt-end" className={nativeCls} disabled={!editable} value={endMin} onChange={(e) => setValue("endMin", Number(e.target.value))} aria-invalid={!!durationErr} aria-describedby={durationErr ? "mt-end-error" : undefined}>
               {endOpts.map((m) => (
                 <option key={m} value={m}>{timeLabel(m)}</option>
               ))}
@@ -151,7 +214,7 @@ function MeetingForm({ state, meetings, onClose }: { state: NonNullable<DialogSt
         </div>
 
         <Field id="mt-tz" label="Fuso horário">
-          <select id="mt-tz" className={nativeCls} disabled={!editable} value={v.timezone} onChange={(e) => set("timezone", e.target.value)}>
+          <select id="mt-tz" className={nativeCls} disabled={!editable} value={timezone} onChange={(e) => setValue("timezone", e.target.value)}>
             {tzOpts.map((o) => (
               <option key={o.value} value={o.value}>{o.label}</option>
             ))}
@@ -165,18 +228,18 @@ function MeetingForm({ state, meetings, onClose }: { state: NonNullable<DialogSt
               <div>
                 <p className="font-medium">Conflito de horário</p>
                 <p className="text-muted-foreground">
-                  {conflicts.length === 1 ? "Já existe uma reunião" : `Já existem ${conflicts.length} reuniões`} neste horário ({conflicts.map((c) => `${formatDayShort(v.dateKey)}, ${formatTime(c.startsAt, v.timezone)}–${formatTime(c.endsAt, v.timezone)}`).join("; ")}). Você ainda pode salvar.
+                  {conflicts.length === 1 ? "Já existe uma reunião" : `Já existem ${conflicts.length} reuniões`} neste horário ({conflicts.map((c) => `${formatDayShort(dateKey)}, ${formatTime(c.startsAt, timezone)}–${formatTime(c.endsAt, timezone)}`).join("; ")}). Você ainda pode salvar.
                 </p>
               </div>
             </div>
           ) : null}
         </div>
 
-        <Field id="mt-link" label="Link da reunião (opcional)" error={errors.link ?? fieldError(serverErrors, "link")}>
-          <Input id="mt-link" type="url" inputMode="url" placeholder="https://meet.google.com/..." value={v.link} disabled={!editable} onChange={(e) => set("link", e.target.value)} aria-invalid={!!(errors.link || fieldError(serverErrors, "link"))} aria-describedby={errors.link ? "mt-link-error" : undefined} />
+        <Field id="mt-link" label="Link da reunião (opcional)" error={errors.link?.message}>
+          <Input id="mt-link" type="url" inputMode="url" placeholder="https://meet.google.com/..." {...register("link")} disabled={!editable} aria-invalid={!!errors.link} aria-describedby={errors.link ? "mt-link-error" : undefined} />
         </Field>
-        <Field id="mt-notes" label="Observações (opcional)" error={errors.notes ?? fieldError(serverErrors, "notes")}>
-          <textarea id="mt-notes" className={textareaCls} maxLength={2000} value={v.notes} disabled={!editable} onChange={(e) => set("notes", e.target.value)} />
+        <Field id="mt-notes" label="Observações (opcional)" error={errors.notes?.message}>
+          <textarea id="mt-notes" className={textareaCls} maxLength={2000} {...register("notes")} disabled={!editable} />
         </Field>
 
         {formError ? (

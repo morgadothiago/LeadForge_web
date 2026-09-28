@@ -15,6 +15,34 @@ export function fieldError(errors: FieldErrors | undefined, key: string): string
   return msgs.length ? msgs.join(" ") : undefined;
 }
 
+/** Coleta as mensagens de um nó de erro do RHF (FieldError, nó aninhado ou índice de array como "signals.0"). */
+function collectMessages(node: unknown): string[] {
+  if (!node || typeof node !== "object") return [];
+  const out: string[] = [];
+  const rec = node as Record<string, unknown>;
+  if (typeof rec.message === "string" && rec.message) out.push(rec.message);
+  for (const [k, v] of Object.entries(rec)) {
+    if (k === "message" || k === "types" || k === "ref") continue;
+    if (v && typeof v === "object") out.push(...collectMessages(v));
+  }
+  return out;
+}
+
+/**
+ * Mensagem de erro do `formState.errors` do react-hook-form em `path` (ex.: `["icp", "signals"]`).
+ * Percorre nós aninhados/índices de array — `errors.icp.signals[0]` (issue de item de lista) também
+ * é exibido no campo `icp.signals`, espelhando o prefix-match do `fieldError` legado.
+ */
+export function rhfErrorAt(errors: unknown, ...path: string[]): string | undefined {
+  let cur: unknown = errors;
+  for (const seg of path) {
+    if (!cur || typeof cur !== "object") return undefined;
+    cur = (cur as Record<string, unknown>)[seg];
+  }
+  const msgs = [...new Set(collectMessages(cur))];
+  return msgs.length ? msgs.join(" ") : undefined;
+}
+
 export interface IcpValues {
   name: string;
   niche: string;

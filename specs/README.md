@@ -37,15 +37,15 @@ Fullstack = executa dev-backend primeiro, depois dev-frontend.
 | 033 | Billing/assinatura: backend (planos, checkout, webhook, gating) | dev-backend | 6 (SaaS) | IMPLEMENTED (2026-09-26; 2 rodadas dev-backend + 2 rodadas QA, ultima APPROVED) | 030 |
 | 034 | Billing/assinatura: frontend (pricing, checkout, signup self-service, gestao do plano) | dev-frontend | 6 (SaaS) | IMPLEMENTED (2026-09-26; dev-frontend + QA APPROVED) | 033 |
 | 035 | Landing page publica ("/") | dev-frontend | 6 (SaaS) | IMPLEMENTED (2026-09-26; 2 rodadas dev-frontend + 4 rodadas QA, ultima APPROVED) | 002,027,034 (pricing/signup) |
-| 036 | LLM gratuito (provedor OpenAI-compatible: Ollama, Gemini, Groq) | fullstack | 7 (LLM gratis) | DRAFT | 018,019,030 |
+| 036 | LLM gratuito (provedor OpenAI-compatible: Ollama, Gemini, Groq) | fullstack | 7 (LLM gratis) | APPROVED (usuario, 2026-09-27) — Decision Record D-36-1..6 fechadas (2026-09-27); implementacao pendente | 018,019,030 |
 | 037 | Dark/Light mode + identidade visual unificada (landing+app+login) | dev-frontend | 6 (SaaS) | IMPLEMENTED (2026-09-26; 2 rodadas dev-frontend + 2 rodadas QA, ultima APPROVED) | 002,035 |
 | 038 | Recuperacao de senha ("esqueci minha senha") | fullstack | 6 (SaaS) | IMPLEMENTED (2026-09-26; 2 rodadas backend + 1 frontend + 2 rodadas QA, ultima APPROVED) | 009,010,037 |
 | 039 | Bloqueio manual de inadimplencia + lembretes de cobranca por e-mail | dev-backend | 6 (SaaS) | IMPLEMENTED (2026-09-27; 2 rodadas dev-backend + 2 rodadas QA, ultima APPROVED) | 030,031,032,033,038 |
 | 040 | Criacao manual de usuario com acesso completo (cortesia/interno) | fullstack | 6 (SaaS) | IMPLEMENTED (2026-09-27; backend+frontend + QA APPROVED) | 030,031,032,033 |
 | 041 | Captacao de leads: Google Ads Lead Form + Meta Lead Ads | fullstack | 6 (SaaS) | IMPLEMENTED (2026-09-27; QA APPROVED) | 018,014,030 |
 | 042 | Padrao react-hook-form + piloto (Auth: login/signup/esqueci-senha/redefinir-senha) | dev-frontend | 6 (SaaS) | IMPLEMENTED (2026-09-27; QA APPROVED) | 009,034,037,038 |
-| 043 | react-hook-form: Campanhas, ICP, Leads | dev-frontend | 6 (SaaS) | APPROVED (usuario, 2026-09-27) | 042 |
-| 044 | react-hook-form: Sequences, Templates, Agentes, Calendario | dev-frontend | 6 (SaaS) | APPROVED (usuario, 2026-09-27) | 042 |
+| 043 | react-hook-form: Campanhas, ICP, Leads | dev-frontend | 6 (SaaS) | IMPLEMENTED (2026-09-27; QA APPROVED) | 042 |
+| 044 | react-hook-form: Sequences, Templates, Agentes, Calendario | dev-frontend | 6 (SaaS) | IMPLEMENTED (2026-09-28; QA APPROVED) | 042 |
 | 045 | react-hook-form: Configuracoes, Integracoes, WhatsApp, Supressao, Admin, Billing | dev-frontend | 6 (SaaS) | APPROVED (usuario, 2026-09-27) | 042 |
 | 046 | E-mail transacional: Resend (fallback SMTP) + templates HTML + 2 cenarios novos (assinatura efetuada/cancelada) | dev-backend | 6 (SaaS) | IMPLEMENTED (2026-09-27; QA APPROVED) | 010,033,037,038,039,040 |
 | 047 | AbacatePay como adapter adicional de PaymentProvider (PIX/cartao) | dev-backend | 6 (SaaS) | IMPLEMENTED (2026-09-27; QA APPROVED) | 033 |

@@ -1,29 +1,30 @@
 "use client";
+import type { UseFormRegisterReturn } from "react-hook-form";
 import { Input } from "@/components/ui/input";
-import type { FieldErrors } from "@/lib/actions/result";
 import { Field } from "./Field";
-import { fieldError, type IcpValues } from "./form-utils";
+import { rhfErrorAt, type IcpValues } from "./form-utils";
 
-/** Campos do ICP; `prefix` casa com as chaves de erro ("icp." inline, "" na gestão). */
+/**
+ * Campos do ICP registrados no react-hook-form do formulário-pai (SPEC-043).
+ * `prefix` monta o nome do campo registrado: "icp." no create da campanha (schema aninhado),
+ * "" no diálogo de gestão de ICP (chaves planas).
+ */
 export function IcpFields({
   idPrefix,
   prefix,
-  values,
-  onChange,
+  register,
   errors,
 }: {
   idPrefix: string;
   prefix: string;
-  values: IcpValues;
-  onChange: (v: IcpValues) => void;
-  errors?: FieldErrors;
+  register: (name: string) => UseFormRegisterReturn;
+  errors: unknown;
 }) {
-  const set = (k: keyof IcpValues) => (e: React.ChangeEvent<HTMLInputElement>) =>
-    onChange({ ...values, [k]: e.target.value });
-  const err = (k: keyof IcpValues) => fieldError(errors, `${prefix}${k}`);
+  const name = (k: keyof IcpValues) => `${prefix}${k}`;
+  const err = (k: keyof IcpValues) => rhfErrorAt(errors, ...(prefix ? [prefix.replace(/\.$/, "")] : []), k as string);
   const text = (k: keyof IcpValues, label: string, opts: { required?: boolean; hint?: string; placeholder?: string }) => (
     <Field id={`${idPrefix}-${k}`} label={label} error={err(k)} required={opts.required} hint={opts.hint}>
-      {(a) => <Input {...a} value={values[k]} onChange={set(k)} placeholder={opts.placeholder} />}
+      {(a) => <Input {...a} {...register(name(k))} placeholder={opts.placeholder} />}
     </Field>
   );
   return (

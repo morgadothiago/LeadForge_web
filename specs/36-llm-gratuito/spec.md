@@ -1,5 +1,5 @@
 # SPEC-036 — LLM gratuito (provedor OpenAI-compatible: Ollama, Gemini, Groq)
-- status: DRAFT | domain: fullstack | depende de: SPEC-018 (chaves no painel), SPEC-019 (agentes e interface `LlmProvider`), SPEC-030 (multi-tenant)
+- status: APPROVED (usuario, 2026-09-27) | domain: fullstack | depende de: SPEC-018 (chaves no painel), SPEC-019 (agentes e interface `LlmProvider`), SPEC-030 (multi-tenant)
 
 ## Objetivo
 Tornar os agentes de IA testáveis de graça. Hoje o código só tem `ClaudeProvider` (Anthropic, pago, sem tier grátis) — em produção o caminho grátis é "agentes desligados" (`docs/GUIA.md` 4.5). Esta SPEC adiciona um provedor **OpenAI-compatible** configurável por Organization que cobre, com a MESMA classe: **Ollama local** (`http://localhost:11434/v1`, custo zero, dado não sai do computador), **Gemini free tier** (endpoint OpenAI-compatível `https://generativelanguage.googleapis.com/v1beta/openai`), **Groq/OpenRouter free tier** e qualquer outro compatível. `ClaudeProvider` continua sendo o fallback de quem já usa hoje.
@@ -34,13 +34,13 @@ Tornar os agentes de IA testáveis de graça. Hoje o código só tem `ClaudeProv
 - Troca do `ClaudeProvider` por outro formato proprietário (Anthropic-compatível), novos modelos Claude, e qualquer coisa em `../mobile/`.
 - Alterar a interface `LlmProvider` ou o schema de saída `agentOutputSchema`.
 
-## Decisões pendentes (recomendação entre parênteses; aguardam confirmação do usuário)
-- **D-36-1 Provedor para validar primeiro:** (a) **Ollama local** — custo zero total, dado não sai da máquina, exige instalar Ollama + baixar modelo (2-8 GB) e marcar "instância própria"; (b) **Gemini free tier** — não instala nada, exige chave do Google, no free tier o conteúdo pode ser usado para melhoria de produto (importa para LGPD/dado de lead). *(Recomendado: implementar a classe única e validar primeiro com **Ollama** — sem chave, sem limite de taxa, sem custo; Gemini em seguida como segunda validação.)*
-- **D-36-2 De onde vem o modelo:** usar `Agent.model` como está *(recomendado: sem migration; a UI sugere um modelo default por provedor ao criar o agente)* vs. modelo default na integração `llm` (exigiria coluna nova em `IntegrationSecret`).
-- **D-36-3 Custo de modelo grátis/local:** *(recomendado: 0 micros para modelos da lista de free/local e para baseUrl em host privado; tokens sempre contados; modelo desconhecido mantém o fallback conservador até a tabela ser atualizada.)* Alternativa: custo 0 para TUDO quando `baseUrl` existir — mais simples, porém esconde o custo real de Gemini/Groq free-tier após o limite diário.
-- **D-36-4 "Simular":** continua chamando o provedor real e gastando tokens *(recomendado: sim, mostrando provedor/modelo/custo na tela)* vs. exigir provedor fake.
-- **D-36-5 "Testar conexão" para `llm`:** *(recomendado: sim quando houver URL base — `GET {baseUrl}/models` ou um `/chat/completions` mínimo com `max_tokens:1`, timeout curto, resultado PT-BR; para Claude sem URL, manter "teste indisponível" como hoje.)*
-- **D-36-6 Chave sem URL:** continua obrigatória *(recomendado: sim para Claude; opcional quando há URL, que é o caso Ollama)*.
+## Decisões fechadas (usuario, 2026-09-27 — aprovada com as recomendações)
+- **D-36-1 Provedor para validar primeiro:** classe única `OpenAICompatProvider` cobrindo os 3 formatos; validação em ordem: primeiro **Ollama local** (custo zero, dado não sai da máquina, exige instalar Ollama + modelo 2-8 GB + marcar "instância própria"), depois **Gemini free tier** como segunda validação (chave do Google; free tier pode usar conteúdo para melhoria de produto — aviso LGPD na tela).
+- **D-36-2 De onde vem o modelo:** usar `Agent.model` como está — sem migration; a UI sugere um modelo default por provedor ao criar o agente.
+- **D-36-3 Custo de modelo grátis/local:** 0 micros para a lista de modelos free/local e para `baseUrl` em host privado; tokens sempre contados (métrica e limite de execuções); modelo desconhecido mantém o `FALLBACK` conservador até a tabela ser atualizada.
+- **D-36-4 "Simular":** continua chamando o provedor real e gastando tokens, mostrando provedor/modelo/custo na tela.
+- **D-36-5 "Testar conexão" para `llm`:** sim quando houver URL base — `GET {baseUrl}/models` ou `/chat/completions` mínimo com `max_tokens:1`, timeout curto, resultado PT-BR; para Claude sem URL, manter "teste indisponível" como hoje.
+- **D-36-6 Chave sem URL:** obrigatória para Claude (sem URL); opcional quando há URL (caso Ollama), mantido `SECRET_MIN` para quem digita chave.
 
 ## Modelo de dados
 Sem migration. `IntegrationSecret.baseUrl`, `IntegrationSecret.allowPrivateHost`, `Agent.model` já existem e são suficientes. Se D-36-2 mudar, a SPEC passa a exigir migration nova (será marcada aqui na aprovação).
