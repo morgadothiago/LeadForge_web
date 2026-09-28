@@ -4,7 +4,7 @@ import { scopedPrisma } from "@/lib/tenant/scoped-prisma";
 import { auditQuerySchema } from "@/lib/schemas/integration";
 import { INTEGRATIONS, type IntegrationKindName } from "@/lib/integrations/types";
 import { SELECT_ITEM, summarize, toItemView, type IntegrationSummary } from "@/lib/integrations/view";
-import type { IntegrationAuditAction } from "@prisma/client";
+import type { IntegrationAuditAction, IntegrationKind } from "@prisma/client";
 
 export const AUDIT_PAGE_SIZE = 20;
 
@@ -22,7 +22,7 @@ export interface IntegrationAuditEntry {
   id: string;
   userId: string;
   userName: string | null;
-  integration: IntegrationKindName;
+  integration: IntegrationKind;
   action: IntegrationAuditAction;
   hostMasked: string | null;
   allowPrivateHost: boolean | null;

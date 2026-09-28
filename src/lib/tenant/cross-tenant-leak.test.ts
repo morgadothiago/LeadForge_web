@@ -33,6 +33,8 @@ import { createMeeting } from "@/lib/actions/meeting";
 import { runTick } from "@/lib/scheduler/run-tick";
 import { saveIntegration, removeIntegration, testIntegration } from "@/lib/actions/integration";
 import { listIntegrations, listIntegrationAudit } from "@/lib/queries/integration";
+import { saveLeadSourceBinding, removeLeadSourceBinding } from "@/lib/actions/lead-source";
+import { listLeadSourceBindings } from "@/lib/queries/lead-source";
 import { sweepAlerts, raiseAlert, _resetSweepThrottle } from "@/lib/mobile/alerts";
 import { signAccessToken } from "@/lib/mobile/token";
 import { GET as listAlerts } from "@/app/api/mobile/v1/alerts/route";
@@ -422,8 +424,28 @@ describe("integrações — vazamento cross-tenant (SPEC-018/030)", () => {
   });
 });
 
-describe("MobileAlert — vazamento cross-tenant (achado real corrigido nesta rodada da SPEC-030)", () => {
-  let devA: string, devB: string, tokA: string, tokB: string, alertA: string;
+describe("vínculo de captação de leads — vazamento cross-tenant (SPEC-041, D-041-3)", () => {
+  it("save da org A não aparece em list da org B; remove da B com id da A falha sem afetar o dado real", async () => {
+    await signInAs(A.userId);
+    const key = `zz-ct-${A.orgId.slice(0, 8)}-gkey`;
+    const saved = await saveLeadSourceBinding({ provider: "google_ads", externalAccountId: key, campaignId: seedA.campaignId });
+    expect(saved.ok).toBe(true);
+
+    await signInAs(B.userId);
+    expect((await listLeadSourceBindings()).some((b) => b.externalAccountId === key)).toBe(false);
+    const bindingA = await prisma.leadSourceBinding.findFirstOrThrow({ where: { externalAccountId: key } });
+    const removed = await removeLeadSourceBinding({ id: bindingA.id, confirm: true });
+    expect(removed.ok).toBe(false);
+    expect(await prisma.leadSourceBinding.findUnique({ where: { id: bindingA.id } })).not.toBeNull();
+
+    await signInAs(A.userId);
+    const removedA = await removeLeadSourceBinding({ id: bindingA.id, confirm: true });
+    expect(removedA.ok).toBe(true);
+    expect(await prisma.leadSourceBinding.findUnique({ where: { id: bindingA.id } })).toBeNull();
+  });
+});
+
+describe("MobileAlert — vazamento cross-tenant (achado real corrigido nesta rodada da SPEC-030)", () => {  let devA: string, devB: string, tokA: string, tokB: string, alertA: string;
 
   beforeAll(async () => {
     devA = (await prisma.mobileDevice.create({ data: { userId: A.userId, name: "zz-ct-a", platform: "android", refreshHash: `h-${crypto.randomUUID()}`, refreshExpiresAt: new Date(Date.now() + 1e9) } })).id;

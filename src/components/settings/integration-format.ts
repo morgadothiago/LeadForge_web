@@ -1,4 +1,5 @@
-import type { IntegrationKindName, IntegrationOrigin } from "@/lib/integrations/types";
+import type { IntegrationKind } from "@prisma/client";
+import type { IntegrationOrigin } from "@/lib/integrations/types";
 
 export const ORIGIN_LABEL: Record<IntegrationOrigin, string> = {
   db: "Salva no painel",
@@ -24,15 +25,18 @@ export const AUDIT_ACTION_LABEL: Record<string, string> = {
 };
 export const auditActionLabel = (a: string): string => AUDIT_ACTION_LABEL[a] ?? a;
 
-export const INTEGRATION_SHORT_LABEL: Record<IntegrationKindName, string> = {
+/** Todos os `IntegrationKind` do schema — a auditoria é por-kind (SPEC-041 acrescenta google_ads_leads/meta_leads). */
+export const INTEGRATION_SHORT_LABEL: Record<IntegrationKind, string> = {
   evolution: "Evolution API",
   n8n: "n8n",
   llm: "Provedor de IA/LLM",
   places: "Busca de leads (Places)",
+  google_ads_leads: "Google Ads (Lead Form)",
+  meta_leads: "Meta Lead Ads",
 };
 
 export interface AuditRowInput {
-  integration: IntegrationKindName;
+  integration: IntegrationKind;
   action: string;
   userName: string | null;
   hostMasked: string | null;

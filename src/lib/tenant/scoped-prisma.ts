@@ -49,6 +49,10 @@ const DIRECT_ORG_MODELS = [
   "knowledgeDocument",
   "webhookEvent",
   "subscription",
+  // SPEC-041: vínculo conta-de-anúncios/Página -> campanha (D-041-3). `orgId` própria e o
+  // `@@unique([provider, externalAccountId])` é global — a checagem de colisão entre orgs é explícita
+  // na action (`src/lib/actions/lead-source.ts`), nunca via leitura cross-tenant aqui.
+  "leadSourceBinding",
 ] as const;
 
 /** Modelos sem `orgId` próprio: caminho de relação (nomes de campo do Prisma, não de tabela) até um modelo de DIRECT_ORG_MODELS. */

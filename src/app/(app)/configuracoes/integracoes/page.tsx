@@ -1,9 +1,12 @@
 import { Info, Lock, ShieldAlert } from "lucide-react";
 import { IntegrationAuditList } from "@/components/settings/IntegrationAuditList";
 import { IntegrationCards } from "@/components/settings/IntegrationCard";
+import { LeadSourceCards, type LeadSourceFlags } from "@/components/settings/LeadSourceCards";
 import { Card } from "@/components/ui/card";
 import { ForbiddenError } from "@/lib/auth/require-admin";
+import { getMetaAppSecret, getMetaWebhookVerifyToken, isGoogleAdsLeadsEnabled, isMetaLeadsEnabled } from "@/lib/lead-source/config";
 import { listIntegrationAudit, listIntegrations } from "@/lib/queries/integration";
+import { listLeadSourceBindings, listLeadSourceCampaigns } from "@/lib/queries/lead-source";
 
 export const dynamic = "force-dynamic";
 
@@ -14,10 +17,22 @@ function parsePage(v: string | string[] | undefined): number {
 
 export default async function Page({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const p = await searchParams;
+  const flags: LeadSourceFlags = {
+    googleAdsEnabled: isGoogleAdsLeadsEnabled(),
+    metaEnabled: isMetaLeadsEnabled(),
+    metaAppSecret: getMetaAppSecret() !== null,
+    metaVerifyToken: getMetaWebhookVerifyToken() !== null,
+    baseUrl: process.env.APP_BASE_URL?.trim() || null,
+  };
   let data;
   try {
-    const [summaries, audit] = await Promise.all([listIntegrations(), listIntegrationAudit({ page: parsePage(p.page) })]);
-    data = { summaries, audit };
+    const [summaries, audit, bindings, campaigns] = await Promise.all([
+      listIntegrations(),
+      listIntegrationAudit({ page: parsePage(p.page) }),
+      listLeadSourceBindings(),
+      listLeadSourceCampaigns(),
+    ]);
+    data = { summaries, audit, bindings, campaigns };
   } catch (e) {
     if (e instanceof ForbiddenError || (e instanceof Error && e.message.includes("Sem permissão"))) {
       return (
@@ -62,6 +77,16 @@ export default async function Page({ searchParams }: { searchParams: Promise<Rec
       </div>
 
       <IntegrationCards summaries={data.summaries} />
+
+      <section aria-labelledby="leadsource-h" className="space-y-3">
+        <div>
+          <h3 id="leadsource-h" className="font-heading text-base font-semibold">Captação de leads (Google Ads / Meta)</h3>
+          <p className="text-sm text-muted-foreground">
+            Vínculo 1:1 entre cada conta de anúncios/Página e uma campanha (SPEC-041). O identificador que chega no webhook resolve a origem — nunca um segredo global.
+          </p>
+        </div>
+        <LeadSourceCards bindings={data.bindings} campaigns={data.campaigns} flags={flags} />
+      </section>
 
       <section aria-labelledby="audit-h" className="space-y-3">
         <div>
