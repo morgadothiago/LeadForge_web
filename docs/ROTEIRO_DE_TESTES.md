@@ -85,6 +85,40 @@ Rotas previstas: `/organizacoes`, `/configuracoes/equipe`, `/convite/[token]`.
 | C10 | Único owner tenta sair ou ser removido | Bloqueado ("nunca sem owner") | [ ] | |
 | C11 | Owner remove B da org; B ainda com a sessão aberta nessa org | Perde acesso **na hora** àquela org (as outras seguem) | [ ] | |
 
+## D. Criativos (SPEC-051, provedor mock): precisa de `npm run dev:tick` rodando em outro terminal
+
+| # | Passo | Esperado | OK | Observado |
+|---|---|---|---|---|
+| D1 | `/criativos` > criar um criativo (roteiro curto) | Entra "Na fila" e a página atualiza sozinha | [ ] | |
+| D2 | Esperar ~15-30 s | "Gerando" e depois "Pronto"; vídeo placeholder; custo R$ 0,00; aviso "Provedor de demonstração (mock)" | [ ] | |
+| D3 | Cancelar um criativo ainda na fila; excluir um pronto | Some/cancela sem erro | [ ] | |
+| D4 | Org B abre `/criativos` | **Nada** do tenant A aparece (isolamento, bloqueante) | [ ] | |
+
+## E. E-mails de assinatura (SPEC-052a): conferir no Mailpit (http://localhost:8025)
+
+| # | Passo | Esperado | OK | Observado |
+|---|---|---|---|---|
+| E1 | `/signup` com e-mail novo | Chega "início do trial" (1 só) | [ ] | |
+| E2 | Concluir o checkout mock | Chega "Assinatura confirmada" (1 só) | [ ] | |
+| E3 | Criar 2ª organização em `/organizacoes` | Chega outro "início do trial" para essa org | [ ] | |
+| E4 | Conferir o texto | PT-BR, links absolutos, sem dado sensível; recibo (se aparecer) com rodapé "não é nota fiscal" e só 4 dígitos do cartão | [ ] | |
+| E5 | Recibo/renovação/PIX | **Não testável em local** sem webhook real do AbacatePay (só testes com mock) | — | |
+
+## F. Sidebar agrupada (SPEC-057) e seletor de organização (SPEC-049b D-049-16/17)
+
+| # | Passo | Esperado | OK | Observado |
+|---|---|---|---|---|
+| F1 | Abrir o app como tenant, tela larga | Seções com título: Dashboard, Captação de leads, Criativos (selo "New"), Automação, Conta | [ ] | |
+| F2 | Recolher a sidebar (ícone) e abrir no celular (Sheet) | Não quebra o layout; menu fecha ao navegar | [ ] | |
+| F3 | Teclado (Tab) e item ativo | Foco visível; item da página atual destacado | [ ] | |
+| F4 | Seletor no topo, busca por nome (com acento) | Filtra; sem resultado mostra "Nenhuma organização encontrada" | [ ] | |
+| F5 | "Criar organização" no seletor | Abre o diálogo; cria e entra na nova | [ ] | |
+| F6 | "Convidar pessoas" como owner / como member | Owner vê e convida (e-mail no Mailpit); member não vê | [ ] | |
+
+## G. Busca de leads pelo Google Places (SPEC-015/058): PENDENTE, 058 em desenvolvimento
+
+Requer chave do Google e `LEAD_SEARCH_ENABLED=true` (Fase 8 do `docs/PRIMEIROS_PASSOS.md`). Passos serão detalhados aqui quando a 058 fechar.
+
 ## Se algo falhar, me mande
 
 1. O passo (ex.: `B5`), o e-mail logado e a URL.
