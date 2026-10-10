@@ -226,6 +226,7 @@ function mapAbacatePayEvent(json: unknown, now: Date): ParsedBillingEvent | null
       currentPeriodEnd: readDate(data.nextBillingAt ?? data.currentPeriodEnd) ?? new Date(now.getTime() + CYCLE_MS[cadence]),
       cancelAtPeriodEnd: false,
       externalCustomerId: readString(data.customerId), externalSubscriptionId: readString(data.id),
+      ...paymentInfo(data, "card", now),
     };
   }
   if (env.data.event === "subscription.renewed") {
@@ -234,6 +235,7 @@ function mapAbacatePayEvent(json: unknown, now: Date): ParsedBillingEvent | null
       currentPeriodEnd: readDate(data.nextBillingAt ?? data.currentPeriodEnd) ?? new Date(now.getTime() + CYCLE_MS[cadence]),
       cancelAtPeriodEnd: false,
       externalCustomerId: readString(data.customerId), externalSubscriptionId: readString(data.id),
+      ...paymentInfo(data, "card", now),
     };
   }
   // transparent.completed (PIX avulso pago, D-047-1): marca o período pago e estende currentPeriodEnd por
@@ -243,6 +245,26 @@ function mapAbacatePayEvent(json: unknown, now: Date): ParsedBillingEvent | null
     currentPeriodEnd: new Date(now.getTime() + CYCLE_MS[cadence]),
     cancelAtPeriodEnd: false,
     externalCustomerId: null, externalSubscriptionId: readString(data.id),
+    ...paymentInfo(data, "pix", now),
+  };
+}
+
+/**
+ * SPEC-052a — dados de pagamento para o recibo. ASSUMIDO (mesmo status dos demais campos do payload nao
+ * confirmados na doc): `amount` em centavos, `paidAt` ISO, `card.lastDigits`/`lastFourDigits`/`last4`.
+ * Tudo opcional; ausente -> recibo cai no valor do plano (D-052-3). Cartao: so os 4 ultimos digitos.
+ */
+function paymentInfo(data: Record<string, unknown>, method: "card" | "pix", now: Date) {
+  const card = data.card && typeof data.card === "object" ? (data.card as Record<string, unknown>) : {};
+  const rawLast4 = card.lastDigits ?? card.lastFourDigits ?? card.last4 ?? data.cardLast4;
+  const digits = typeof rawLast4 === "string" ? rawLast4.replace(/\D/g, "") : "";
+  const amount = data.amount ?? data.paidAmount;
+  return {
+    amountCents: typeof amount === "number" && Number.isInteger(amount) && amount > 0 ? amount : null,
+    paymentMethod: method,
+    cardLast4: method === "card" && digits.length >= 4 ? digits.slice(-4) : null,
+    externalPaymentId: readString(data.id),
+    paidAt: readDate(data.paidAt) ?? now,
   };
 }
 

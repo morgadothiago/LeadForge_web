@@ -1074,6 +1074,20 @@ model BillingReminderLog {
   @@index([orgId, kind])
 }
 
+/// SPEC-052a — idempotencia generica de e-mails transacionais. O INSERT da `dedupeKey` (unique) e a "reserva"
+/// do envio, feita ANTES de enviar (mesmo padrao de `BillingReminderLog`); P2002 = ja enviado. Sem FK de
+/// proposito (log de auditoria leve; nao deve bloquear purge de org/usuario). Reusada pelas SPECs 053-056.
+model EmailDispatchLog {
+  id        String   @id @default(uuid())
+  scenario  String
+  dedupeKey String   @unique
+  orgId     String?
+  userId    String?
+  createdAt DateTime @default(now())
+
+  @@index([orgId])
+}
+
 enum BillingReminderKind {
   trial_ending
   past_due_started

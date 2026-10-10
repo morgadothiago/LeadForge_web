@@ -8,6 +8,7 @@ import { createSession } from "@/lib/auth/session";
 import { hashPassword } from "@/lib/auth/password";
 import { getClientIpKey } from "@/lib/auth/client-ip";
 import { TRIAL_DAYS } from "@/lib/billing/status-map";
+import { sendTrialStartedEmail } from "@/lib/billing/trial-email";
 import { sendSystemEmail } from "@/lib/channels/system-mail";
 import { orgInviteTemplate } from "@/lib/channels/email/templates/org-invite";
 import { safeErrorForLog } from "@/lib/errors";
@@ -129,7 +130,7 @@ export async function createOrganization(input: unknown): Promise<ActionResult<{
     const parsed = createOrganizationSchema.safeParse(input);
     if (!parsed.success) return failure(zodErrors(parsed.error));
     const { name, planKey } = parsed.data;
-    const plan = await prisma.plan.findUnique({ where: { key: planKey }, select: { id: true, active: true, selfServiceCheckout: true } });
+    const plan = await prisma.plan.findUnique({ where: { key: planKey }, select: { id: true, name: true, active: true, selfServiceCheckout: true } });
     if (!plan || !plan.active || !plan.selfServiceCheckout) {
       return failure({ planKey: ["Este plano não está disponível para assinatura self-service. Fale com vendas."] });
     }
@@ -152,6 +153,7 @@ export async function createOrganization(input: unknown): Promise<ActionResult<{
       }
     }
     if (!orgId) return formError("Não foi possível criar a organização. Tente novamente.");
+    await sendTrialStartedEmail(orgId, plan.name, trialEndsAt);
     await createSession(user.id, orgId, "provider");
     return success({ orgId, redirectTo: "/dashboard" });
   });

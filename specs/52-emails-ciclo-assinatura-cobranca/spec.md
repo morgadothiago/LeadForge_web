@@ -1,5 +1,5 @@
 # SPEC-052 — E-mails do ciclo de assinatura e cobranca (trial, ativacao, recibo, falha/regua, recuperacao, proxima cobranca, troca de plano)
-- status: DRAFT | domain: backend | depende de: 033, 039, 046, 047, 048 | catalogo: #3,#4,#5,#6,#7,#8,#9 (P0: 3,4,5,6; P1: 7,8,9)
+- status: 052a IMPLEMENTED (2026-10-10) / 052b DRAFT | domain: backend, dividida em 052a e 052b (D-052-7) | depende de: 033, 039, 046, 047, 048 | catalogo: #3,#4,#5,#6,#7,#8,#9 (P0: 3,4,5,6; P1: 7,8,9)
 
 ## Objetivo
 Separar os e-mails de cobranca por TIPO de evento (hoje um unico `subscription_success` dispara em todo evento active/trialing), criar recibo por mensalidade, notificar falha de cobranca no instante do evento e substituir o aviso unico do job diario por uma regua (D+0/D+3/D+5/D+7) - cobrindo mock, Stripe (stub) e AbacatePay (cartao e PIX). Esta SPEC tambem cria a infra de idempotencia generica reusada pelas SPECs 053-056.
@@ -47,3 +47,27 @@ Separar os e-mails de cobranca por TIPO de evento (hoje um unico `subscription_s
 - Q-052-5: confirmar nomes dos eventos de falha/recuperacao de cartao do AbacatePay (hoje nao mapeados) antes de implementar #6/#7 para cartao.
 - Q-052-6: "inicio do trial" e "boas-vindas" (SPEC-055) sao e-mails separados ou um so no signup?
 - Q-052-7: dividir esta SPEC em duas (052a recibo/ativacao/trial; 052b falha/regua/proximo/troca) para facilitar aprovacao?
+
+## Decisoes (aprovadas pelo usuario em 2026-10-10; resolvem as Q-052-x)
+- D-052-7 (Q-052-7): DIVIDIR em 052a e 052b (pasta unica, secoes, padrao 049/051).
+- D-052-1 (Q-052-1): recibo = so e-mail, sem PDF/NF.
+- D-052-2 (Q-052-2): recibo informativo; rodape "este e-mail nao e nota fiscal".
+- D-052-3 (Q-052-3): aceitar valor derivado do `Plan` quando o provedor nao informa; fallback marcado internamente (flag `amountFromPlan`, nao exibida como erro ao usuario).
+- D-052-4 (Q-052-4): regua D+0/D+3/D+5/D+7 igual para cartao e PIX; D+7 = ultimo aviso antes de suspender (vale para 052b).
+- D-052-6 (Q-052-6): nao decidido pelo usuario; default adotado: manter `trial-started` SEPARADO das boas-vindas. Unificacao fica como ponto a REVISAR na SPEC-055.
+- Q-052-5 continua ABERTA (nomes dos eventos de falha/recuperacao de cartao AbacatePay; depende da doc do provedor) e bloqueia apenas a parte de cartao da 052b.
+
+## SPEC-052a (IMPLEMENTED) — infra de idempotencia, classificacao, recibo, trial, ativacao
+Escopo (itens do "Escopo proposto"): 1 (EmailDispatchLog + `sendOnce` + `notifyOrgOwners` unico), 2 (classificacao do evento em `processBillingEvent`), 3 (enriquecimento opcional de `ParsedBillingEvent`), 4 PARCIAL (templates `trial-started` e `payment-receipt`; revisao de `subscription-success` so para 1a ativacao; cenarios novos em `EmailScenario` + tabelas Resend/ACS, todos `billing`), 5 (e-mail de inicio do trial no signup/createOrganization, dedupe `trial_started:<orgId>`), 7 PARCIAL (recibo no PIX pago `transparent.completed`), 10 (testes correspondentes).
+Criterios de aceitacao 052a: renovacao (cartao e PIX) envia 1 recibo e nao "Assinatura confirmada"; 1a ativacao envia 1 confirmacao; trial novo envia 1 aviso; reentrega/retry/concorrencia sem duplicidade; falha de provider nao propaga nem reverte transacao; so 4 ultimos digitos do cartao; links absolutos; tsc, lint e vitest verdes (testes TEST_DATABASE_URL em banco *_test novo; migration aditiva escrita a mao).
+Classes de evento emitidas na 052a: `trial_started`, `activated`, `renewed` (recibo), `recovered`/`plan_changed`/`payment_failed` sao CLASSIFICADAS (para dedupe/testes) mas sem e-mail novo ate a 052b (comportamento atual de falha via job diario preservado).
+
+### Implementation Notes (052a)
+- Arquivos: `prisma/schema.prisma` + migration manual aditiva `prisma/migrations/20261012120000_email_dispatch_log/`; `src/lib/channels/email/send-once.ts` (`sendOnce`, `notifyOrgOwners` unico, `absoluteAppUrl`); `src/lib/billing/classify-event.ts`; `src/lib/billing/trial-email.ts`; `process-event.ts`, `reminders.ts` (copias de `notifyOwners` removidas), `provider.ts` (campos opcionais), `providers/abacatepay.ts` e `providers/mock.ts` (enriquecimento); templates `trial-started.ts`, `payment-receipt.ts`, `subscription-success.ts` (so 1a ativacao; removido `status`); `scenario.ts` (`trial_started`, `payment_receipt`, billing, Resend+ACS); `actions/billing.ts` e `actions/org.ts` (trial pos-commit). Testes novos/ajustados: `classify-event.test.ts`, `send-once.test.ts`, `process-event-052a.test.ts`, `process-event-email.test.ts`, `templates.test.ts`, `scenario.test.ts`, `abacatepay.test.ts`.
+- Testes: banco dedicado `leadforge_052a_test` (migrate+seed via `test:db:reset`); `tsc --noEmit` limpo; `npm run lint` 0 erros (14 warnings pre-existentes); `vitest run` 145 arquivos / 1797 testes passando. VERIFIED.
+- Criterios: renovacao cartao/PIX = 1 recibo e nao confirmacao (PASS: process-event-052a); 1a ativacao = 1 confirmacao (PASS); trial = 1 aviso, chave `trial_started:<orgId>` compartilhada signup x webhook (PASS); reentrega/concorrencia sem duplicidade (PASS: send-once, "duplicate"); falha de provider nao propaga/reverte (PASS); so 4 digitos e links absolutos (PASS: templates/abacatepay tests).
+- Decisoes: dedupe por owner = `<chave>:<userId>`; chave do recibo `eventId:receipt` e da confirmacao `eventId:activated`; reserva antes do envio (falha de provider apos reserva nao e retentada, padrao `BillingReminderLog`); `EmailDispatchLog` sem FK; recibo tambem em qualquer PIX pago que ative/recupere/troque plano (alem de `renewed`); `amountFromPlan` apenas log interno (`console.info`); `BillingReminderLog` segue sem dedupe extra (`notifyOrgOwners` sem `dedupeKey`).
+- Limitacoes: campos do payload AbacatePay (amount, paidAt, card.lastDigits) sao ASSUMIDOS, nunca validados contra a API real; sem esses dados o recibo usa o valor do plano. Nao ha limpeza/purga de `EmailDispatchLog`. `recovered`/`plan_changed`/`payment_failed` classificados sem e-mail (052b).
+
+## SPEC-052b (DRAFT) — falha, regua, recuperacao, proxima cobranca, troca de plano
+Escopo: itens 4 (templates `payment-failed`, `payment-recovered`, `renewal-upcoming`, `plan-changed`), 6 (regua D+0/3/5/7), 7 (aviso PIX proximo), 8 (cartao AbacatePay - bloqueado por Q-052-5), 9 (`renewal_upcoming`). Depende de 052a IMPLEMENTED. Sem aprovacao ate `APROVAR SPEC-052b`.

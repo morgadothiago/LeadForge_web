@@ -53,7 +53,7 @@ Fullstack = executa dev-backend primeiro, depois dev-frontend.
 | 049 | Multi-tenant N:N: criar/entrar em orgs, convites, org ativa | fullstack (049a backend / 049b frontend) | 8 (Azure/Criativos) | IMPLEMENTED (049a backend + 049b frontend, 2026-10-10) | 030,033,034,038,046 |
 | 050 | Azure Blob Storage: abstracao, upload/listagem/remocao por org | dev-backend | 8 (Azure/Criativos) | IMPLEMENTED (2026-10-09) | 030,033 |
 | 051 | Criativos: videos de avatar com IA (provider abstraido, jobs, biblioteca) | fullstack (051a backend / 051b frontend) | 8 (Azure/Criativos) | IMPLEMENTED (aprovada 2026-10-10; 051a backend e 051b frontend IMPLEMENTED 2026-10-11) | 050,030,033,049 |
-| 052 | E-mails do ciclo de assinatura e cobranca (trial, ativacao, recibo, falha/regua, recuperacao, proxima cobranca, troca de plano) + infra `sendOnce` | dev-backend | 9 (E-mails transacionais) | DRAFT | 033,039,046,047,048 |
+| 052 | E-mails do ciclo de assinatura e cobranca + infra `sendOnce` — dividida: 052a (infra, classificacao, trial, ativacao, recibo) / 052b (falha/regua, recuperacao, proxima cobranca, troca de plano) | dev-backend | 9 (E-mails transacionais) | 052a APPROVED (2026-10-10) / 052b DRAFT | 033,039,046,047,048 |
 | 053 | Cancelamento e reativacao da assinatura pela app + e-mails | fullstack | 9 (E-mails transacionais) | DRAFT | 033,047,052 |
 | 054 | Exclusao de conta/perfil (LGPD) com confirmacao por e-mail | fullstack | 9 (E-mails transacionais) | DRAFT | 033,049,052 |
 | 055 | E-mails de cadastro (boas-vindas), verificacao de e-mail e seguranca da conta | fullstack | 9 (E-mails transacionais) | DRAFT | 038,046,048,052 |

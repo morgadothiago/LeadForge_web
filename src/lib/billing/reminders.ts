@@ -1,7 +1,7 @@
 import { Prisma, type BillingReminderKind } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { safeErrorForLog } from "@/lib/errors";
-import { sendSystemEmail } from "@/lib/channels/system-mail";
+import { notifyOrgOwners } from "@/lib/channels/email/send-once";
 import { billingReminderTemplate, type BillingReminderVariant } from "@/lib/channels/email/templates/billing-reminder";
 import { CANCEL_RETENTION_MS, PAST_DUE_GRACE_MS } from "./status-map";
 
@@ -55,24 +55,11 @@ async function claim(orgId: string, kind: BillingReminderKind, anchorAt: Date): 
   }
 }
 
-/** Best-effort: envia para todo `Membership.orgRole === "owner"` da org. Nunca lança (falha de Resend/SMTP é só logada). */
-async function notifyOwners(orgId: string, subject: string, html: string, text: string): Promise<void> {
-  const owners = await prisma.membership.findMany({ where: { orgId, orgRole: "owner" }, select: { user: { select: { email: true } } } });
-  for (const m of owners) {
-    try {
-      const r = await sendSystemEmail(m.user.email, subject, { html, text }, "billing_reminder");
-      if (!r.ok) console.error(`[billing-reminders] falha ao enviar e-mail (org ${orgId}, ${subject}):`, safeErrorForLog(r.error));
-    } catch (e) {
-      console.error(`[billing-reminders] envio lançou (org ${orgId}, ${subject}):`, safeErrorForLog(e));
-    }
-  }
-}
-
 async function remind(state: BillingReminderResult, orgId: string, kind: BillingReminderKind, anchorAt: Date): Promise<void> {
   try {
     if (!(await claim(orgId, kind, anchorAt))) return;
     const { subject, html, text } = billingReminderTemplate(kind as BillingReminderVariant);
-    await notifyOwners(orgId, subject, html, text);
+    await notifyOrgOwners({ orgId, scenario: "billing_reminder", subject, html, text });
     state.sent++;
   } catch (e) {
     state.errors++;

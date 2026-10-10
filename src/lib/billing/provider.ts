@@ -60,6 +60,14 @@ export interface ParsedBillingEvent {
   cancelAtPeriodEnd: boolean;
   externalCustomerId: string | null;
   externalSubscriptionId: string | null;
+  /** SPEC-052a — dados de pagamento OPCIONAIS (preenchidos quando o provedor informa; recibo cai no preco do `Plan` se `amountCents` ausente, D-052-3). */
+  amountCents?: number | null;
+  paymentMethod?: "card" | "pix" | null;
+  /** So os 4 ultimos digitos do cartao (nunca o numero completo). */
+  cardLast4?: string | null;
+  /** Identificador do pagamento/cobranca no provedor (numero do pedido do recibo). */
+  externalPaymentId?: string | null;
+  paidAt?: Date | null;
 }
 
 export interface PaymentProvider {

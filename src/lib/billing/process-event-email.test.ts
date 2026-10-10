@@ -39,6 +39,7 @@ beforeEach(() => vi.mocked(sendSystemEmail).mockClear());
 afterEach(async () => {
   await prisma.subscription.deleteMany({ where: { orgId: org.orgId } });
   await prisma.webhookEvent.deleteMany({ where: { orgId: org.orgId } });
+  await prisma.emailDispatchLog.deleteMany({ where: { orgId: org.orgId } });
 });
 afterAll(() => purgeTestOrg(org));
 
@@ -56,24 +57,22 @@ describe("processBillingEvent — e-mail de assinatura efetuada (SPEC-046, D-046
     expect(content).toMatchObject({ html: expect.stringContaining("Starter"), text: expect.stringContaining("Starter") });
   });
 
-  it("trialing: dispara e-mail (conteúdo de início de teste, sem valor cobrado ainda não é regra de negócio nova — só o mecanismo)", async () => {
+  it("trialing (novo trial): dispara e-mail de INICIO DE TRIAL (cenario trial_started, SPEC-052a), nao 'assinatura confirmada'", async () => {
     const r = await processBillingEvent(baseEvent({ status: "trialing", currentPeriodEnd: null }), NOW);
     expect(r).toBe("processed");
     expect(sendSystemEmail).toHaveBeenCalledTimes(1);
-    const [, , , scenario] = vi.mocked(sendSystemEmail).mock.calls[0];
-    expect(scenario).toBe("subscription_success");
+    const [, subject, , scenario] = vi.mocked(sendSystemEmail).mock.calls[0];
+    expect(scenario).toBe("trial_started");
+    expect(subject).toMatch(/teste/i);
   });
 
-  it("D-046-3: troca de plano (2ª transição bem-sucedida para active) TAMBÉM dispara — não só o checkout inicial", async () => {
+  it("SPEC-052a: troca de plano (active->active, planId mudou) e CLASSIFICADA como plan_changed mas NAO envia e-mail ate a 052b", async () => {
     await processBillingEvent(baseEvent({ status: "active", planKey: "starter" }), NOW);
     expect(sendSystemEmail).toHaveBeenCalledTimes(1);
     vi.mocked(sendSystemEmail).mockClear();
 
-    // troca de plano: novo evento, planKey diferente, ainda "active".
     await processBillingEvent(baseEvent({ status: "active", planKey: "pro" }), NOW);
-    expect(sendSystemEmail).toHaveBeenCalledTimes(1);
-    const [, , , scenario] = vi.mocked(sendSystemEmail).mock.calls[0];
-    expect(scenario).toBe("subscription_success");
+    expect(sendSystemEmail).not.toHaveBeenCalled();
   });
 
   it("evento duplicado (mesmo eventId): NÃO reenvia e-mail (idempotência do processamento cobre o e-mail também)", async () => {
