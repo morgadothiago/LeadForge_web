@@ -10,8 +10,8 @@ clicar e o que esperar). Atualizado em 2026-10-10 (noite).
 >   `APP_BASE_URL` e qualquer chave de LLM.
 > - **E-mail já desviado para o Mailpit:** `SMTP_HOST=localhost`, `SMTP_PORT=1025`, `ALLOW_PRIVATE_SMTP_HOSTS=true`.
 >   Container `mailpit` no ar; caixa em http://localhost:8025. Nada sai para a internet.
-> - **Migrations aplicadas no banco de dev:** até `20261010120000_multi_tenant_nn_orgs`. **Pendente:**
->   `20261011120000_creatives` (SPEC-051); aplique com `npx prisma migrate deploy` (ver 1.3).
+> - **Migrations aplicadas no banco de dev:** todas, até `20261012120000_email_dispatch_log` (SPEC-052a). Em outro
+>   clone/banco, aplique com `npx prisma migrate deploy` (ver 1.3).
 > - `PAYMENT_PROVIDER` não está definido: o default `mock` já basta.
 
 ---
@@ -23,8 +23,7 @@ clicar e o que esperar). Atualizado em 2026-10-10 (noite).
 - [ ] **1.2 Postgres e Redis no ar.** `docker compose up -d postgres redis`
   - Verificar: `docker ps` mostra `leadforge-postgres-1` e `leadforge-redis-1`.
   - Sintoma de que esqueceu: a página `/` devolve **500** (a landing lê os planos no banco).
-- [ ] **1.3 Migrations aplicadas.** Use **`npx prisma migrate deploy`** (hoje falta a dos criativos, `20261011120000_creatives`;
-  sem ela `/criativos` dá erro de tabela inexistente). Depois **reinicie** o `npm run dev`.
+- [ ] **1.3 Migrations aplicadas.** Use **`npx prisma migrate deploy`** (sem as migrations de criativos e de `EmailDispatchLog`, `/criativos` e os e-mails de cobrança dão erro de tabela inexistente). Depois **reinicie** o `npm run dev`.
   - **NÃO use `prisma migrate dev` neste banco**: ele detecta drift (colunas `document*`, `trialBlocked`,
     `abacatepayProductId` criadas por migrations de outro clone) e proporia **apagar essas colunas e os dados**.
   - Verificar: `npx prisma migrate status` não lista migrations pendentes.
@@ -101,10 +100,11 @@ clicar e o que esperar). Atualizado em 2026-10-10 (noite).
 - [ ] **7.1** Aplicar a migration (1.3) e reiniciar. Entrar em **`/criativos`** (item "Criativos" na sidebar).
 - [ ] **7.2** Nada a configurar: o provider padrão é **`mock`** (vídeo placeholder, custo zero, nunca usa a rede) e a tela
   mostra o aviso "Provedor de demonstração (mock)". Em produção só liga com `CREATIVE_PROVIDER=mock` explícito.
-- [ ] **7.3 Os criativos só avançam quando o tick roda.** Em local, ninguém chama o tick sozinho. Depois de enviar um
-  criativo, rode a cada ~1 min: `npm run tick`, ou
-  `curl -fsS -X POST -H "Authorization: Bearer $CRON_SECRET" http://localhost:3000/api/cron/tick`
-  (o mock leva ~3 s, `CREATIVE_MOCK_DELAY_MS`, até ficar pronto). Sem o tick o criativo fica em "Na fila".
+- [ ] **7.3 Os criativos só avançam quando o tick roda.** Em local ninguém chama o tick sozinho. Em um **segundo terminal**,
+  deixe rodando: `npm run dev:tick` (chama `POST /api/cron/tick` a cada 15 s; `DEV_TICK_INTERVAL_MS` ajusta, mínimo 2000).
+  O criativo sai de "Na fila" e conclui em ~15-30 s (o mock leva ~3 s, `CREATIVE_MOCK_DELAY_MS`). Manual, sem loop:
+  `npm run tick` (também processa criativos; a 1a rodada envia ao mock e a 2a conclui) ou
+  `curl -fsS -X POST -H "Authorization: Bearer $CRON_SECRET" http://localhost:3000/api/cron/tick`. Sem tick o criativo fica em "Na fila".
 - [ ] **7.4** Limites por org (envs `CREATIVE_*`, ver `.env.example`): 2 gerações simultâneas e 20 criativos por mês.
 - Provedor real (HeyGen, D-ID, Synthesia, Tavus ou Azure AI Speech Avatar): decisão em aberto (Q-051-1). Antes de ligar
   um, cumpra o D-051-15 da SPEC-051 (proteção SSRF e timeouts no download do vídeo).
@@ -133,5 +133,5 @@ clicar e o que esperar). Atualizado em 2026-10-10 (noite).
 | Rate limit por IP "desligado" em produção | mesma causa | idem |
 | E-mail não chega na caixa | olhando o lugar errado | com o Mailpit, abra http://localhost:8025 (não o Gmail) |
 | E-mail não chega no Mailpit | container parado ou `.env` sem reiniciar | `docker ps` mostra `mailpit`? Reinicie o `npm run dev` |
-| Criativo fica em "Na fila" | o tick não rodou | `npm run tick` (7.3) |
+| Criativo fica em "Na fila" | o tick não rodou | `npm run dev:tick` em outro terminal (7.3) |
 | `/criativos` dá erro de tabela | migration dos criativos não aplicada | 1.3 |

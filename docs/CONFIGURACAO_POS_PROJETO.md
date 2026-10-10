@@ -61,7 +61,7 @@ Precisam existir antes do banco funcionar. Gere com `openssl rand -base64 32` (o
 
 ## 3. Acoes operacionais (nada disso roda sozinho)
 - [ ] Subir tudo: `docker compose up -d` (postgres, redis, evolution, n8n). Evolution e n8n ainda NAO foram levantados de ponta a ponta.
-- [ ] Agendar o scheduler a cada 1-2 min chamando `POST /api/cron/tick` com `Authorization: Bearer $CRON_SECRET` (crontab, n8n ou Vercel Cron). Sem isso, NENHUMA mensagem da sequencia e enviada. Local: `npm run tick`.
+- [ ] Agendar o scheduler a cada 1-2 min chamando `POST /api/cron/tick` com `Authorization: Bearer $CRON_SECRET` (crontab, n8n ou Vercel Cron). Sem isso, NENHUMA mensagem da sequencia e enviada. Local: `npm run dev:tick` (loop, em outro terminal) ou `npm run tick` (uma rodada).
 - [ ] Inicio da sequencia e EXPLICITO: lead `not_started` nao recebe nada sozinho; use "iniciar sequencia" (lead/campanha) ou `Campaign.autoStart=true`. Leads do seed (`source="seed"`) nunca sao enviados (a campanha de exemplo nasce pausada); `ALLOW_SEED_SENDS=true` so em dev.
 - [ ] Rodar migrations no ambiente novo: `prisma migrate deploy` (nunca `migrate reset` com dados reais)
 - [ ] HTTPS obrigatorio em producao (o cookie de sessao e `Secure` em producao; em `http://` alguns navegadores nao gravam o cookie e o login "nao entra")

@@ -177,7 +177,7 @@ npm run lint
 - `npm run test:db:reset` recria o banco de teste do zero (drop, create, migrate, seed). Use se ele ficar sujo.
 - Rode uma execucao de testes por vez: duas simultaneas colidem no mesmo banco de teste (secao 5).
 
-Outros scripts: `npm run tick` (uma rodada do scheduler), `npm run secrets:reencrypt` (rotacao da `ENCRYPTION_KEY`), `npm run build` / `npm start` (producao; rode `build` com o dev server desligado, pois usam a mesma pasta `.next`).
+Outros scripts: `npm run tick` (uma rodada do scheduler + criativos), `npm run dev:tick` (loop de dev que chama `/api/cron/tick` a cada 15 s), `npm run secrets:reencrypt` (rotacao da `ENCRYPTION_KEY`), `npm run build` / `npm start` (producao; rode `build` com o dev server desligado, pois usam a mesma pasta `.next`).
 
 ---
 
