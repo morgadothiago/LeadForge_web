@@ -1,7 +1,7 @@
 # Para retomar: o que está pronto, o que está bloqueado e o que depende de você
 
 Criado em 2026-10-10 (noite), antes de você dormir. **Este arquivo é atualizado quando as tarefas em andamento terminam**
-(ver "Estado final" no fim). Branch: `feat/specs-048-051`. Repo: git@github.com:morgadothiago/LeadForge_web.git.
+(ver "Estado final" no fim). Branch de trabalho: `docs/retomar-merge-feito` (a `main` já tem as SPECs 048-058). Repo: git@github.com:morgadothiago/LeadForge_web.git.
 
 ## 1. Como conferir o estado em 1 minuto
 
@@ -14,15 +14,11 @@ npx prisma migrate status                     # deve dizer "up to date"
 Ambiente local: Postgres/Redis/Mailpit no Docker (`colima start` se `docker ps` falhar), `npm run dev`, e **`npm run dev:tick`
 em outro terminal** (sem ele criativos ficam em "Na fila"). Mailpit: http://localhost:8025.
 
-## 2. Em andamento quando você saiu (resultado na seção "Estado final")
+## 2. Em andamento
 
-| Tarefa | O que é | Etapas restantes |
-|---|---|---|
-| SPEC-057 | Sidebar agrupada em seções (Captação de leads, Criativos, Automação, Conta) | dev-frontend → QA |
-| SPEC-058a/b | Busca de leads sob demanda | **CONCLUÍDA** (QA aprovado, commitada) |
+Nada em andamento. SPEC-057 (sidebar) e SPEC-058a/b (busca sob demanda) concluídas e na `main`.
 
-Regra combinada: **só commitar quando tudo estiver verde** (tsc, lint sem erros, vitest em banco `*_test` novo, QA aprovado). Se algo
-reprovar no QA e não for corrigível sozinho, fica **sem commit** e listado abaixo.
+Regra combinada: **só commitar quando tudo estiver verde** (tsc, lint sem erros, vitest em banco `*_test` novo, QA aprovado).
 
 ## 3. Decisões que SÓ VOCÊ pode tomar (bloqueiam trabalho)
 
@@ -38,13 +34,13 @@ reprovar no QA e não for corrigível sozinho, fica **sem commit** e listado aba
 | 8 | **Rate limit persistente** (D-049-14): hoje em memória, não vale entre instâncias | produção multi-instância | SPEC própria (Redis/Postgres) antes de escalar |
 | 9 | **LLM grátis**: SPEC-036 está aprovada mas **não implementada** (adapter OpenAI-compatível: Groq/OpenRouter/Ollama/Gemini) | agentes de IA sem custo | Implementar a 036 |
 | 10 | **Q-052-6**: `trial-started` separado das boas-vindas (SPEC-055) ou um e-mail só? (assumi separado) | 055 | Revisar quando aprovar a 055 |
-| 11 | Abrir o **Pull Request** da branch (não abri) | merge | https://github.com/morgadothiago/LeadForge_web/pull/new/feat/specs-048-051 |
+| 11 | ~~Abrir o Pull Request~~ **FEITO** (PR da branch `docs/retomar-merge-feito`; o merge é seu) | -- | -- |
 | 12 | **Paginação da busca Places** (`nextPageToken`/rotação de keywords): hoje 1 página de até 20 e repetir dá duplicados | qualidade da captação | SPEC separada depois da 058 |
 
 ## 4. O que só funciona com você (chaves, contas, navegador)
 
-- **Nenhuma tela logada foi vista em navegador real**: sidebar, criativos, seletor de organização, convites, equipe. Use
-  `docs/ROTEIRO_DE_TESTES.md` (blocos A, B, C) e `docs/PRIMEIROS_PASSOS.md`. Falha de isolamento entre tenants é bloqueante.
+- **Telas logadas:** 33 itens foram exercitados em navegador real por Claude (seção 7, sem vazamento entre tenants). Falta o seu olhar
+  em dark mode, teclado/leitor de tela e no formulário de nova campanha (`docs/ROTEIRO_DE_TESTES.md`).
 - **Google Places / Maps**: criar chave (Fase 8 do PRIMEIROS_PASSOS), `LEAD_SEARCH_ENABLED=true`, cadastrar em
   `/configuracoes/integracoes`. A busca nunca rodou com a API real; o SKU cobrado não foi confirmado; defina teto de orçamento no Google.
 - **Azure (ACS e Blob), Resend, AbacatePay, Evolution, Claude**: só testados com mocks. Valide o recibo com webhook real/sandbox do
@@ -58,12 +54,14 @@ reprovar no QA e não for corrigível sozinho, fica **sem commit** e listado aba
 - 052a: o signup espera o envio do e-mail de trial antes de criar a sessão (SMTP lento atrasa o cadastro).
 - 052a: `EmailDispatchLog` sem purga; falta teste de integração das actions `signUpAndStartCheckout`/`createOrganization` chamando o trial.
 - Troca de plano: e-mail restaurado na 052b (regressão D-046-3 resolvida).
-- 052b: D+7 da régua sai no mesmo instante da suspensão automática (grace 7d inalterado), então o e-mail "Último aviso" e o "conta suspensa" podem chegar juntos no mesmo tick.
+- 052b: ~~D+7 coincidia com a suspensão~~ **resolvido**: o "Último aviso" agora sai em D+6 (D-052-11).
 - 052b: o e-mail de falha de cartão no AbacatePay não existe (Q-052-5); a régua de cartão só começa quando algo coloca a assinatura em past_due.
 - Termos da Places API restringem cache/armazenamento de dados: confirme antes de operar em escala.
 - `.storage/` (arquivos locais) e `.env` não vão para o git (conferido).
 
 ## 7. Achados do teste E2E em navegador real (2026-10-10, feito por Claude com Brave + Playwright)
+
+Resolvidos em 2026-10-10 (3ª rodada): itens 1 e 6. Item 2 mantido como está (ver nota). Demais dependem de você.
 
 Contas de teste no banco de dev: `claude.a*@testes-claude.local` (senha de teste `SenhaForte-12345`, **só dev**). Dados de teste: orgs
 "Empresa A ...", "Segunda Org Teste", criativos e lead "Lead Secreto do Tenant A". Podem ser apagados.
@@ -79,15 +77,15 @@ Contas de teste no banco de dev: `claude.a*@testes-claude.local` (senha de teste
 Isolamento entre tenants (B5, B6, C2, C11, D4): **sem vazamento**.
 
 **Pontos de atenção (decisão sua, nenhum quebra o sistema)**
-1. **D+7 contraditório:** com grace de 7 dias, o "Último aviso: sua conta será suspensa" e o "Sua conta foi suspensa" chegam **no mesmo tick**.
+1. **~~D+7 contraditório~~ RESOLVIDO (D+6, D-052-11).** Era: com grace de 7 dias, o "Último aviso: sua conta será suspensa" e o "Sua conta foi suspensa" chegam **no mesmo tick**.
    Sugestão: último aviso em D+6, ou suspender só em D+8.
-2. **Remover membro com sessão aberta:** o removido vai para `/login` (perde a sessão), não cai na organização própria. Funciona e é seguro; só é
+2. **Remover membro com sessão aberta (mantido: trocar a org na sessão exigiria escrever cookie dentro de `requireUser`, que é leitura; risco maior que o ganho):** o removido vai para `/login` (perde a sessão), não cai na organização própria. Funciona e é seguro; só é
    menos gentil que "trocar para a org restante". Decidir se vale ajustar.
 3. **URL do vídeo é assinada e pública até expirar:** qualquer pessoa com o link baixa o vídeo (200 sem login), como a SAS do Azure. É o desenho da
    SPEC-050; só garanta que a expiração seja curta em produção.
 4. **Remetente dos e-mails** em dev sai de `seu-email@gmail.com` (placeholder do `.env`). Configure `ACS_FROM_*`/`RESEND_FROM_*`/`SMTP_FROM` reais.
 5. **Mailpit poluído:** os testes automatizados também enviam e-mail ao Mailpit (400+ mensagens `zz-*@test.local`). Pesquise pelo destinatário.
-6. **Convite com e-mail errado** mostra a quem tem o link o e-mail convidado ("enviado para outra.pessoa@..."). Aceitável (quem tem o link recebeu o convite), mas é um vazamento mínimo.
+6. ~~Convite com e-mail errado mostrava o e-mail convidado~~ **RESOLVIDO**: agora mascarado (`o***a@dominio`, `maskEmail`).
 7. O formulário de **nova campanha** na interface não foi exercitado por mim (o seletor "Criar novo" do ICP não respondeu à automação): teste à mão.
 
 **Não testado** (precisa de você/chaves): Places real (bloco G), Gmail/Resend/ACS reais, AbacatePay real, recibo de renovação por webhook HTTP real

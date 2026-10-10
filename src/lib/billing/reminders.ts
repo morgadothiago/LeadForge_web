@@ -110,7 +110,9 @@ async function remindPastDueStarted(state: BillingReminderResult): Promise<void>
 const PAST_DUE_STEPS: Array<{ kind: "past_due_d3" | "past_due_d5" | "past_due_d7"; step: PaymentFailedStep; days: number }> = [
   { kind: "past_due_d3", step: "d3", days: 3 },
   { kind: "past_due_d5", step: "d5", days: 5 },
-  { kind: "past_due_d7", step: "d7", days: 7 },
+  // Ultimo aviso sai em D+6 (24h antes do fim do grace de 7d), nao em D+7: em D+7 a suspensao automatica roda no mesmo
+  // tick e o "ultimo aviso" chegaria junto de "conta suspensa". O kind segue `past_due_d7` (enum/logs ja existentes).
+  { kind: "past_due_d7", step: "d7", days: 6 },
 ];
 
 async function remindPastDueLadder(now: Date, state: BillingReminderResult): Promise<void> {

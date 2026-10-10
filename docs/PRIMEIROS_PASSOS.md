@@ -74,8 +74,8 @@ ninguém rodou no navegador/serviço real: só leitura de código e testes autom
   - O e-mail de sistema (reset de senha, convite, trial, cobrança) usa, nesta ordem, ACS (`EMAIL_PROVIDER=acs`), Resend
     (se `RESEND_API_KEY`) e por fim o SMTP do `.env`; sem os dois primeiros, cai no Mailpit.
   - **E-mails transacionais das SPECs 052a/052b que você vê aqui:** início do trial (signup ou nova organização),
-    "Assinatura confirmada", recibo (renovação/PIX), **falha de pagamento imediata**, **régua D+3/D+5/D+7** (D+7 = último
-    aviso antes de suspender; igual para cartão e PIX; o grace de 7 dias não mudou), **pagamento regularizado**,
+    "Assinatura confirmada", recibo (renovação/PIX), **falha de pagamento imediata**, **régua D+3/D+5/D+6** (D+6 = último
+    aviso, 24h antes de suspender; igual para cartão e PIX; o grace de 7 dias não mudou), **pagamento regularizado**,
     **próxima cobrança** (7 dias antes, só anual e PIX) e **troca de plano**. Disparo local via webhook do provedor mock e
     `npm run dev:tick` (passos E6 a E10 do `docs/ROTEIRO_DE_TESTES.md`). **Não existe:** e-mail de falha/recuperação de
     **cartão** do AbacatePay (Q-052-5 aberta, nomes dos eventos desconhecidos) e PDF/nota fiscal (recibo é só informativo).
