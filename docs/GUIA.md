@@ -252,6 +252,14 @@ Tres papeis: SDR (1o toque), Follow-up (lembretes) e Closer (conversa apos a res
 
 Desligada por padrao. Para ligar: `LEAD_SEARCH_ENABLED=true` e a chave `places` em Configuracoes > Integracoes. Usa so a API oficial (Text Search), sem scraping. Tetos: `LEAD_SEARCH_MAX_RESULTS`, `LEAD_SEARCH_DAILY_MAX_REQUESTS`. Resultados entram deduplicados e passam pela supressao. Base legal: interesse legitimo B2B, so contatos de cadastro publico de empresas.
 
+**Buscar agora (SPEC-058a, backend):** a busca manual da campanha (`/campanhas/[id]`) so pode ser disparada pelo **owner** da organizacao; membro comum apenas ve o historico. Regras de custo e concorrencia:
+
+- **Tetos separados da busca diaria:** `LEAD_SEARCH_MANUAL_DAILY_MAX_REQUESTS` (padrao 2, teto 20) buscas manuais por campanha por dia e `LEAD_SEARCH_ORG_DAILY_MAX_REQUESTS` (padrao 10, teto 200) chamadas pagas por organizacao por dia (manual + diaria somadas, valido para disparos manuais). A diaria continua com `LEAD_SEARCH_DAILY_MAX_REQUESTS` so sobre as agendadas. Cada busca = 1 chamada Places Text Search; o preco depende do seu plano Google. Buscas bloqueadas nao consomem teto.
+- **Uma busca por campanha por vez:** duplo clique/retry devolve a busca em andamento (sem nova chamada paga); manual durante a diaria e recusado ("Ja existe uma busca em andamento"); a diaria pula se houver busca rodando. Busca "rodando" ha mais de 10 min e considerada interrompida, vira falha e libera o teto (cobrando 1 chamada).
+- **Execucao sincrona** com prazo total de 45 s (pagina com `maxDuration = 60`); estourar o prazo grava a busca como falha ("tempo limite"). O estado "rodando" fica salvo no banco e pode ser consultado por polling (`getSearchRunStatus`), inclusive apos recarregar a pagina.
+- Se a busca estiver desligada no servidor, a mensagem ao usuario e "indisponivel no momento, fale com o suporte" (a flag so e visivel ao operador).
+- Limitacao: o limitador de rajada por usuario (5 buscas/10 min) e em memoria por processo e nao vale entre instancias; a barreira real e o orcamento persistido no banco + lock por campanha. Repetir a busca tende a devolver os mesmos ~20 resultados (duplicados): paginacao fica para outra SPEC.
+
 ### 3.8 Chaves de API pelo painel (SPEC-018)
 
 Em Configuracoes > Integracoes (so admin) cadastre Evolution, n8n, LLM e Places. Ficam cifradas no banco com a `ENCRYPTION_KEY`, nunca sao exibidas de volta (so os ultimos caracteres) e tem precedencia sobre o `.env` (que so vale como fallback da Evolution). URLs locais/rede privada exigem confirmar "instancia propria"; enderecos de metadados de nuvem sao sempre bloqueados. Guarde a `ENCRYPTION_KEY` fora do backup do banco; perde-la torna as chaves ilegiveis.

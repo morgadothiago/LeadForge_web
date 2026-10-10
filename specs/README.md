@@ -52,12 +52,14 @@ Fullstack = executa dev-backend primeiro, depois dev-frontend.
 | 048 | E-mail: Azure Communication Services (ACS) como provider | dev-backend | 8 (Azure/Criativos) | IMPLEMENTED (2026-10-09) | 046 |
 | 049 | Multi-tenant N:N: criar/entrar em orgs, convites, org ativa | fullstack (049a backend / 049b frontend) | 8 (Azure/Criativos) | IMPLEMENTED (049a backend + 049b frontend, 2026-10-10) | 030,033,034,038,046 |
 | 050 | Azure Blob Storage: abstracao, upload/listagem/remocao por org | dev-backend | 8 (Azure/Criativos) | IMPLEMENTED (2026-10-09) | 030,033 |
-| 051 | Criativos: videos de avatar com IA (provider abstraido, jobs, biblioteca) | fullstack (051a backend / 051b frontend) | 8 (Azure/Criativos) | IMPLEMENTED (aprovada 2026-10-10; 051a backend e 051b frontend IMPLEMENTED 2026-10-11) | 050,030,033,049 |
+| 051 | Criativos: videos de avatar com IA (provider abstraido, jobs, biblioteca) | fullstack (051a backend / 051b frontend) | 8 (Azure/Criativos) | IMPLEMENTED (aprovada 2026-10-10; 051a backend e 051b frontend IMPLEMENTED 2026-10-10) | 050,030,033,049 |
 | 052 | E-mails do ciclo de assinatura e cobranca + infra `sendOnce` — dividida: 052a (infra, classificacao, trial, ativacao, recibo) / 052b (falha/regua, recuperacao, proxima cobranca, troca de plano) | dev-backend | 9 (E-mails transacionais) | 052a APPROVED (2026-10-10) / 052b DRAFT | 033,039,046,047,048 |
 | 053 | Cancelamento e reativacao da assinatura pela app + e-mails | fullstack | 9 (E-mails transacionais) | DRAFT | 033,047,052 |
 | 054 | Exclusao de conta/perfil (LGPD) com confirmacao por e-mail | fullstack | 9 (E-mails transacionais) | DRAFT | 033,049,052 |
 | 055 | E-mails de cadastro (boas-vindas), verificacao de e-mail e seguranca da conta | fullstack | 9 (E-mails transacionais) | DRAFT | 038,046,048,052 |
 | 056 | E-mails de organizacao para owners (entrou/saiu/removido/papel) | dev-backend | 9 (E-mails transacionais) | DRAFT | 049,052 |
+| 057 | Sidebar do tenant agrupada em secoes com titulo (estilo Cloudflare) | frontend | 10 (UX/Navegacao) | IMPLEMENTED (2026-10-10) | 032,049b,051b |
+| 058 | "Buscar agora": busca de leads sob demanda na campanha (papel, concorrencia, teto manual, UX, custo) | fullstack (058a backend / 058b frontend) | 10 (UX) | 058a backend APPROVED / 058b frontend APPROVED (inicia apos 058a QA-aprovada) (2026-10-10) | 015,030,033,018 |
 
 Ordem (sessao 2): 009,010,016 feitos -> 011 -> 012 -> 017 -> 013 -> 014 -> 015. Ordem sessao 1: 000 -> 001 -> 002 -> 003 -> 004 -> 005 -> 006 -> 007 -> 008 | 009 -> 010 -> 011 -> 012 -> 013 -> 014 -> 015.
 Nota: 004 (dashboard) fica antes de 005-008 por ordem do PROMPT; com poucos dados usa seed.

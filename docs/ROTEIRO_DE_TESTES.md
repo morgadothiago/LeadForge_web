@@ -7,14 +7,15 @@ são o que a SPEC prevê, não algo que eu tenha executado no navegador.**
 ## 0. Preparação (uma vez)
 
 - [ ] **0.1** Infra no ar: `colima start` e `docker compose up -d postgres redis` (ver PRIMEIROS_PASSOS fase 1).
-- [ ] **0.2** Aplicar as 2 migrations pendentes no banco de dev: `npx prisma migrate deploy`
-  - Sem isso: convites, seletor de organização e arquivos falham (tabelas `OrgInvite`, `OrgAuditLog`, `StoredFile` não existem).
-  - É aditivo e seguro. **Não use `migrate dev`** (proporia apagar colunas com dados; ver PRIMEIROS_PASSOS 1.3).
-  - Verificar: `npx prisma migrate status` mostra só as 5 migrations `20260928*` como "não encontradas localmente" (drift
-    antigo, esperado) e nenhuma pendente.
+- [ ] **0.2** Aplicar as migrations no banco de dev: `npx prisma migrate deploy` (hoje são 39; a última é
+  `20261012120000_email_dispatch_log`). Sem isso: convites, seletor de organização, arquivos, criativos e e-mails de cobrança
+  falham (tabelas `OrgInvite`, `OrgAuditLog`, `StoredFile`, `Creative*`, `EmailDispatchLog` não existem).
+  - É aditivo e seguro. **Não use `migrate dev`**: o banco de dev tem colunas a mais que o schema (`document*`,
+    `trialBlocked`, `abacatepayProductId`, de outro clone) e ele proporia apagá-las com os dados (ver PRIMEIROS_PASSOS 1.3).
+  - Verificar: `npx prisma migrate status` diz "Database schema is up to date!".
 - [ ] **0.3** Reiniciar o `npm run dev` depois da migration (o Prisma Client novo é carregado na subida).
 - [ ] **0.4** Cobrança: nada a fazer. `PAYMENT_PROVIDER` ausente = `mock` (checkout sem cartão).
-- [ ] **0.5** E-mail sem enviar: Mailpit (`docker run -d --name mailpit -p 1025:1025 -p 8025:8025 axllent/mailpit`),
+- [ ] **0.5** E-mail sem enviar: Mailpit (`docker run -d --name mailpit --restart unless-stopped -p 1025:1025 -p 8025:8025 -e MP_SMTP_AUTH_ACCEPT_ANY=1 -e MP_SMTP_AUTH_ALLOW_INSECURE=1 axllent/mailpit`),
   `ALLOW_PRIVATE_SMTP_HOSTS=true`, e conferir as mensagens em http://localhost:8025.
 - [ ] **0.6** Use **janelas anônimas / navegadores diferentes** para duas sessões ao mesmo tempo (cookie é por navegador).
 
@@ -65,9 +66,9 @@ Crie **dois tenants** para testar isolamento: **Tenant A** e **Tenant B**.
 | B9 | `/esqueci-senha` com o e-mail de A | Mensagem genérica; e-mail no Mailpit; link abre `/redefinir-senha` | [ ] | |
 | B10 | Org suspensa pelo admin (A4): tentar usar o app como esse tenant | Acesso bloqueado com aviso claro | [ ] | |
 
-## C. Multi-tenant N:N (SPEC-049): só depois da 049b entregue
+## C. Multi-tenant N:N (SPEC-049, backend e frontend implementados)
 
-Ainda **não implementado** no frontend quando escrevi isto (a 049b está em andamento). O backend já está aprovado pelo QA.
+Implementada e aprovada pelo QA (049a backend e 049b frontend), mas **nunca vista em navegador**. O seletor de organização fica no topo da sidebar (busca, "Criar organização", "Convidar pessoas" só para owner).
 Rotas previstas: `/organizacoes`, `/configuracoes/equipe`, `/convite/[token]`.
 
 | # | Passo | Esperado | OK | Observado |
