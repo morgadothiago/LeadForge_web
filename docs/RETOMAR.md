@@ -63,6 +63,36 @@ reprovar no QA e não for corrigível sozinho, fica **sem commit** e listado aba
 - Termos da Places API restringem cache/armazenamento de dados: confirme antes de operar em escala.
 - `.storage/` (arquivos locais) e `.env` não vão para o git (conferido).
 
+## 7. Achados do teste E2E em navegador real (2026-10-10, feito por Claude com Brave + Playwright)
+
+Contas de teste no banco de dev: `claude.a*@testes-claude.local` (senha de teste `SenhaForte-12345`, **só dev**). Dados de teste: orgs
+"Empresa A ...", "Segunda Org Teste", criativos e lead "Lead Secreto do Tenant A". Podem ser apagados.
+
+**Corrigido nesta rodada**
+- **Bug real (commitado):** no wizard de criativos, 1 clique em "Continuar" no passo Formato **enviava o criativo na hora**, pulando a
+  revisão (o botão "Continuar" e o de enviar eram o mesmo elemento React; ele virava `type=submit` no meio do clique). Corrigido com `key`
+  distintas em `CreativeWizard.tsx`. Os testes SSR não pegavam isso: só navegador real.
+- **Servidor de dev desatualizado:** o `npm run dev` iniciado antes das migrations/código da 052a guardava o Prisma Client antigo e o
+  e-mail de trial **não saía** (sem erro visível). Depois de reiniciar, saiu. **Sempre reinicie o dev server após `migrate deploy`.**
+
+**Passou** (detalhes na coluna "Observado" do `docs/ROTEIRO_DE_TESTES.md`): A1-A3, B5-B7, C1-C2, C4-C7, C9-C11, D1-D2, D4, E1-E4, E6-E10, F1-F2, F4-F6.
+Isolamento entre tenants (B5, B6, C2, C11, D4): **sem vazamento**.
+
+**Pontos de atenção (decisão sua, nenhum quebra o sistema)**
+1. **D+7 contraditório:** com grace de 7 dias, o "Último aviso: sua conta será suspensa" e o "Sua conta foi suspensa" chegam **no mesmo tick**.
+   Sugestão: último aviso em D+6, ou suspender só em D+8.
+2. **Remover membro com sessão aberta:** o removido vai para `/login` (perde a sessão), não cai na organização própria. Funciona e é seguro; só é
+   menos gentil que "trocar para a org restante". Decidir se vale ajustar.
+3. **URL do vídeo é assinada e pública até expirar:** qualquer pessoa com o link baixa o vídeo (200 sem login), como a SAS do Azure. É o desenho da
+   SPEC-050; só garanta que a expiração seja curta em produção.
+4. **Remetente dos e-mails** em dev sai de `seu-email@gmail.com` (placeholder do `.env`). Configure `ACS_FROM_*`/`RESEND_FROM_*`/`SMTP_FROM` reais.
+5. **Mailpit poluído:** os testes automatizados também enviam e-mail ao Mailpit (400+ mensagens `zz-*@test.local`). Pesquise pelo destinatário.
+6. **Convite com e-mail errado** mostra a quem tem o link o e-mail convidado ("enviado para outra.pessoa@..."). Aceitável (quem tem o link recebeu o convite), mas é um vazamento mínimo.
+7. O formulário de **nova campanha** na interface não foi exercitado por mim (o seletor "Criar novo" do ICP não respondeu à automação): teste à mão.
+
+**Não testado** (precisa de você/chaves): Places real (bloco G), Gmail/Resend/ACS reais, AbacatePay real, recibo de renovação por webhook HTTP real
+(chamei `processBillingEvent` direto), dark mode, leitor de tela, teclado completo.
+
 ## 6. Estado final (2026-10-10, madrugada)
 
 - **Tudo commitado e no GitHub** na branch `feat/specs-048-051` (último commit da 052b: `019f3e4`): SPECs 048, 049 (a/b), 050, 051 (a/b),

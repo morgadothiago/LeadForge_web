@@ -219,5 +219,6 @@ mockada) e a tela nunca foi vista em navegador: use o bloco G de `docs/ROTEIRO_D
 | E-mail não chega na caixa | olhando o lugar errado | com o Mailpit, abra http://localhost:8025 (não o Gmail) |
 | E-mail não chega no Mailpit | container parado ou `.env` sem reiniciar | `docker ps` mostra `mailpit`? Reinicie o `npm run dev` |
 | Busca de leads "indisponível"/sem resultados | `LEAD_SEARCH_ENABLED` ausente, chave `places` não cadastrada ou campanha inativa | Fase 8 |
+| E-mail de trial/recibo não chega depois de uma migration nova | o `npm run dev` antigo segura o Prisma Client velho (falha em silêncio) | pare e reinicie o `npm run dev` |
 | Criativo fica em "Na fila" | o tick não rodou | `npm run dev:tick` em outro terminal (7.3) |
 | `/criativos` dá erro de tabela | migration dos criativos não aplicada | 1.3 |
