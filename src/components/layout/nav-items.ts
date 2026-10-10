@@ -1,4 +1,4 @@
-import { Bell, Building2, CalendarDays, Kanban, ClipboardCheck, LayoutDashboard, Megaphone, Settings, Users, Workflow, type LucideIcon } from "lucide-react";
+import { Bell, Building2, CalendarDays, Kanban, ClipboardCheck, LayoutDashboard, Megaphone, Settings, Users, Video, Workflow, type LucideIcon } from "lucide-react";
 
 import type { NavBadgeKey } from "@/lib/notifications/client-types";
 
@@ -18,6 +18,7 @@ export const NAV_ITEMS: readonly NavItem[] = [
   { href: "/leads", label: "Leads", description: "Lista e detalhes dos seus leads.", icon: Users, badgeKey: "leads" },
   { href: "/campanhas", label: "Campanhas", description: "Gerencie campanhas e ICPs.", icon: Megaphone },
   { href: "/sequences", label: "Sequences", description: "Monte cadências de contato.", icon: Workflow },
+  { href: "/criativos", label: "Criativos", description: "Vídeos de avatar com IA para suas campanhas.", icon: Video },
   { href: "/aprovacoes", label: "Aprovações", description: "Revise rascunhos dos agentes de IA.", icon: ClipboardCheck, badgeKey: "aprovacoes" },
   { href: "/notificacoes", label: "Notificações", description: "Alertas e lembretes do sistema.", icon: Bell, badgeKey: "notificacoes" },
   { href: "/configuracoes", label: "Configurações", description: "Contas de envio e integrações.", icon: Settings, badgeKey: "configuracoes" },
@@ -37,5 +38,7 @@ export function isActivePath(pathname: string, href: string): boolean {
 }
 
 export function getPageTitle(pathname: string): string {
+  // SPEC-049b: telas fora da navegação principal (acessadas pelo seletor/menu do usuário).
+  if (isActivePath(pathname, "/organizacoes")) return "Organizações";
   return [...NAV_ITEMS, ...ADMIN_NAV_ITEMS].find((i) => isActivePath(pathname, i.href))?.label ?? "LeadForge";
 }

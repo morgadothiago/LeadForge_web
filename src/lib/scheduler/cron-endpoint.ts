@@ -4,6 +4,7 @@ import { safeErrorForLog } from "@/lib/errors";
 import { getCronSecret } from "./config";
 import { processAgentQueue } from "@/lib/agents/queue";
 import { runDailySearch } from "@/lib/lead-search/run";
+import { processCreativeJobs } from "@/lib/creatives/runner";
 import { runTick, type TickSummary } from "./run-tick";
 
 /**
@@ -62,7 +63,10 @@ export async function handleCronTick(req: Request, deps: CronDeps = {}): Promise
     // SPEC-015: busca diária de leads (desligada por padrão; 1 execução agendada/campanha/dia; falha isolada).
     let search: unknown = undefined;
     if (!deps.run) search = await runDailySearch().then((r) => (r.length ? r : undefined)).catch((e) => (console.error("[cron/tick] busca:", safeErrorForLog(e)), { error: "falha" }));
-    return json({ ...s, ...(agents ? { agents } : {}), ...(search ? { search } : {}) }, 200);
+    // SPEC-051: jobs de criativos (polling do provedor de video; falha isolada). So com o `run` padrao.
+    let creatives: unknown = undefined;
+    if (!deps.run) creatives = await processCreativeJobs(new Date()).then((r) => (r.picked ? r : undefined)).catch((e) => (console.error("[cron/tick] criativos:", safeErrorForLog(e)), { error: "falha" }));
+    return json({ ...s, ...(agents ? { agents } : {}), ...(search ? { search } : {}), ...(creatives ? { creatives } : {}) }, 200);
   } catch (e) {
     console.error("[cron/tick] erro:", safeErrorForLog(e));
     return json({ error: "internal", message: "Falha ao executar a rodada." }, 500);
