@@ -159,4 +159,31 @@ describe("AppSidebar", () => {
       expect(currentCount(html)).toBe(1);
     });
   });
+
+  describe("SPEC-057: seções", () => {
+    it("títulos na ordem, cada <nav> rotulado pelo título, topo com aria-label", () => {
+      const html = render();
+      const titles = ["Captação de leads", "Criativos", "Automação", "Conta"];
+      const idx = titles.map((t) => html.indexOf(`>${t}</div>`));
+      expect(idx.every((i) => i > 0)).toBe(true);
+      expect([...idx].sort((a, b) => a - b)).toEqual(idx);
+      for (const k of ["captacao", "criativos", "automacao", "conta"]) {
+        expect(html).toContain(`id="nav-section-${k}"`);
+        expect(html).toContain(`aria-labelledby="nav-section-${k}"`);
+      }
+      expect(html).toContain('aria-label="Navegação principal"');
+    });
+    it("ordem visual dos links = ordem das seções; Criativos mostra tag New", () => {
+      const html = render();
+      expect(html).toContain('data-slot="new-tag"');
+    });
+    it("platform_admin não renderiza títulos de seção", () => {
+      const html = render(true, EMPTY_SUMMARY, "platform_admin");
+      expect(html).not.toContain("Captação de leads");
+      expect(html).not.toContain("nav-section-");
+    });
+    it("provider não vê Administração", () => {
+      expect(render()).not.toContain("Administração");
+    });
+  });
 });
