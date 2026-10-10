@@ -12,7 +12,8 @@ const TAG = "zz-test-spec015-conc";
 let campaignId = "";
 let icpId = "";
 
-const source: LeadSource = { id: "google_places", search: vi.fn(async () => ({ leads: [], requests: 1 })) };
+// Pequeno atraso: mantém o run "running" enquanto as concorrentes passam pelo lock (SPEC-058: 1 busca por campanha por vez).
+const source: LeadSource = { id: "google_places", search: vi.fn(async () => { await new Promise((r) => setTimeout(r, 150)); return { leads: [], requests: 1 }; }) };
 
 beforeAll(async () => {
   process.env.LEAD_SEARCH_ENABLED = "true";
@@ -30,13 +31,13 @@ afterAll(async () => {
 });
 
 describe("SPEC-015 concorrencia", () => {
-  it("6 execucoes simultaneas com orcamento 1: so uma chamada paga", async () => {
+  it("6 execucoes manuais simultaneas: so uma chamada paga (as demais recebem 'em andamento', nao criam run)", async () => {
     const r = await Promise.allSettled(Array.from({ length: 6 }, () => runLeadSearch(campaignId, { source })));
     expect(r.filter((x) => x.status === "fulfilled")).toHaveLength(1);
     expect(source.search).toHaveBeenCalledTimes(1);
     const runs = await prisma.searchRun.findMany({ where: { campaignId } });
     expect(runs.filter((x) => x.status === "done")).toHaveLength(1);
-    expect(runs.filter((x) => x.status === "blocked")).toHaveLength(5);
+    expect(runs).toHaveLength(1);
   });
   it("dois agendados simultaneos: so um executa", async () => {
     await prisma.searchRun.deleteMany({ where: { campaignId } });

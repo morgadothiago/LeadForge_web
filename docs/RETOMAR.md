@@ -19,7 +19,7 @@ em outro terminal** (sem ele criativos ficam em "Na fila"). Mailpit: http://loca
 | Tarefa | O que é | Etapas restantes |
 |---|---|---|
 | SPEC-057 | Sidebar agrupada em seções (Captação de leads, Criativos, Automação, Conta) | dev-frontend → QA |
-| SPEC-058a/b | Busca de leads sob demanda (botão "Buscar leads" na campanha): só owner, tetos 2/dia/campanha e 10/dia/org, estado "rodando" persistido | 058a → QA → 058b → QA |
+| SPEC-058a/b | Busca de leads sob demanda | **CONCLUÍDA** (QA aprovado, commitada) |
 
 Regra combinada: **só commitar quando tudo estiver verde** (tsc, lint sem erros, vitest em banco `*_test` novo, QA aprovado). Se algo
 reprovar no QA e não for corrigível sozinho, fica **sem commit** e listado abaixo.
@@ -61,7 +61,10 @@ reprovar no QA e não for corrigível sozinho, fica **sem commit** e listado aba
 - Termos da Places API restringem cache/armazenamento de dados: confirme antes de operar em escala.
 - `.storage/` (arquivos locais) e `.env` não vão para o git (conferido).
 
-## 6. Estado final (preenchido quando as tarefas terminarem)
+## 6. Estado final (2026-10-10, noite)
 
-_Ainda não preenchido: as tarefas da seção 2 estavam rodando. Se esta seção continuar vazia ao acordar, algo travou:
-rode a seção 1 e me diga o que o `git status` mostra._
+- **Tudo commitado e no GitHub** na branch `feat/specs-048-051`: SPECs 048, 049 (a/b), 050, 051 (a/b), 052a, 057 e 058 (a/b), mais docs.
+- Verificação final: `tsc` limpo; lint 0 erros (14 warnings antigos); vitest completo em banco novo `leadforge_058full_test`: 149 arquivos,
+  1852 testes passando; `src/lib/lead-search` repetido 4x sem instabilidade.
+- **Falta validar com você:** blocos D, E, F e G do `docs/ROTEIRO_DE_TESTES.md` (navegador, Mailpit, chave do Google).
+- **Próximo trabalho** depende das decisões da seção 3 (052b, 053-056, avatar real, LLM grátis SPEC-036, drift, rate limit persistente, PR).

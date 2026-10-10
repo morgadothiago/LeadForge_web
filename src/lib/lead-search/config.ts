@@ -14,3 +14,11 @@ export const dailyRequestBudget = (env: Env = process.env) => int(env.LEAD_SEARC
 export const maxCampaignsPerTick = (env: Env = process.env) => int(env.LEAD_SEARCH_MAX_CAMPAIGNS_PER_TICK, 3, 1, 50);
 /** Prazo (ms) após o qual o tick não inicia novas buscas. */
 export const tickDeadlineMs = (env: Env = process.env) => int(env.LEAD_SEARCH_TICK_DEADLINE_MS, 30000, 1000, 300000);
+/** SPEC-058: teto de buscas MANUAIS por campanha por dia (separado do teto da diária). */
+export const manualDailyBudget = (env: Env = process.env) => int(env.LEAD_SEARCH_MANUAL_DAILY_MAX_REQUESTS, 2, 1, 20);
+/** SPEC-058: teto de chamadas pagas por organização por dia (manual + diária somadas) para disparos manuais. */
+export const orgDailyBudget = (env: Env = process.env) => int(env.LEAD_SEARCH_ORG_DAILY_MAX_REQUESTS, 10, 1, 200);
+/** SPEC-058: run `running` mais antigo que isto é considerado preso (crash) e vira `failed`. */
+export const STALE_RUN_MS = 10 * 60_000;
+/** SPEC-058: prazo total da busca manual síncrona (a página tem maxDuration=60). */
+export const MANUAL_TIMEOUT_MS = 45_000;

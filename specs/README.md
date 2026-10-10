@@ -59,7 +59,7 @@ Fullstack = executa dev-backend primeiro, depois dev-frontend.
 | 055 | E-mails de cadastro (boas-vindas), verificacao de e-mail e seguranca da conta | fullstack | 9 (E-mails transacionais) | DRAFT | 038,046,048,052 |
 | 056 | E-mails de organizacao para owners (entrou/saiu/removido/papel) | dev-backend | 9 (E-mails transacionais) | DRAFT | 049,052 |
 | 057 | Sidebar do tenant agrupada em secoes com titulo (estilo Cloudflare) | frontend | 10 (UX/Navegacao) | IMPLEMENTED (2026-10-10) | 032,049b,051b |
-| 058 | "Buscar agora": busca de leads sob demanda na campanha (papel, concorrencia, teto manual, UX, custo) | fullstack (058a backend / 058b frontend) | 10 (UX) | 058a backend APPROVED / 058b frontend APPROVED (inicia apos 058a QA-aprovada) (2026-10-10) | 015,030,033,018 |
+| 058 | "Buscar agora": busca de leads sob demanda na campanha (papel, concorrencia, teto manual, UX, custo) | fullstack (058a backend / 058b frontend) | 10 (UX) | IMPLEMENTED 058a+058b (2026-10-10; validacao em navegador e E2E real PENDENTES) | 015,030,033,018 |
 
 Ordem (sessao 2): 009,010,016 feitos -> 011 -> 012 -> 017 -> 013 -> 014 -> 015. Ordem sessao 1: 000 -> 001 -> 002 -> 003 -> 004 -> 005 -> 006 -> 007 -> 008 | 009 -> 010 -> 011 -> 012 -> 013 -> 014 -> 015.
 Nota: 004 (dashboard) fica antes de 005-008 por ordem do PROMPT; com poucos dados usa seed.

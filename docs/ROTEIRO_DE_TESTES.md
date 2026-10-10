@@ -115,9 +115,21 @@ Rotas previstas: `/organizacoes`, `/configuracoes/equipe`, `/convite/[token]`.
 | F5 | "Criar organização" no seletor | Abre o diálogo; cria e entra na nova | [ ] | |
 | F6 | "Convidar pessoas" como owner / como member | Owner vê e convida (e-mail no Mailpit); member não vê | [ ] | |
 
-## G. Busca de leads pelo Google Places (SPEC-015/058): PENDENTE, 058 em desenvolvimento
+## G. Busca de leads pelo Google Places (SPEC-015/058): precisa de chave do Google (Fase 8 do `docs/PRIMEIROS_PASSOS.md`)
 
-Requer chave do Google e `LEAD_SEARCH_ENABLED=true` (Fase 8 do `docs/PRIMEIROS_PASSOS.md`). Passos serão detalhados aqui quando a 058 fechar.
+Antes: chave `places` em `/configuracoes/integracoes` (admin), `LEAD_SEARCH_ENABLED=true` no `.env`, reiniciar o `npm run dev`,
+e uma campanha **ativa** com ICP (ex.: "dentistas" em "Curitiba"). Defina teto de orçamento no Google antes.
+
+| # | Passo | Esperado | OK | Observado |
+|---|---|---|---|---|
+| G1 | Sem `LEAD_SEARCH_ENABLED` ou sem chave, abrir `/campanhas/[id]` | Botão desabilitado com aviso "indisponível no momento, fale com o suporte" (sem citar variável de ambiente) | [ ] | |
+| G2 | Owner clica **Buscar agora** e confirma | Estado "rodando"; recarregar a página mantém o estado; termina com "N novos, M duplicados, K suprimidos" | [ ] | |
+| G3 | Ver `/leads` e o Pipeline | Leads novos em `novo_lead`, com telefone/site/endereço; sem e-mail de decisor | [ ] | |
+| G4 | Repetir a busca logo em seguida | Quase só duplicados (1 página de até 20 por chamada; paginação não existe ainda) | [ ] | |
+| G5 | Passar de 2 buscas manuais no dia na mesma campanha | Bloqueio claro: orçamento esgotado | [ ] | |
+| G6 | Logar como **member** da org | Não consegue disparar (só lê o histórico) | [ ] | |
+| G7 | Tenant B abre a mesma campanha por URL | 404/negado; nenhum lead de A (isolamento, bloqueante) | [ ] | |
+| G8 | Conferir custo no Google Cloud depois | Poucas requisições; confirmar o SKU cobrado (Pro vs Enterprise, ainda não confirmado) | [ ] | |
 
 ## Se algo falhar, me mande
 

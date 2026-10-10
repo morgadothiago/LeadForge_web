@@ -165,7 +165,7 @@ Traz nome, telefone, site, endereço e nota. **Não traz e-mail de decisor.**
 - [ ] **8.8 Ligar.** No `.env`: `LEAD_SEARCH_ENABLED=true` e reinicie o `npm run dev`.
   Tetos opcionais: `LEAD_SEARCH_MAX_RESULTS` (padrão 20, máx. 60), `LEAD_SEARCH_DAILY_MAX_REQUESTS` (padrão 3/dia/campanha, busca
   diária pelo tick), `LEAD_SEARCH_MAX_CAMPAIGNS_PER_TICK` (padrão 3), `LEAD_SEARCH_TICK_DEADLINE_MS` (padrão 30000) e, da
-  SPEC-058 (**em andamento**, ainda não no `.env.example`), `LEAD_SEARCH_MANUAL_DAILY_MAX_REQUESTS` (padrão 2/dia/campanha)
+  SPEC-058, `LEAD_SEARCH_MANUAL_DAILY_MAX_REQUESTS` (padrão 2/dia/campanha)
   e `LEAD_SEARCH_ORG_DAILY_MAX_REQUESTS` (padrão 10/dia/org).
 - [ ] **8.9 Testar.** Crie uma campanha **ativa** com ICP (ex.: nicho "dentistas", local "Curitiba"), abra `/campanhas/[id]` e
   use **Buscar leads** (ou deixe o `npm run dev:tick` rodando para a busca diária). Os leads entram em `/leads` e no
@@ -180,18 +180,18 @@ Enterprise, mas **o SKU realmente acionado não foi confirmado**.
 **Riscos:** os termos da Places API restringem cache/armazenamento de dados; confirme os termos vigentes antes de operar em
 escala. Base legal registrada: interesse legítimo B2B, com opt-out aplicado antes de criar o lead.
 
-**Estado:** a busca nunca foi rodada com a API real (só testes com resposta mockada). A SPEC-058 ("Buscar agora": só owner
-dispara, tetos manual 2/dia/campanha e 10/dia/org, estado "rodando" persistido) está **APPROVED e sendo implementada**: o
-código em `src/lib/lead-search/` está mudando e o botão atual pode não ter ainda todos esses limites. Teste real com chave
-sua é critério manual da SPEC-058.
+**Estado:** SPEC-058 IMPLEMENTADA (058a backend e 058b frontend, QA aprovado em 2026-10-10): só o **owner** dispara "Buscar agora";
+tetos manual 2/dia/campanha e 10/dia/org, separados do teto da busca diária; estado "rodando" sobrevive a recarregar a
+página; resultado com novos/duplicados/suprimidos. **Nunca foi rodada com a API real do Google** (só testes com resposta
+mockada) e a tela nunca foi vista em navegador: use o bloco G de `docs/ROTEIRO_DE_TESTES.md`.
 
 ---
 
 ## Testes
 
 - [ ] `npx tsc --noEmit` (ou `npm run typecheck`) e `npm run lint`
-  - Estado em 2026-10-10: `tsc` tinha 1 erro, em `src/lib/queries/lead-search.ts:72` (`r` implícito, código da SPEC-058
-    em andamento); `lint` não foi rodado nesta revisão.
+  - Estado em 2026-10-10 (após a SPEC-058): `tsc` limpo; `lint` 0 erros (14 warnings que já existiam); vitest completo em banco
+    novo: 149 arquivos, 1852 testes passando.
 - [ ] `npm test` (vitest): **use um banco de teste limpo**. O `leadforge_test` acumula lixo e gera falsas falhas
   (`Unique constraint failed on WhatsAppInstance_instanceName_key`, contagens 21 vs 20). Num banco novo:
   `TEST_DATABASE_URL=postgresql://leadforge:<senha>@localhost:5434/leadforge_clean_test npm test`

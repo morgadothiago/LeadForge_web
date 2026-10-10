@@ -18,5 +18,5 @@ export interface RawLead {
 export interface LeadSource {
   readonly id: string;
   /** Faz no máximo `limit` resultados; `requests` informa quantas chamadas pagas foram feitas. */
-  search(icp: Icp, limit: number): Promise<{ leads: RawLead[]; requests: number }>;
+  search(icp: Icp, limit: number, signal?: AbortSignal): Promise<{ leads: RawLead[]; requests: number }>;
 }

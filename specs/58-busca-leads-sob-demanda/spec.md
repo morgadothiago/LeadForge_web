@@ -1,5 +1,5 @@
 # SPEC-058 — "Buscar agora": busca de leads sob demanda na pagina da campanha (endurecimento e UX)
-- status: APPROVED (058a APPROVED; 058b APPROVED, so inicia apos 058a QA-aprovada) | domain: fullstack (058a backend / 058b frontend; preferir duas SPECs filhas) | sessao: 10 (UX) | depende de: SPEC-015, SPEC-030, SPEC-033, SPEC-018
+- status: IMPLEMENTED (058a e 058b; QA aprovado 2026-10-10; validacao em navegador e E2E real com chave Google PENDENTES) | domain: fullstack (058a backend / 058b frontend; preferir duas SPECs filhas) | sessao: 10 (UX) | depende de: SPEC-015, SPEC-030, SPEC-033, SPEC-018
 - criada: 2026-10-10 | aprovada em 2026-10-10 com as recomendacoes (ver D-058-x finais)
 
 ## Objetivo
