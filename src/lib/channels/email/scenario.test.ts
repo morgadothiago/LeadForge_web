@@ -68,3 +68,13 @@ describe("fromAddressForScenario — cenarios SPEC-052b", () => {
     }
   });
 });
+
+describe("fromAddressForScenario — cenarios SPEC-054a", () => {
+  it("e-mails de exclusao de conta usam o remetente noreply (Resend e ACS)", () => {
+    const env = { RESEND_FROM_NOREPLY: "noreply@d.com", ACS_FROM_NOREPLY: "acs-noreply@d.com", RESEND_FROM_BILLING: "cobranca@d.com" };
+    for (const s of ["account_deletion_confirm", "account_deletion_requested", "account_deletion_cancelled", "account_deleted"] as const) {
+      expect(fromAddressForScenario(s, env)).toBe("noreply@d.com");
+      expect(fromAddressForScenario(s, env, "acs")).toBe("acs-noreply@d.com");
+    }
+  });
+});

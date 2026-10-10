@@ -20,6 +20,11 @@ SPEC-053 (053a backend + 053b frontend) IMPLEMENTADA e aprovada pelo QA em 2026-
 
 Regra combinada: **só commitar quando tudo estiver verde** (tsc, lint sem erros, vitest em banco `*_test` novo, QA aprovado).
 
+**SPEC-054 (exclusão de conta LGPD) implementada por inteiro em 2026-10-10 (054a backend + 054b frontend), sem commit ainda** (tsc limpo, lint 0 erros, vitest 155 arquivos/1933 testes em `leadforge_054_test`). A 054b entregou: aba Configurações > Conta, páginas públicas `/conta/excluir/<token>` e `/conta/excluir/cancelar/<token>` (liberadas no `proxy.ts`) e tratamento de `account_deletion_pending` no login. Falta: QA/teste em navegador real (roteiro bloco I) e commit. Pendências suas:
+- **Migration pendente no dev:** `20261014120000_account_deletion_request` (aditiva); aplicar com `npx prisma migrate deploy` (nunca `migrate dev`) e reiniciar o `npm run dev`.
+- **Validação jurídica da retenção (D-054-4, INFERRED):** 5 anos para registros de cobrança da organização e 6 meses para logs de auditoria vinculados ao usuário (o código apaga esses logs após 6 meses; os registros de cobrança ficam sem prazo de descarte, não há job de 5 anos). O texto do e-mail "conta excluída" reflete exatamente isso (`src/lib/account-deletion/retention.ts`).
+- **Exportação de dados (portabilidade, LGPD art. 18 V):** fora da 054 (D-054-6); fica para uma SPEC futura.
+
 ## 3. Decisões que SÓ VOCÊ pode tomar (bloqueiam trabalho)
 
 | # | Decisão | Bloqueia | Minha recomendação |

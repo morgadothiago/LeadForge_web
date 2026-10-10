@@ -150,6 +150,22 @@ e uma campanha **ativa** com ICP (ex.: "dentistas" em "Curitiba"). Defina teto d
 | H7 | Mais de 5 tentativas em 10 min | Mensagem de limite | [ ] | |
 | H8 | Org B tenta cancelar a assinatura da org A | Impossível (a org vem da sessão); sem vazamento | [ ] | |
 
+## I. Exclusão de conta (SPEC-054a backend + 054b telas). Precisa da migration `20261014120000_account_deletion_request` aplicada no dev
+
+Tela em **Configurações > Conta**; os e-mails aparecem no Mailpit. Antes: `npx prisma migrate deploy` (só aditiva) e reiniciar o `npm run dev`.
+
+| # | O que fazer | O que deve acontecer | OK? | Observado |
+|---|---|---|---|---|
+| I1 | Rodar `npx vitest run src/lib/account-deletion` (banco `*_test`) | 20 testes passam (token, janela, purga, bloqueios, #14 uma vez) | [ ] | |
+| I2 | Conferir o texto do e-mail "conta excluída" (função `accountDeletedTemplate`, listas em `src/lib/account-deletion/retention.ts`) | Lista "Apagado / Anonimizado / Retido": **valide com seu jurídico os prazos de 5 anos (cobrança) e 6 meses (logs)**; são premissas, não parecer | [ ] | |
+| I3 | Em Configurações > Conta: ler a explicação (30 dias; apagado/anonimizado/retido) e pedir a exclusão com senha errada | Mensagem "Senha incorreta" no campo, sem criar pedido; senha certa mostra "Confira seu e-mail" e envia o e-mail de confirmação (link `/conta/excluir/<token>`) | [ ] | |
+| I4 | Abrir o link (deslogado ou logado): vê a página "Confirmar a exclusão da conta?" (abrir não confirma); clicar em Confirmar; abrir o mesmo link de novo | 1º clique agenda a exclusão para +30 dias e envia "solicitação recebida"; 2º acesso mostra "Link inválido ou expirado" | [ ] | |
+| I5 | Tentar entrar com a conta durante a janela | Login web mostra "exclusão agendada para DD/MM/AAAA" com o botão "Cancelar exclusão e entrar" (que cancela e já entra); app móvel recebe 403 | [ ] | |
+| I6 | Dono único de org com outros membros, ou único membro com assinatura ativa, pede a exclusão | Em Configurações > Conta aparece "Ainda não é possível excluir sua conta" com a mensagem (promover outro owner / cancelar a assinatura) e sem campo de senha | [ ] | |
+| I8 | Pelo link "cancelar" do e-mail "solicitação recebida" (`/conta/excluir/cancelar/<token>`): abrir e clicar em Cancelar a exclusão | Página "Exclusão cancelada"; conta volta a entrar normalmente; chega o e-mail "exclusão cancelada" | [ ] | |
+| I9 | Em celular (~375px) e no tema escuro: Configurações > Conta e as páginas do link | Sem rolagem horizontal, listas legíveis, botões grandes, contraste ok | [ ] | |
+| I7 | Vencida a janela, rodar o tick (`npm run tick`) | Usuário anonimizado, vínculos/e-mails conectados/dispositivos apagados, campanhas mantidas; e-mail "conta excluída" 1 vez (rodar o tick de novo não repete) | [ ] | |
+
 ## Se algo falhar, me mande
 
 1. O passo (ex.: `B5`), o e-mail logado e a URL.

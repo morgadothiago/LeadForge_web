@@ -18,6 +18,7 @@ import { purgeCanceledOrgs } from "@/lib/billing/purge";
 import { sendBillingReminders } from "@/lib/billing/reminders";
 import { runCancelEffectuationJob } from "@/lib/billing/cancel-effective";
 import { runPixRenewalJob } from "@/lib/billing/pix-renewal";
+import { runAccountDeletionJob } from "@/lib/account-deletion/purge";
 import { getSchedulerConfig, type SchedulerConfig } from "./config";
 import { acquirePgAdvisoryLock, type AcquireLock } from "./lock";
 import { computeNextTouchAt, decideAfterSend, decideStage, pickDueLeads, type ChannelResult, type EndStatus } from "./decide";
@@ -144,6 +145,8 @@ export async function runTick(now: Date, overrides: Partial<TickDeps> = {}): Pro
   await runCancelEffectuationJob(new Date()).catch((e) => console.error("[scheduler] efetivação de cancelamento falhou:", safeErrorForLog(e)));
   // SPEC-033 (D-33-4): expurgo/anonimização 90 dias após cancelamento (isolado; falha nunca derruba o tick)
   await purgeCanceledOrgs(new Date()).catch((e) => console.error("[scheduler] expurgo de billing falhou:", safeErrorForLog(e)));
+  // SPEC-054a (D-054-1): exclusao de conta (LGPD) — anonimiza usuarios cuja janela de 30 dias venceu e envia o e-mail #14 (1x). Isolado.
+  await runAccountDeletionJob(new Date()).catch((e) => console.error("[scheduler] exclusão de conta falhou:", safeErrorForLog(e)));
   return summary({ status: error ? "error" : "ok", runId: firstRunId, budget, ...(error ? { error } : {}) });
 }
 

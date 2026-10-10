@@ -12,7 +12,7 @@
  * Fallback em cascata, sempre que o env específico do cenário não estiver setado (nunca erro fatal):
  * env do cenário -> `RESEND_FROM_EMAIL` (genérico, opcional) -> `SMTP_USER` -> "no-reply@leadforge.local".
  */
-export type EmailScenario = "password_reset" | "courtesy_welcome" | "billing_reminder" | "subscription_success" | "subscription_canceled" | "org_invite" | "trial_started" | "payment_receipt" | "payment_failed" | "payment_recovered" | "renewal_upcoming" | "plan_changed" | "cancel_requested" | "subscription_reactivated";
+export type EmailScenario = "password_reset" | "courtesy_welcome" | "billing_reminder" | "subscription_success" | "subscription_canceled" | "org_invite" | "trial_started" | "payment_receipt" | "payment_failed" | "payment_recovered" | "renewal_upcoming" | "plan_changed" | "cancel_requested" | "subscription_reactivated" | "account_deletion_confirm" | "account_deletion_requested" | "account_deletion_cancelled" | "account_deleted";
 
 const SCENARIO_ENV_VAR: Record<EmailScenario, string> = {
   password_reset: "RESEND_FROM_NOREPLY",
@@ -33,6 +33,11 @@ const SCENARIO_ENV_VAR: Record<EmailScenario, string> = {
   // SPEC-053a: cancelamento agendado e reativacao saem do remetente billing.
   cancel_requested: "RESEND_FROM_BILLING",
   subscription_reactivated: "RESEND_FROM_BILLING",
+  // SPEC-054a: exclusao de conta (LGPD) sai do remetente transacional (noreply).
+  account_deletion_confirm: "RESEND_FROM_NOREPLY",
+  account_deletion_requested: "RESEND_FROM_NOREPLY",
+  account_deletion_cancelled: "RESEND_FROM_NOREPLY",
+  account_deleted: "RESEND_FROM_NOREPLY",
 };
 
 /** SPEC-048 (D-048-5): remetentes do ACS (precisam ser MailFrom do domínio verificado no ACS). */
@@ -51,6 +56,10 @@ const ACS_SCENARIO_ENV_VAR: Record<EmailScenario, string> = {
   plan_changed: "ACS_FROM_BILLING",
   cancel_requested: "ACS_FROM_BILLING",
   subscription_reactivated: "ACS_FROM_BILLING",
+  account_deletion_confirm: "ACS_FROM_NOREPLY",
+  account_deletion_requested: "ACS_FROM_NOREPLY",
+  account_deletion_cancelled: "ACS_FROM_NOREPLY",
+  account_deleted: "ACS_FROM_NOREPLY",
 };
 
 const DEFAULT_FROM = "no-reply@leadforge.local";

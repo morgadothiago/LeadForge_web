@@ -1088,6 +1088,28 @@ model EmailDispatchLog {
   @@index([orgId])
 }
 
+/// SPEC-054a (D-054-1..5): pedido de exclusao de conta (LGPD art. 18). `userId` SEM FK de proposito (sobrevive a anonimizacao do User);
+/// so guarda HASH do e-mail e HASH dos tokens (confirmar/cancelar), nunca valor em claro. Ciclo: pedido (expiresAt) -> confirmado
+/// (confirmedAt, scheduledFor = +30 dias) -> executado (executedAt) ou cancelado (cancelledAt). `logsPurgedAt` = limpeza dos logs de
+/// auditoria retidos 6 meses (D-054-4).
+model AccountDeletionRequest {
+  id              String    @id @default(uuid())
+  userId          String
+  emailHash       String
+  tokenHash       String    @unique
+  cancelTokenHash String?   @unique
+  requestedAt     DateTime  @default(now())
+  confirmedAt     DateTime?
+  scheduledFor    DateTime?
+  cancelledAt     DateTime?
+  executedAt      DateTime?
+  expiresAt       DateTime
+  logsPurgedAt    DateTime?
+
+  @@index([userId, requestedAt])
+  @@index([scheduledFor])
+}
+
 enum BillingReminderKind {
   trial_ending
   past_due_started

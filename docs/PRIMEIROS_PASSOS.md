@@ -219,6 +219,36 @@ está no bloco H do `docs/ROTEIRO_DE_TESTES.md`.
 ⚠️ Se o pagamento é por cartão do AbacatePay, o cancelamento vale só dentro do LeadForge; o cartão pode continuar sendo
 cobrado até alguém cancelar no painel do AbacatePay.
 
+### 2.6 Apagar a minha conta (SPEC-054)
+
+Imagine que a sua conta é uma casinha de brinquedos. Se você não quer mais brincar, pode pedir para "desmontar a casinha".
+A gente é cuidadoso: pergunta duas vezes e espera 30 dias, caso você se arrependa.
+
+1. Entre no LeadForge, clique em **Configurações** e depois na aba **Conta**.
+2. Leia a caixa "Excluir minha conta". Ela mostra 3 listas:
+   - o que é **apagado** (brinquedos jogados no lixo);
+   - o que é **anonimizado** (um desenho em que o seu nome é apagado e vira "Usuário removido");
+   - o que **fica guardado por lei** (o caderninho de pagamentos que a lei manda guardar).
+3. Se aparecer "Ainda não é possível excluir sua conta", ainda tem gente dentro da casinha ou conta pendente:
+   - você é o único dono de uma organização com outras pessoas: passe a chave de dono para outra pessoa antes;
+   - a sua organização ainda paga assinatura: cancele a assinatura antes (veja 2.5).
+4. Sem aviso? Digite a **senha** (para provar que é você) e clique em **Excluir minha conta**.
+5. Aparece "Confira seu e-mail". Abra o e-mail e clique no link.
+6. A página pergunta "Confirmar a exclusão da conta?". Só abrir o link ainda não apaga nada. Clique em **Confirmar exclusão da conta**.
+7. Aparece "Exclusão agendada" para daqui a **30 dias**, e chega outro e-mail com um link para cancelar. Nesses 30 dias a conta
+   fica "dormindo": você não consegue entrar.
+8. **Mudou de ideia?** Clique no link "cancelar" do e-mail e depois em **Cancelar a exclusão**. Ou, na tela de login, digite
+   e-mail e senha e clique em **Cancelar exclusão e entrar**.
+9. Se você não fizer nada, no dia marcado a conta é desmontada de verdade e chega um último e-mail dizendo o que foi apagado,
+   o que foi anonimizado e o que ficou guardado.
+
+✅ O que você deve ver: senha errada mostra "Senha incorreta"; link velho ou já usado mostra "Link inválido ou expirado";
+depois de cancelar aparece "Exclusão cancelada" e você entra sem perder nada.
+
+⚠️ Para testar de verdade você precisa do banco arrumado (`npx prisma migrate deploy`, veja 1.3) e do `npm run dev`
+reiniciado. O despertador (`npm run dev:tick`) é quem faz a "desmontagem" no dia marcado. Os prazos de guarda (5 anos para
+pagamentos, 6 meses para registros de acesso) ainda precisam ser conferidos por um advogado antes de ir para o ar.
+
 ## Fase 3: e-mail (escolha UMA opção)
 
 ### 3.A Sem enviar nada de verdade (✅ JÁ CONFIGURADO neste ambiente)

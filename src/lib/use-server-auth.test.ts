@@ -20,6 +20,11 @@ const ALLOWLIST: Record<string, string> = {
   // por token (página pública /convite/[token]; o token é a prova de posse, rate limit por IP).
   signUpAndJoin: "src/lib/actions/org.ts",
   previewInvite: "src/lib/actions/org.ts",
+  // SPEC-054a: exclusao de conta — links publicos do e-mail (token = prova de posse) e "cancelar pelo login" (e-mail+senha).
+  previewAccountDeletionToken: "src/lib/actions/account-deletion.ts",
+  confirmAccountDeletion: "src/lib/actions/account-deletion.ts",
+  cancelAccountDeletionByToken: "src/lib/actions/account-deletion.ts",
+  cancelAccountDeletionWithPassword: "src/lib/actions/account-deletion.ts",
 };
 
 function walk(dir: string, out: string[] = []): string[] {
@@ -96,7 +101,7 @@ describe("estático: todo arquivo 'use server' exige sessão", () => {
     });
   }
 
-  it("allowlist só contém login/logout/forgotPassword/resetPassword de auth.ts, signUpAndStartCheckout de billing.ts e signUpAndJoin/previewInvite de org.ts", () => {
-    expect(Object.keys(ALLOWLIST).sort()).toEqual(["forgotPassword", "login", "logout", "previewInvite", "resetPassword", "signUpAndJoin", "signUpAndStartCheckout"]);
+  it("allowlist só contém login/logout/forgotPassword/resetPassword de auth.ts, signUpAndStartCheckout de billing.ts, signUpAndJoin/previewInvite de org.ts e as 4 actions publicas de account-deletion.ts (SPEC-054a)", () => {
+    expect(Object.keys(ALLOWLIST).sort()).toEqual(["cancelAccountDeletionByToken", "cancelAccountDeletionWithPassword", "confirmAccountDeletion", "forgotPassword", "login", "logout", "previewAccountDeletionToken", "previewInvite", "resetPassword", "signUpAndJoin", "signUpAndStartCheckout"]);
   });
 });

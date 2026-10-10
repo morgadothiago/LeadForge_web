@@ -7,6 +7,7 @@ import { getDummyHash, hashPassword, verifyPassword } from "@/lib/auth/password"
 import { getClientIpKey } from "@/lib/auth/client-ip";
 import { emailKey, isRateLimited, loginKey, recordFailure, resetFailures } from "@/lib/auth/rate-limit";
 import { newResetToken, hashResetToken, RESET_TOKEN_TTL_MS, forgotByEmailLimiter, forgotByIpLimiter } from "@/lib/auth/password-reset";
+import { getPendingDeletion } from "@/lib/account-deletion/service";
 import { safeNext } from "@/lib/auth/safe-redirect";
 import { homeRouteFor } from "@/lib/auth/require-user";
 import { loginSchema, forgotPasswordSchema, resetPasswordSchema, type LoginInput } from "@/lib/schemas/auth";
@@ -50,6 +51,20 @@ export async function login(input: LoginInput): Promise<ActionResult<{ redirectT
     if (!user || !user.passwordHash || !ok) {
       recordFailure(key, ek);
       return formError(INVALID);
+    }
+    // SPEC-054a (D-054-2): exclusao de conta confirmada e ainda na janela de 30 dias => conta bloqueada (sem sessao). So depois de
+    // validar a senha (nao revela estado a quem nao a conhece). O frontend oferece "Cancelar exclusao" (`cancelAccountDeletionWithPassword`).
+    const pending = await getPendingDeletion(user.id);
+    if (pending) {
+      resetFailures(key, ek);
+      return {
+        ok: false,
+        errors: {
+          _form: [`A exclusão desta conta está agendada para ${pending.scheduledFor.toLocaleDateString("pt-BR", { timeZone: "UTC" })}. Cancele a exclusão para voltar a usar a conta.`],
+          code: ["account_deletion_pending"],
+          scheduledFor: [pending.scheduledFor.toISOString()],
+        },
+      };
     }
     // SPEC-030: platform_admin nunca tem Membership (D-30-1); provider sem Membership é estado inconsistente (nunca deveria existir pós-migração) -> erro tratado, nunca sessão sem org.
     const platformRole = user.role === "platform_admin" ? "platform_admin" : "provider";
