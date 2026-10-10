@@ -34,3 +34,17 @@ describe("fromAddressForScenario (D-046-1)", () => {
     expect(fromAddressForScenario("password_reset", {})).toBe("no-reply@leadforge.local");
   });
 });
+
+describe("fromAddressForScenario — ACS (SPEC-048, D-048-5)", () => {
+  const env = { ACS_FROM_NOREPLY: "n@a.com", ACS_FROM_SUPPORT: "s@a.com", ACS_FROM_BILLING: "b@a.com", RESEND_FROM_NOREPLY: "r@x.com" };
+  it("provider acs usa ACS_FROM_* por cenário", () => {
+    expect(fromAddressForScenario("password_reset", env, "acs")).toBe("n@a.com");
+    expect(fromAddressForScenario("courtesy_welcome", env, "acs")).toBe("s@a.com");
+    expect(fromAddressForScenario("subscription_canceled", env, "acs")).toBe("b@a.com");
+  });
+  it("cenário sem ACS_FROM específico cai em ACS_FROM_NOREPLY; outros providers ignoram ACS_FROM_*", () => {
+    expect(fromAddressForScenario("billing_reminder", { ACS_FROM_NOREPLY: "n@a.com" }, "acs")).toBe("n@a.com");
+    expect(fromAddressForScenario("password_reset", env, "resend")).toBe("r@x.com");
+  });
+});
+

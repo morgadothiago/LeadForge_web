@@ -2,7 +2,7 @@ import type { Transporter } from "nodemailer";
 import { AppError } from "@/lib/errors";
 import { normalizeSmtpError } from "./smtp-errors";
 import type { HostResolver } from "./ssrf";
-import { getEmailProvider, resendConfigured, type EmailProvider } from "./email/provider";
+import { getEmailProviderChain, type EmailProvider } from "./email/provider";
 import { SmtpEmailProvider, type SmtpEmailProviderOptions } from "./email/providers/smtp";
 import { fromAddressForScenario, type EmailScenario } from "./email/scenario";
 
@@ -55,7 +55,7 @@ export function systemSmtpConfigured(): boolean {
 
 function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
   return new Promise<T>((resolve, reject) => {
-    const timer = setTimeout(() => reject(Object.assign(new Error("Resend: tempo de resposta excedido."), { code: "ETIMEDOUT" })), ms);
+    const timer = setTimeout(() => reject(Object.assign(new Error("E-mail: tempo de resposta excedido."), { code: "ETIMEDOUT" })), ms);
     promise.then(
       (v) => {
         clearTimeout(timer);
@@ -81,31 +81,25 @@ export async function sendSystemEmail(
   scenario: EmailScenario,
   opts: SendSystemEmailOptions = {},
 ): Promise<SendSystemEmailResult> {
-  const from = fromAddressForScenario(scenario);
-  const input = { to, subject, html: content.html, text: content.text, from };
   const smtpProvider =
     opts.fallbackProvider ?? new SmtpEmailProvider({ transport: opts.transport, createTransport: opts.createTransport, resolveHost: opts.resolveHost });
-  const primary = opts.primaryProvider ?? (resendConfigured() ? getEmailProvider() : smtpProvider);
+  // SPEC-048: cadeia primário -> ... -> SMTP. Teste com `primaryProvider` forçado: [primário, SMTP] (se o primário não for o SMTP).
+  const chain = opts.primaryProvider
+    ? opts.primaryProvider.name === "smtp"
+      ? [opts.primaryProvider]
+      : [opts.primaryProvider, smtpProvider]
+    : getEmailProviderChain(process.env, smtpProvider);
 
-  if (primary.name === "resend") {
+  let lastError: unknown;
+  for (const provider of chain) {
+    const input = { to, subject, html: content.html, text: content.text, from: fromAddressForScenario(scenario, process.env, provider.name) };
     try {
-      const result = await withTimeout(primary.send(input), opts.resendTimeoutMs ?? DEFAULT_RESEND_TIMEOUT_MS);
+      // D-046-2/D-048-1: timeout só nos providers HTTP; erro/timeout cai no próximo elo (aceito ≈ enviado, sem reenvio após aceite).
+      const result = provider.name === "smtp" ? await provider.send(input) : await withTimeout(provider.send(input), opts.resendTimeoutMs ?? DEFAULT_RESEND_TIMEOUT_MS);
       return { ok: true, messageId: result.messageId };
-    } catch {
-      // D-046-2: Resend falhou ou expirou — tenta o fallback SMTP antes de desistir.
-      try {
-        const info = await smtpProvider.send(input);
-        return { ok: true, messageId: info.messageId };
-      } catch (e2) {
-        return { ok: false, error: normalizeSmtpError(e2) };
-      }
+    } catch (e) {
+      lastError = e;
     }
   }
-
-  try {
-    const info = await primary.send(input);
-    return { ok: true, messageId: info.messageId };
-  } catch (e) {
-    return { ok: false, error: normalizeSmtpError(e) };
-  }
+  return { ok: false, error: normalizeSmtpError(lastError) };
 }
