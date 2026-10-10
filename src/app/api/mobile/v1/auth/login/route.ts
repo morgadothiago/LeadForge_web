@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { getDummyHash, verifyPassword } from "@/lib/auth/password";
-import { getClientIp } from "@/lib/auth/client-ip";
+import { getClientIpKey } from "@/lib/auth/client-ip";
 import { emailKey, isRateLimited, loginKey, recordFailure, resetFailures } from "@/lib/auth/rate-limit";
 import { mobileLoginSchema } from "@/lib/mobile/schemas";
 import { ACCESS_TTL_SECONDS, newRefreshToken, REFRESH_TTL_MS, signAccessToken } from "@/lib/mobile/token";
@@ -13,7 +13,7 @@ export async function POST(req: Request): Promise<Response> {
   const parsed = mobileLoginSchema.safeParse(await readJson(req));
   if (!parsed.success) return invalidInput();
   const { email, password, deviceName, platform, appVersion } = parsed.data;
-  const key = loginKey(email, getClientIp(req.headers));
+  const key = loginKey(email, getClientIpKey(req.headers));
   const ek = emailKey(email);
   if (isRateLimited(key, ek)) return tooMany(60);
 

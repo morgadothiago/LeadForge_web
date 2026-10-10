@@ -11,6 +11,7 @@ import { parseTheme, THEME_COOKIE_NAME } from "@/lib/theme-state";
 import { NotificationsProvider } from "@/components/notifications/NotificationsProvider";
 import { getNotificationSummary } from "@/lib/notifications/summary";
 import { EMPTY_SUMMARY } from "@/lib/notifications/client-types";
+import { listMyOrganizations } from "@/lib/actions/org";
 import { requireUser, UnauthorizedError, type CurrentUser } from "@/lib/auth/require-user";
 
 export const dynamic = "force-dynamic";
@@ -27,10 +28,13 @@ export default async function AppLayout({ children }: LayoutProps<"/">) {
   const defaultOpen = parseSidebarDefaultOpen(cookieStore.get("sidebar_state")?.value);
   const initialTheme = parseTheme(cookieStore.get(THEME_COOKIE_NAME)?.value);
   const summary = user.orgId ? await getNotificationSummary(user.orgId).catch(() => EMPTY_SUMMARY) : EMPTY_SUMMARY;
+  // SPEC-049b: orgs do usuário para o seletor (só provider; falha não derruba o layout — sem seletor).
+  const orgs = user.platformRole === "provider" && user.orgId ? await listMyOrganizations().catch(() => null) : null;
+  const organizations = orgs && orgs.ok ? orgs.data.organizations : [];
   return (
     <SidebarProvider defaultOpen={defaultOpen} className="h-svh min-h-0 overflow-hidden">
       <NotificationsProvider initial={summary}>
-      <AppSidebar user={{ name: user.name, email: user.email }} platformRole={user.platformRole} />
+      <AppSidebar user={{ name: user.name, email: user.email }} platformRole={user.platformRole} organizations={organizations} />
       <SidebarInset className="min-h-0 min-w-0 overflow-hidden">
         <Header user={{ name: user.name, email: user.email }} initialTheme={initialTheme} />
         <React.Suspense fallback={null}>

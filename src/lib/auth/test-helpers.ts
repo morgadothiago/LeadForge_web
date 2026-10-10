@@ -1,15 +1,25 @@
 // APENAS testes: jar de cookies/headers em memória usado pelo mock de next/headers (src/test/setup.ts).
 // requireUser() de produção não é alterado: os testes criam sessão real (JWT) via signInAs().
+import { AsyncLocalStorage } from "node:async_hooks";
 import { SESSION_COOKIE } from "./config";
 import { signSessionToken } from "./session-token";
 
 const jar = new Map<string, string>();
+/** Jar isolado por "requisição" simulada (permite Promise.all com sessões distintas). Ver `runWithSession`. */
+const requestJar = new AsyncLocalStorage<Map<string, string>>();
+const activeJar = () => requestJar.getStore() ?? jar;
 
 export const testCookies = {
-  get: (name: string) => (jar.has(name) ? { name, value: jar.get(name)! } : undefined),
-  set: (name: string, value: string) => void jar.set(name, value),
-  delete: (name: string) => void jar.delete(name),
+  get: (name: string) => (activeJar().has(name) ? { name, value: activeJar().get(name)! } : undefined),
+  set: (name: string, value: string) => void activeJar().set(name, value),
+  delete: (name: string) => void activeJar().delete(name),
 };
+
+/** APENAS testes: executa `fn` com uma sessão própria (JWT real) isolada do jar global — simula requisições concorrentes de usuários distintos. */
+export async function runWithSession<T>(userId: string, orgId: string, fn: () => Promise<T>): Promise<T> {
+  const token = await signSessionToken(userId, orgId, "provider");
+  return requestJar.run(new Map([[SESSION_COOKIE, token]]), fn);
+}
 
 export const testHeaders: { current: Headers } = { current: new Headers() };
 

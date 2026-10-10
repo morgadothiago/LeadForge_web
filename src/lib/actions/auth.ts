@@ -4,7 +4,7 @@ import { headers } from "next/headers";
 import { prisma } from "@/lib/prisma";
 import { createSession, destroySession } from "@/lib/auth/session";
 import { getDummyHash, hashPassword, verifyPassword } from "@/lib/auth/password";
-import { getClientIp } from "@/lib/auth/client-ip";
+import { getClientIpKey } from "@/lib/auth/client-ip";
 import { emailKey, isRateLimited, loginKey, recordFailure, resetFailures } from "@/lib/auth/rate-limit";
 import { newResetToken, hashResetToken, RESET_TOKEN_TTL_MS, forgotByEmailLimiter, forgotByIpLimiter } from "@/lib/auth/password-reset";
 import { safeNext } from "@/lib/auth/safe-redirect";
@@ -36,13 +36,14 @@ export async function login(input: LoginInput): Promise<ActionResult<{ redirectT
     const parsed = loginSchema.safeParse(input);
     if (!parsed.success) return { ok: false, errors: zodErrors(parsed.error) };
     const { email, password, next } = parsed.data;
-    const key = loginKey(email, getClientIp(await headers()));
+    const key = loginKey(email, getClientIpKey(await headers()));
     const ek = emailKey(email);
     if (isRateLimited(key, ek)) return formError("Muitas tentativas. Aguarde alguns minutos e tente novamente.");
 
     const user = await prisma.user.findUnique({
       where: { email },
-      select: { id: true, passwordHash: true, role: true, memberships: { select: { orgId: true }, take: 1 } },
+      // SPEC-049 (D-049-4): todas as orgs (ordem de entrada) — o login abre `lastOrgId` se ainda for membro, senão a primeira.
+      select: { id: true, passwordHash: true, role: true, lastOrgId: true, memberships: { select: { orgId: true }, orderBy: { createdAt: "asc" } } },
     });
     // Tempo constante: sempre executa um verify (contra hash dummy se não há usuário/senha).
     const ok = await verifyPassword(user?.passwordHash ?? (await getDummyHash()), password);
@@ -52,12 +53,13 @@ export async function login(input: LoginInput): Promise<ActionResult<{ redirectT
     }
     // SPEC-030: platform_admin nunca tem Membership (D-30-1); provider sem Membership é estado inconsistente (nunca deveria existir pós-migração) -> erro tratado, nunca sessão sem org.
     const platformRole = user.role === "platform_admin" ? "platform_admin" : "provider";
-    const orgId = user.memberships[0]?.orgId ?? null;
+    const orgId = user.memberships.find((m) => m.orgId === user.lastOrgId)?.orgId ?? user.memberships[0]?.orgId ?? null;
     if (platformRole === "provider" && !orgId) {
       recordFailure(key, ek);
       return formError("Conta sem organização associada. Contate o suporte.");
     }
     resetFailures(key, ek);
+    if (orgId && orgId !== user.lastOrgId) await prisma.user.update({ where: { id: user.id }, data: { lastOrgId: orgId } });
     await createSession(user.id, orgId, platformRole);
     return success({ redirectTo: safeNext(next, homeRouteFor(platformRole)) });
   });
@@ -86,7 +88,7 @@ export async function forgotPassword(input: unknown): Promise<ActionResult<{ mes
     const parsed = forgotPasswordSchema.safeParse(input);
     if (!parsed.success) return failure(zodErrors(parsed.error));
     const { email } = parsed.data;
-    const ip = getClientIp(await headers());
+    const ip = getClientIpKey(await headers());
 
     if (forgotByEmailLimiter.hit(`email:${email}`) > 0 || forgotByIpLimiter.hit(`ip:${ip}`) > 0) {
       return formError("Muitas tentativas. Aguarde alguns minutos e tente novamente.");

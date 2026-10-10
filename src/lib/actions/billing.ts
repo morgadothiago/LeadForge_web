@@ -6,7 +6,7 @@ import { prisma } from "@/lib/prisma";
 import { ForbiddenError, requireProviderOrg } from "@/lib/auth/require-admin";
 import { createSession } from "@/lib/auth/session";
 import { hashPassword } from "@/lib/auth/password";
-import { getClientIp } from "@/lib/auth/client-ip";
+import { getClientIpKey } from "@/lib/auth/client-ip";
 import { SlidingLimiter } from "@/lib/integrations/rate-limit";
 import { getPaymentProvider } from "@/lib/billing/provider-factory";
 import { TRIAL_DAYS } from "@/lib/billing/status-map";
@@ -87,7 +87,7 @@ async function uniqueSlug(base: string): Promise<string> {
  */
 export async function signUpAndStartCheckout(input: unknown): Promise<ActionResult<{ redirectTo: string }>> {
   return safeAction(async () => {
-    const ip = getClientIp(await headers());
+    const ip = getClientIpKey(await headers());
     const wait = signupLimiter.hit(ip);
     if (wait > 0) return formError(`Muitas tentativas. Tente novamente em ${wait}s.`);
 

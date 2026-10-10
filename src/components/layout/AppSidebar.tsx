@@ -2,7 +2,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import * as React from "react";
-import { ChevronsUpDown, LogOut } from "lucide-react";
+import { ChevronsUpDown, LogOut, Building2 } from "lucide-react";
 import { toast } from "sonner";
 import { getFormError } from "@/components/campaigns/form-utils";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
@@ -22,6 +22,8 @@ import {
 } from "@/components/ui/sidebar";
 import { useNotifications } from "@/components/notifications/NotificationsProvider";
 import { countFor, navNewText, navTooltip } from "@/lib/notifications/client-types";
+import { OrgSwitcher } from "@/components/org/OrgSwitcher";
+import type { MyOrganization } from "@/lib/actions/org";
 import { Logo } from "./Logo";
 import { ADMIN_NAV_ITEMS, NAV_ITEMS, isActivePath, type NavItem } from "./nav-items";
 
@@ -31,7 +33,7 @@ function initials(name: string) {
   return chars.toUpperCase();
 }
 
-function NavUser({ user }: { user: { name: string; email: string } }) {
+function NavUser({ user, showOrgs }: { user: { name: string; email: string }; showOrgs: boolean }) {
   const { isMobile } = useSidebar();
   const router = useRouter();
   const [pending, startTransition] = React.useTransition();
@@ -71,6 +73,12 @@ function NavUser({ user }: { user: { name: string; email: string } }) {
               </div>
             </div>
             <DropdownMenuSeparator />
+            {showOrgs && (
+              <DropdownMenuItem render={<Link href="/organizacoes" />}>
+                <Building2 aria-hidden="true" className="size-4" />
+                Minhas organizações
+              </DropdownMenuItem>
+            )}
             <DropdownMenuItem onClick={onLogout} disabled={pending} aria-busy={pending}>
               <LogOut aria-hidden="true" className="size-4" />
               {pending ? "Saindo..." : "Sair"}
@@ -82,7 +90,16 @@ function NavUser({ user }: { user: { name: string; email: string } }) {
   );
 }
 
-export function AppSidebar({ user, platformRole = "provider" }: { user: { name: string; email: string }; platformRole?: "provider" | "platform_admin" }) {
+export function AppSidebar({
+  user,
+  platformRole = "provider",
+  organizations = [],
+}: {
+  user: { name: string; email: string };
+  platformRole?: "provider" | "platform_admin";
+  /** SPEC-049b: orgs do usuário (só provider). O seletor só aparece com >1; vazio = sem seletor. */
+  organizations?: MyOrganization[];
+}) {
   const pathname = usePathname();
   const { setOpenMobile } = useSidebar();
   const { summary } = useNotifications();
@@ -101,6 +118,7 @@ export function AppSidebar({ user, platformRole = "provider" }: { user: { name: 
         >
           L
         </Link>
+        {platformRole === "provider" && <OrgSwitcher organizations={organizations} />}
       </SidebarHeader>
       <SidebarContent>
         <SidebarGroup className="p-3">
@@ -139,7 +157,7 @@ export function AppSidebar({ user, platformRole = "provider" }: { user: { name: 
         </SidebarGroup>
       </SidebarContent>
       <SidebarFooter className="border-t border-sidebar-border p-3 group-data-[collapsible=icon]:p-2">
-        <NavUser user={user} />
+        <NavUser user={user} showOrgs={platformRole === "provider"} />
       </SidebarFooter>
       <SidebarRail aria-label="Recolher ou expandir menu" title="Recolher ou expandir menu" />
     </Sidebar>

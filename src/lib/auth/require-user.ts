@@ -29,15 +29,27 @@ export class UnauthorizedError extends Error {
  * SPEC-038 (D-038-2): se `User.sessionsInvalidatedAt` for posterior ao `issuedAtMs` do token (sessão
  * emitida ANTES de uma redefinição de senha), trata como não autenticado — é assim que a sessão JWT
  * stateless (sem tabela de sessões pra revogar) é "encerrada" ao redefinir a senha.
+ * SPEC-049: a sessão de `provider` também é rejeitada se o usuário não tem mais `Membership` na org do token
+ * (removido/saiu) — a troca de org reemite o JWT (`switchActiveOrganization`).
  */
 export async function requireUser(): Promise<CurrentUser> {
   const session = await getSession();
   if (!session) throw new UnauthorizedError();
   const user = await prisma.user.findUnique({
     where: { id: session.userId },
-    select: { id: true, name: true, email: true, role: true, sessionsInvalidatedAt: true },
+    select: {
+      id: true,
+      name: true,
+      email: true,
+      role: true,
+      sessionsInvalidatedAt: true,
+      // SPEC-049 (D-049-5): a org ativa da sessão só vale enquanto o usuário ainda tem Membership nela.
+      memberships: { where: { orgId: session.orgId ?? "" }, select: { orgId: true }, take: 1 },
+    },
   });
   if (!user) throw new UnauthorizedError();
+  // Usuário removido da org (ou que saiu) perde a sessão dela imediatamente, sem esperar o JWT expirar.
+  if (session.platformRole === "provider" && session.orgId && user.memberships.length === 0) throw new UnauthorizedError();
   if (user.sessionsInvalidatedAt && session.issuedAtMs < user.sessionsInvalidatedAt.getTime()) {
     throw new UnauthorizedError();
   }
