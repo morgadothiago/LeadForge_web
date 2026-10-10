@@ -49,6 +49,15 @@ Fullstack = executa dev-backend primeiro, depois dev-frontend.
 | 045 | react-hook-form: Configuracoes, Integracoes, WhatsApp, Supressao, Admin, Billing | dev-frontend | 6 (SaaS) | APPROVED (usuario, 2026-09-27) | 042 |
 | 046 | E-mail transacional: Resend (fallback SMTP) + templates HTML + 2 cenarios novos (assinatura efetuada/cancelada) | dev-backend | 6 (SaaS) | IMPLEMENTED (2026-09-27; QA APPROVED) | 010,033,037,038,039,040 |
 | 047 | AbacatePay como adapter adicional de PaymentProvider (PIX/cartao) | dev-backend | 6 (SaaS) | IMPLEMENTED (2026-09-27; QA APPROVED) | 033 |
+| 048 | E-mail: Azure Communication Services (ACS) como provider | dev-backend | 8 (Azure/Criativos) | IMPLEMENTED (2026-10-09) | 046 |
+| 049 | Multi-tenant N:N: criar/entrar em orgs, convites, org ativa | fullstack (049a backend / 049b frontend) | 8 (Azure/Criativos) | IMPLEMENTED (049a backend + 049b frontend, 2026-10-10) | 030,033,034,038,046 |
+| 050 | Azure Blob Storage: abstracao, upload/listagem/remocao por org | dev-backend | 8 (Azure/Criativos) | IMPLEMENTED (2026-10-09) | 030,033 |
+| 051 | Criativos: videos de avatar com IA (provider abstraido, jobs, biblioteca) | fullstack (051a backend / 051b frontend) | 8 (Azure/Criativos) | IMPLEMENTED (aprovada 2026-10-10; 051a backend e 051b frontend IMPLEMENTED 2026-10-11) | 050,030,033,049 |
+| 052 | E-mails do ciclo de assinatura e cobranca (trial, ativacao, recibo, falha/regua, recuperacao, proxima cobranca, troca de plano) + infra `sendOnce` | dev-backend | 9 (E-mails transacionais) | DRAFT | 033,039,046,047,048 |
+| 053 | Cancelamento e reativacao da assinatura pela app + e-mails | fullstack | 9 (E-mails transacionais) | DRAFT | 033,047,052 |
+| 054 | Exclusao de conta/perfil (LGPD) com confirmacao por e-mail | fullstack | 9 (E-mails transacionais) | DRAFT | 033,049,052 |
+| 055 | E-mails de cadastro (boas-vindas), verificacao de e-mail e seguranca da conta | fullstack | 9 (E-mails transacionais) | DRAFT | 038,046,048,052 |
+| 056 | E-mails de organizacao para owners (entrou/saiu/removido/papel) | dev-backend | 9 (E-mails transacionais) | DRAFT | 049,052 |
 
 Ordem (sessao 2): 009,010,016 feitos -> 011 -> 012 -> 017 -> 013 -> 014 -> 015. Ordem sessao 1: 000 -> 001 -> 002 -> 003 -> 004 -> 005 -> 006 -> 007 -> 008 | 009 -> 010 -> 011 -> 012 -> 013 -> 014 -> 015.
 Nota: 004 (dashboard) fica antes de 005-008 por ordem do PROMPT; com poucos dados usa seed.
