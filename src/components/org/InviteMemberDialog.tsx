@@ -21,13 +21,19 @@ const ROLE_OPTIONS = [
 ];
 
 /** SPEC-049b — convite nominal por e-mail (owner). O servidor responde igual para qualquer e-mail (anti-enumeração): a UI só informa envio. */
-export function InviteMemberDialog() {
-  const [open, setOpen] = React.useState(false);
+export function InviteMemberDialog({ open: controlledOpen, onOpenChange, triggerLabel = "Convidar por e-mail", triggerVariant = "default", triggerSize = "default" }: { open?: boolean; onOpenChange?: (open: boolean) => void; triggerLabel?: string; triggerVariant?: "default" | "outline"; triggerSize?: "default" | "sm" }) {
+  const [innerOpen, setInnerOpen] = React.useState(false);
+  // D-049-17: modo controlado (sem botão próprio) usado pelo seletor da sidebar; sem `open`, comporta-se como antes.
+  const controlled = controlledOpen !== undefined;
+  const open = controlled ? controlledOpen : innerOpen;
+  const setOpen = controlled ? (onOpenChange ?? (() => {})) : setInnerOpen;
   return (
     <>
-      <Button onClick={() => setOpen(true)}>
-        <UserPlus aria-hidden="true" /> Convidar por e-mail
-      </Button>
+      {!controlled && (
+        <Button variant={triggerVariant} size={triggerSize} onClick={() => setOpen(true)}>
+          <UserPlus aria-hidden="true" /> {triggerLabel}
+        </Button>
+      )}
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="max-h-[90dvh] max-w-md overflow-y-auto">
           <DialogHeader>

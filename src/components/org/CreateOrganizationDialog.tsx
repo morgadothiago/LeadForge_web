@@ -23,13 +23,19 @@ export interface PlanOption {
 const FIELDS = ["name", "planKey"] as const;
 
 /** SPEC-049b — criar nova organização (D-049-3: trial próprio, plano self-service). Vira a org ativa; recarrega por completo. */
-export function CreateOrganizationDialog({ plans }: { plans: PlanOption[] }) {
-  const [open, setOpen] = React.useState(false);
+export function CreateOrganizationDialog({ plans, open: controlledOpen, onOpenChange }: { plans: PlanOption[]; open?: boolean; onOpenChange?: (open: boolean) => void }) {
+  const [innerOpen, setInnerOpen] = React.useState(false);
+  // D-049-16: modo controlado (sem botão próprio) usado pelo seletor da sidebar; sem `open`, comporta-se como antes.
+  const controlled = controlledOpen !== undefined;
+  const open = controlled ? controlledOpen : innerOpen;
+  const setOpen = controlled ? (onOpenChange ?? (() => {})) : setInnerOpen;
   return (
     <>
-      <Button onClick={() => setOpen(true)}>
-        <Plus aria-hidden="true" /> Nova organização
-      </Button>
+      {!controlled && (
+        <Button onClick={() => setOpen(true)}>
+          <Plus aria-hidden="true" /> Nova organização
+        </Button>
+      )}
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="max-h-[90dvh] max-w-md overflow-y-auto">
           <DialogHeader>

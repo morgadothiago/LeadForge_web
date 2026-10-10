@@ -22,6 +22,25 @@ export function orgStatusLabel(status: string): string {
   return ORG_STATUS_LABEL[status] ?? status;
 }
 
+/** Normaliza para busca: minúsculas, sem acento, espaços aparados. */
+export function normalizeSearch(s: string): string {
+  return s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
+}
+
+/** Filtra organizações por nome (case/acento-insensitive); consulta vazia devolve a lista inteira. */
+export function filterOrganizations<T extends { name: string }>(orgs: readonly T[], query: string): T[] {
+  const q = normalizeSearch(query);
+  if (!q) return [...orgs];
+  return orgs.filter((o) => normalizeSearch(o.name).includes(q));
+}
+
+/** Iniciais (até 2 letras) para o avatar da organização. */
+export function orgInitials(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  const chars = parts.length > 1 ? parts[0][0] + parts[1][0] : (parts[0] ?? "?").slice(0, 2);
+  return chars.toUpperCase();
+}
+
 const dateFmt = new Intl.DateTimeFormat("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric", timeZone: "America/Sao_Paulo" });
 const dateTimeFmt = new Intl.DateTimeFormat("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit", timeZone: "America/Sao_Paulo" });
 

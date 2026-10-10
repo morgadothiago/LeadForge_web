@@ -1,13 +1,15 @@
 "use client";
+import Link from "next/link";
 import * as React from "react";
 import { Building2, Check, LogOut } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { ConfirmDialog } from "@/components/campaigns/ConfirmDialog";
 import { getFormError } from "@/components/campaigns/form-utils";
 import { leaveOrganization, switchActiveOrganization, type MyOrganization } from "@/lib/actions/org";
+import { InviteMemberDialog } from "./InviteMemberDialog";
 import { CreateOrganizationDialog, type PlanOption } from "./CreateOrganizationDialog";
 import { orgStatusLabel, roleLabel } from "./org-format";
 
@@ -24,11 +26,11 @@ export function MyOrganizations({ organizations, plans }: { organizations: MyOrg
   const only = organizations.length <= 1;
   const active = organizations.find((o) => o.isActive);
 
-  async function onActivate(o: MyOrganization) {
+  async function onActivate(o: MyOrganization, goTo?: string) {
     setPendingId(o.orgId);
     const res = await switchActiveOrganization({ orgId: o.orgId });
     if (res.ok) {
-      window.location.assign(res.data.redirectTo);
+      window.location.assign(goTo ?? res.data.redirectTo);
       return;
     }
     setPendingId(null);
@@ -87,7 +89,21 @@ export function MyOrganizations({ organizations, plans }: { organizations: MyOrg
                       </div>
                     </div>
                   </div>
-                  <div className="flex shrink-0 gap-2">
+                  <div className="flex shrink-0 flex-wrap gap-2">
+                    {o.isActive && o.orgRole === "owner" && (
+                      <>
+                        {/* D-049-17: convidar age na org ATIVA (contrato do backend) — só na linha ativa. */}
+                        <InviteMemberDialog triggerLabel="Convidar" triggerVariant="outline" triggerSize="sm" />
+                        <Link href="/configuracoes/equipe" className={buttonVariants({ variant: "outline", size: "sm" })}>
+                          Equipe
+                        </Link>
+                      </>
+                    )}
+                    {!o.isActive && o.orgRole === "owner" && o.status !== "cancelled" && (
+                      <Button variant="outline" size="sm" onClick={() => onActivate(o, "/configuracoes/equipe")} disabled={pendingId !== null}>
+                        Gerenciar equipe
+                      </Button>
+                    )}
                     {o.isActive ? (
                       <Button variant="outline" size="sm" onClick={() => setLeaveOpen(true)} disabled={only} aria-describedby={only ? "leave-hint" : undefined}>
                         <LogOut aria-hidden="true" /> Sair

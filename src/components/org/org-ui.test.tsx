@@ -26,9 +26,20 @@ const orgs: MyOrganization[] = [
 ];
 
 describe("OrgSwitcher", () => {
-  it("não renderiza nada com 1 organização", () => {
+  it("com 1 organização também renderiza (D-049-16), para achar o Criar organização", () => {
     const html = renderToStaticMarkup(<SidebarProvider><OrgSwitcher organizations={[orgs[0]]} /></SidebarProvider>);
-    expect(html).not.toContain("Acme");
+    expect(html).toContain("Acme Ltda");
+    expect(html).toContain("Organização ativa: Acme Ltda. Trocar de organização");
+  });
+  it("owner ativo vê Convidar pessoas e Criar organização no menu; member não vê Convidar", () => {
+    const owner = renderToStaticMarkup(<SidebarProvider><OrgSwitcher organizations={orgs} /></SidebarProvider>);
+    expect(owner).toContain("Organização ativa: Acme Ltda");
+    const member = renderToStaticMarkup(<SidebarProvider><OrgSwitcher organizations={[{ ...orgs[0], orgRole: "member" }]} /></SidebarProvider>);
+    expect(member).toContain("Acme Ltda");
+    expect(member).not.toContain("Convidar");
+  });
+  it("sem organizações não renderiza", () => {
+    expect(renderToStaticMarkup(<SidebarProvider><OrgSwitcher organizations={[]} /></SidebarProvider>)).not.toContain("Organização ativa");
   });
   it("com 2+ mostra a org ativa e rótulo acessível", () => {
     const html = renderToStaticMarkup(<SidebarProvider><OrgSwitcher organizations={orgs} /></SidebarProvider>);
@@ -46,6 +57,19 @@ describe("MyOrganizations", () => {
     expect(html).toContain("Usar esta organização");
     expect(html).toContain("Nova organização");
     expect(html).not.toMatch(/<button[^>]*disabled[^>]*>\s*<svg[^>]*><[^>]*><\/svg>\s*Sair/);
+  });
+  it("owner: Convidar e Equipe só na linha ativa; Gerenciar equipe nas outras que é owner", () => {
+    const two = [orgs[0], { ...orgs[1], status: "active", orgRole: "owner" as const }];
+    const html = renderToStaticMarkup(<MyOrganizations organizations={two} plans={plans} />);
+    expect((html.match(/Convidar/g) ?? []).length).toBe(1);
+    expect(html).toContain('href="/configuracoes/equipe"');
+    expect(html).toContain("Gerenciar equipe");
+  });
+  it("member: sem Convidar/Equipe/Gerenciar equipe", () => {
+    const html = renderToStaticMarkup(<MyOrganizations organizations={[{ ...orgs[0], orgRole: "member" }, orgs[1]]} plans={plans} />);
+    expect(html).not.toContain("Convidar");
+    expect(html).not.toContain("Gerenciar equipe");
+    expect(html).not.toContain("/configuracoes/equipe");
   });
   it("org única: Sair desabilitado + explicação", () => {
     const html = renderToStaticMarkup(<MyOrganizations organizations={[orgs[0]]} plans={plans} />);

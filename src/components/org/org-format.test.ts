@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, expect, it, vi } from "vitest";
-import { applyServerErrors, countOwners, formatDate, joinCodeState, joinCodeSummary, parseJoinInput, roleLabel, safeInternalPath } from "./org-format";
+import { filterOrganizations, orgInitials, applyServerErrors, countOwners, formatDate, joinCodeState, joinCodeSummary, parseJoinInput, roleLabel, safeInternalPath } from "./org-format";
 import { confirmCopy } from "./TeamPanel";
 import { inviteSignupFormSchema, joinCodeFormSchema, signupJoinFormSchema } from "@/lib/schemas/org";
 
@@ -51,5 +51,25 @@ describe("org-format (SPEC-049b)", () => {
     expect(joinCodeFormSchema.safeParse({ expiresInDays: "7", maxUses: "10" }).data).toEqual({ expiresInDays: 7, maxUses: 10 });
     expect(joinCodeFormSchema.safeParse({ expiresInDays: "31", maxUses: "10" }).success).toBe(false);
     expect(joinCodeFormSchema.safeParse({ expiresInDays: "7", maxUses: "0" }).success).toBe(false);
+  });
+});
+
+describe("filterOrganizations / orgInitials (SPEC-049b, D-049-16)", () => {
+  const list = [{ name: "Coest Studio" }, { name: "Thiago's Account" }, { name: "Ação Ltda" }];
+  it("vazio devolve tudo", () => {
+    expect(filterOrganizations(list, "  ")).toHaveLength(3);
+  });
+  it("case e acento-insensitive", () => {
+    expect(filterOrganizations(list, "COEST").map((o) => o.name)).toEqual(["Coest Studio"]);
+    expect(filterOrganizations(list, "acao").map((o) => o.name)).toEqual(["Ação Ltda"]);
+    expect(filterOrganizations(list, "açã").map((o) => o.name)).toEqual(["Ação Ltda"]);
+  });
+  it("sem resultado", () => {
+    expect(filterOrganizations(list, "zzz")).toEqual([]);
+  });
+  it("iniciais", () => {
+    expect(orgInitials("Coest Studio")).toBe("CS");
+    expect(orgInitials("acme")).toBe("AC");
+    expect(orgInitials("")).toBe("?");
   });
 });
