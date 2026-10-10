@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const p = vi.hoisted(() => ({
   campaign: { findUnique: vi.fn(), findMany: vi.fn() },
-  searchRun: { findMany: vi.fn(), count: vi.fn(), create: vi.fn(), update: vi.fn() },
+  searchRun: { findMany: vi.fn(), findFirst: vi.fn(), updateMany: vi.fn(), count: vi.fn(), create: vi.fn(), update: vi.fn() },
   lead: { update: vi.fn(), findFirst: vi.fn() },
   $executeRaw: vi.fn(),
   $transaction: vi.fn(),
@@ -13,7 +13,7 @@ const processItem = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/lead-ingest/handler", () => ({ processItem }));
 vi.mock("@/lib/integrations/config", () => ({ findIntegrationConfig: vi.fn(async () => null) }));
 
-import { runLeadSearch, runDailySearch } from "./run";
+import { runLeadSearch, runDailySearch, startLeadSearch } from "./run";
 import type { LeadSource } from "./types";
 
 const raw = (id: string, phone: string | null) => ({ externalId: id, name: id, company: id, phone, email: null, website: null, address: null, rating: 4, ratingCount: 10 });
@@ -25,9 +25,12 @@ beforeEach(() => {
   p.campaign.findUnique.mockResolvedValue({ id: "c", status: "active", icp: { niche: "x", location: null, keywords: [] } });
   p.searchRun.findMany.mockResolvedValue([]);
   p.searchRun.count.mockResolvedValue(0);
+  p.searchRun.findFirst.mockResolvedValue(null);
+  p.searchRun.updateMany.mockResolvedValue({ count: 0 });
   p.searchRun.create.mockResolvedValue({ id: "r1" });
   p.lead.findFirst.mockResolvedValue(null);
   p.lead.update.mockResolvedValue({});
+  p.searchRun.update.mockResolvedValue({});
   p.$transaction.mockImplementation(async (cb: (t: unknown) => unknown) => cb(p));
 });
 
@@ -40,13 +43,17 @@ describe("runLeadSearch", () => {
   it("sem chave places => erro de configuracao", async () => {
     await expect(runLeadSearch("c")).rejects.toMatchObject({ code: "config" });
   });
-  it("respeita orcamento diario", async () => {
-    p.searchRun.findMany.mockResolvedValue([{ status: "done", requests: 3 }]);
+  it("respeita teto manual da campanha (2/dia por padrao)", async () => {
+    p.searchRun.findMany.mockResolvedValue([{ trigger: "manual", status: "done", requests: 2 }]);
     await expect(runLeadSearch("c", { source: source([]) })).rejects.toMatchObject({ code: "rate_limited" });
     expect(p.searchRun.create.mock.calls[0]![0].data).toMatchObject({ status: "blocked" });
   });
+  it("teto manual nao consome do teto diario: diaria so conta agendadas", async () => {
+    p.searchRun.findMany.mockResolvedValue([{ trigger: "manual", status: "done", requests: 2 }]);
+    await expect(runLeadSearch("c", { trigger: "scheduled", source: source([]) })).resolves.toMatchObject({ runId: "r1" });
+  });
   it("agendado bloqueado nao grava run", async () => {
-    p.searchRun.findMany.mockResolvedValue([{ status: "done", requests: 3 }]);
+    p.searchRun.findMany.mockResolvedValue([{ trigger: "scheduled", status: "done", requests: 3 }]);
     await expect(runLeadSearch("c", { trigger: "scheduled", source: source([]) })).rejects.toMatchObject({ code: "rate_limited" });
     expect(p.searchRun.create).not.toHaveBeenCalled();
   });
@@ -81,6 +88,58 @@ describe("runLeadSearch", () => {
     const s: LeadSource = { id: "google_places", search: vi.fn(async () => { throw new Error("x"); }) };
     await expect(runLeadSearch("c", { source: s })).rejects.toThrow();
     expect(p.searchRun.update.mock.calls[0]![0].data.status).toBe("failed");
+  });
+});
+
+describe("SPEC-058 reserve", () => {
+  it("texto de desligada nao cita env var", async () => {
+    delete process.env.LEAD_SEARCH_ENABLED;
+    await expect(runLeadSearch("c", { source: source([]) })).rejects.toThrow(/indisponível no momento, fale com o suporte/);
+    expect(p.searchRun.create.mock.calls[0]![0].data.error).not.toMatch(/LEAD_SEARCH/);
+  });
+  it("teto da org (manual + diaria) bloqueia o manual e grava blocked sem chamar a fonte", async () => {
+    p.searchRun.findMany
+      .mockResolvedValueOnce([]) // campanha
+      .mockResolvedValueOnce(Array.from({ length: 10 }, () => ({ trigger: "scheduled", status: "done", requests: 1 }))); // org
+    const s = source([]);
+    await expect(runLeadSearch("c", { source: s })).rejects.toMatchObject({ code: "rate_limited", userMessage: expect.stringContaining("organização") });
+    expect(s.search).not.toHaveBeenCalled();
+    expect(p.searchRun.create.mock.calls[0]![0].data).toMatchObject({ status: "blocked" });
+  });
+  it("manual com manual running: devolve o runId em andamento, sem criar run nem chamar a fonte", async () => {
+    p.searchRun.findFirst.mockResolvedValue({ id: "run-ativo", trigger: "manual" });
+    const s = source([]);
+    await expect(startLeadSearch("c", { source: s })).resolves.toEqual({ inProgress: "run-ativo" });
+    expect(s.search).not.toHaveBeenCalled();
+    expect(p.searchRun.create).not.toHaveBeenCalled();
+  });
+  it("manual com diaria running: erro PT-BR 'Ja existe uma busca em andamento'", async () => {
+    p.searchRun.findFirst.mockResolvedValue({ id: "d", trigger: "scheduled" });
+    await expect(runLeadSearch("c", { source: source([]) })).rejects.toMatchObject({ code: "conflict", userMessage: expect.stringContaining("em andamento") });
+    expect(p.searchRun.create).not.toHaveBeenCalled();
+  });
+  it("diaria com run running: pula sem consumir", async () => {
+    p.searchRun.findFirst.mockResolvedValue({ id: "m", trigger: "manual" });
+    p.campaign.findMany.mockResolvedValue([{ id: "c" }]);
+    expect(await runDailySearch({ source: source([]) })).toEqual([]);
+    expect(p.searchRun.create).not.toHaveBeenCalled();
+  });
+  it("marca como failed (cobrando 1) runs running mais antigos que 10 min", async () => {
+    await runLeadSearch("c", { source: source([]) });
+    const a = p.searchRun.updateMany.mock.calls[0]![0];
+    expect(a.where).toMatchObject({ campaignId: "c", status: "running" });
+    expect(Date.now() - a.where.startedAt.lt.getTime()).toBeGreaterThanOrEqual(10 * 60_000 - 1000);
+    expect(a.data).toMatchObject({ status: "failed", requests: 1, error: "Execução interrompida." });
+  });
+  it("estourar o prazo total vira run failed com mensagem PT-BR (fonte ignora o signal)", async () => {
+    const s: LeadSource = { id: "google_places", search: vi.fn(() => new Promise<never>(() => undefined)) };
+    await expect(runLeadSearch("c", { source: s, timeoutMs: 20 })).rejects.toMatchObject({ code: "timeout", userMessage: expect.stringContaining("tempo limite") });
+    expect(p.searchRun.update.mock.calls[0]![0].data).toMatchObject({ status: "failed", requests: 1, error: expect.stringContaining("tempo limite") });
+  });
+  it("passa o AbortSignal para a fonte", async () => {
+    const s = source([]);
+    await runLeadSearch("c", { source: s, timeoutMs: 5000 });
+    expect(vi.mocked(s.search).mock.calls[0]![2]).toBeInstanceOf(AbortSignal);
   });
 });
 

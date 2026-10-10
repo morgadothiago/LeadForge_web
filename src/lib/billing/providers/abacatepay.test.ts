@@ -151,6 +151,23 @@ describe("AbacatePayPaymentProvider (SPEC-047)", () => {
       expect(evt?.currentPeriodEnd).toEqual(new Date("2026-10-27T12:00:00Z"));
     });
 
+    it("SPEC-052a: transparent.completed enriquece o evento (amount, paidAt, metodo pix, id do pagamento)", () => {
+      const evt = p.parseWebhookEvent(JSON.stringify({
+        id: "evt_6", event: "transparent.completed",
+        data: { id: "pix_2", amount: 9900, paidAt: "2026-09-27T11:00:00Z", metadata: { orgId: org.orgId, planKey: "starter", cadence: "monthly" } },
+      }));
+      expect(evt).toMatchObject({ amountCents: 9900, paymentMethod: "pix", cardLast4: null, externalPaymentId: "pix_2", paidAt: new Date("2026-09-27T11:00:00Z") });
+    });
+
+    it("SPEC-052a: subscription.renewed (cartao) extrai so os 4 ultimos digitos; sem dados -> amountCents null e paidAt = agora", () => {
+      const withCard = p.parseWebhookEvent(JSON.stringify({
+        id: "evt_7", event: "subscription.renewed",
+        data: { id: "sub_9", card: { lastDigits: "4111111111114242" }, metadata: { orgId: org.orgId, planKey: "starter", cadence: "monthly" } },
+      }));
+      expect(withCard).toMatchObject({ paymentMethod: "card", cardLast4: "4242", amountCents: null });
+      expect(withCard?.paidAt).toEqual(new Date("2026-09-27T12:00:00Z"));
+    });
+
     it("transparent.completed (PIX pago) -> subscription.updated / status active, currentPeriodEnd = agora + 1 ciclo", () => {
       const evt = p.parseWebhookEvent(JSON.stringify({
         id: "evt_5", event: "transparent.completed",

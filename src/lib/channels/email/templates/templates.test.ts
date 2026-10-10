@@ -4,6 +4,12 @@ import { courtesyWelcomeTemplate } from "./courtesy-welcome";
 import { billingReminderTemplate } from "./billing-reminder";
 import { subscriptionSuccessTemplate } from "./subscription-success";
 import { subscriptionCanceledTemplate } from "./subscription-canceled";
+import { trialStartedTemplate } from "./trial-started";
+import { paymentReceiptTemplate } from "./payment-receipt";
+import { paymentFailedTemplate } from "./payment-failed";
+import { paymentRecoveredTemplate } from "./payment-recovered";
+import { renewalUpcomingTemplate } from "./renewal-upcoming";
+import { planChangedTemplate } from "./plan-changed";
 
 /**
  * SPEC-046 — cobre os 5 templates gerando `{subject, html, text}` a partir do mesmo dado. Verifica
@@ -61,7 +67,6 @@ describe("subscriptionSuccessTemplate (NOVO, SPEC-046)", () => {
     const { subject, html, text } = subscriptionSuccessTemplate({
       planName: "Starter",
       amountCents: 29_700,
-      status: "active",
       nextBillingDate,
     });
     expect(subject).toMatch(/[Aa]ssinatura/);
@@ -71,14 +76,8 @@ describe("subscriptionSuccessTemplate (NOVO, SPEC-046)", () => {
     expect(text).toContain("297,00");
   });
 
-  it("status trialing: sem cobrança ainda, mensagem de início de teste", () => {
-    const { subject, text } = subscriptionSuccessTemplate({ planName: "Pro", amountCents: null, status: "trialing", nextBillingDate: null });
-    expect(subject).toMatch(/teste/i);
-    expect(text).not.toMatch(/R\$/);
-  });
-
   it("escapa nome de plano com caracteres especiais (defesa em profundidade)", () => {
-    const { html } = subscriptionSuccessTemplate({ planName: '<script>alert(1)</script>', amountCents: 100, status: "active", nextBillingDate: null });
+    const { html } = subscriptionSuccessTemplate({ planName: '<script>alert(1)</script>', amountCents: 100, nextBillingDate: null });
     expect(html).not.toContain("<script>");
     expect(html).toContain("&lt;script&gt;");
   });
@@ -99,5 +98,62 @@ describe("subscriptionCanceledTemplate (NOVO, SPEC-046)", () => {
   it("accessUntil null: mensagem de encerramento imediato", () => {
     const { text } = subscriptionCanceledTemplate({ planName: "Starter", accessUntil: null, purgeDate: new Date("2026-06-01T00:00:00Z") });
     expect(text).toMatch(/encerrado imediatamente/i);
+  });
+});
+
+describe("trialStartedTemplate (SPEC-052a)", () => {
+  it("assunto, data de fim do teste, link absoluto e escape", () => {
+    const { subject, html, text } = trialStartedTemplate({ planName: "<b>Pro</b>", trialEndsAt: new Date("2026-03-15T00:00:00Z"), link: "https://app.x.com/dashboard" });
+    expect(subject).toBe("Seu teste do plano <b>Pro</b> começou — LeadForge");
+    expect(text).toContain("15 de março de 2026");
+    expect(text).toContain("https://app.x.com/dashboard");
+    expect(html).not.toContain("<b>Pro</b>");
+    expect(html).toContain("https://app.x.com/dashboard");
+  });
+});
+
+describe("paymentReceiptTemplate (SPEC-052a)", () => {
+  const base = { planName: "Starter", amountCents: 29_700, paidAt: new Date("2026-03-01T00:00:00Z"), periodStart: new Date("2026-03-01T00:00:00Z"), periodEnd: new Date("2026-03-31T00:00:00Z"), link: "https://app.x.com/configuracoes/assinatura" };
+  it("cartao: valor, data, final, periodo, pedido e rodape 'nao e nota fiscal'", () => {
+    const { subject, html, text } = paymentReceiptTemplate({ ...base, paymentMethod: "card", cardLast4: "4242", orderId: "pay_1" });
+    expect(subject).toMatch(/Recibo/);
+    for (const part of ["297,00", "1 de março de 2026", "Cartão final 4242", "31 de março de 2026", "pay_1", "não é nota fiscal", base.link]) expect(text).toContain(part);
+    expect(html).toContain("não é nota fiscal");
+  });
+  it("PIX sem pedido: omite a linha de pedido", () => {
+    const { text } = paymentReceiptTemplate({ ...base, paymentMethod: "pix" });
+    expect(text).toContain("PIX");
+    expect(text).not.toContain("Nº do pedido");
+  });
+  it("nunca exibe numero de cartao alem de 4 digitos", () => {
+    const { text, html } = paymentReceiptTemplate({ ...base, paymentMethod: "card", cardLast4: "4111111111111111" });
+    expect(text).not.toContain("4111111111111111");
+    expect(html).not.toContain("4111111111111111");
+    expect(text).toContain("Cartão");
+  });
+});
+
+describe("templates SPEC-052b", () => {
+  const link = "https://app.x.com/configuracoes/assinatura";
+  it("paymentFailed: assunto por passo, D+7 = ultimo aviso, link absoluto, so 4 digitos", () => {
+    const base = { planName: "Starter", amountCents: 9900, suspendDate: new Date("2026-03-08T00:00:00Z"), link };
+    expect(paymentFailedTemplate({ ...base, step: "d0" }).subject).toMatch(/processar seu pagamento/);
+    expect(paymentFailedTemplate({ ...base, step: "d3" }).subject).toMatch(/Lembrete/);
+    expect(paymentFailedTemplate({ ...base, step: "d5" }).subject).toMatch(/continua pendente/);
+    const d7 = paymentFailedTemplate({ ...base, step: "d7", paymentMethod: "card", cardLast4: "4242" });
+    expect(d7.subject).toMatch(/Último aviso/);
+    for (const c of [d7.html, d7.text]) { expect(c).toContain(link); expect(c).toContain("99,00"); expect(c).toContain("final 4242"); }
+    expect(paymentFailedTemplate({ ...base, step: "d0", paymentMethod: "card", cardLast4: "4111111111111111" }).text).not.toContain("4111111111111111");
+    expect(paymentFailedTemplate({ ...base, step: "d0", amountCents: null }).text).not.toContain("Valor");
+  });
+  it("paymentRecovered / renewalUpcoming / planChanged: conteudo essencial e escape", () => {
+    const r = paymentRecoveredTemplate({ planName: "<b>X</b>", nextBillingDate: new Date("2026-04-01T00:00:00Z"), link: "https://app.x.com/dashboard" });
+    expect(r.html).not.toContain("<b>X</b>");
+    expect(r.text).toContain("https://app.x.com/dashboard");
+    const u = renewalUpcomingTemplate({ planName: "Pro", amountCents: 120000, renewalDate: new Date("2026-04-01T00:00:00Z"), cadence: "yearly", paymentMethod: "pix", link });
+    expect(u.text).toContain("anual"); expect(u.text).toContain("PIX"); expect(u.html).toContain(link);
+    const p = planChangedTemplate({ previousPlanName: "Starter", planName: "Pro", cadence: "monthly", amountCents: 19900, nextBillingDate: new Date("2026-04-01T00:00:00Z"), link });
+    expect(p.subject).toContain("Pro"); expect(p.text).toContain("de Starter para Pro"); expect(p.html).toContain(link);
+    expect(planChangedTemplate({ previousPlanName: null, planName: "Pro", cadence: "yearly", amountCents: null, nextBillingDate: null, link }).text).toContain("alterado para Pro");
   });
 });

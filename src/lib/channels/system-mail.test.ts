@@ -186,3 +186,29 @@ describe("sendSystemEmail — com RESEND_API_KEY (Resend primário, fallback SMT
     });
   });
 });
+
+describe("sendSystemEmail — ACS primário (SPEC-048)", () => {
+  const CHAIN_ENV = { EMAIL_PROVIDER: "acs", AZURE_COMMUNICATION_CONNECTION_STRING: "endpoint=https://x/;accesskey=SEGREDO", ACS_FROM_NOREPLY: "n@acs.com" };
+
+  it("ACS ok: usa remetente ACS e não toca o fallback", async () => {
+    const seen: string[] = [];
+    const acs: EmailProvider = { name: "acs", send: async (i) => (seen.push(i.from), { messageId: "acs-1" }) };
+    const smtp: EmailProvider = { name: "smtp", send: async () => { throw new Error("não deveria"); } };
+    Object.assign(process.env, CHAIN_ENV);
+    try {
+      const r = await sendSystemEmail("a@b.com", "s", CONTENT, "password_reset", { primaryProvider: acs, fallbackProvider: smtp });
+      expect(r).toEqual({ ok: true, messageId: "acs-1" });
+      expect(seen).toEqual(["n@acs.com"]);
+    } finally {
+      for (const k of Object.keys(CHAIN_ENV)) delete process.env[k];
+    }
+  });
+
+  it("ACS falha/expira: cai no SMTP sem lançar", async () => {
+    const smtp: EmailProvider = { name: "smtp", send: async () => ({ messageId: "smtp-1" }) };
+    const boom: EmailProvider = { name: "acs", send: async () => { throw new Error("acs down"); } };
+    const hang: EmailProvider = { name: "acs", send: () => new Promise(() => {}) };
+    await expect(sendSystemEmail("a@b.com", "s", CONTENT, "password_reset", { primaryProvider: boom, fallbackProvider: smtp })).resolves.toEqual({ ok: true, messageId: "smtp-1" });
+    await expect(sendSystemEmail("a@b.com", "s", CONTENT, "password_reset", { primaryProvider: hang, fallbackProvider: smtp, resendTimeoutMs: 20 })).resolves.toEqual({ ok: true, messageId: "smtp-1" });
+  });
+});

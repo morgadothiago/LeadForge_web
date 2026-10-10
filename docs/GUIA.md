@@ -115,7 +115,7 @@ Confira tambem os comentarios em `.env.example`. "Obrigatoria" significa: sem el
 | `APP_BASE_URL` | Opcional (obrigatoria para webhook/descadastro reais) | URL publica do app. Monta o webhook da Evolution (`{APP_BASE_URL}/api/webhooks/whatsapp/{token}`, precisa ser alcancavel pela Evolution) e o link de descadastro. Default: `AUTH_URL` |
 | `ADMIN_EMAIL` | Recomendada | E-mail do admin criado pelo seed |
 | `ADMIN_PASSWORD` | Recomendada | Senha do admin (12+ chars). Se ausente, o seed pula a criacao do admin com aviso e voce nao consegue logar |
-| `TRUSTED_PROXY_IP_HEADER` | Opcional | Atras de proxy/CDN, o cabecalho de IP que ele sobrescreve (`x-real-ip`, `cf-connecting-ip`). Sem ele, o limite de tentativas e por e-mail/token, nao por IP |
+| `TRUSTED_PROXY_IP_HEADER` | **Obrigatória em produção** (SPEC-049) | Atras de proxy/CDN, o cabecalho de IP que ele sobrescreve (`x-real-ip`, `cf-connecting-ip`). Sem ele, o limite de tentativas e por e-mail/token, nao por IP |
 | `ALLOW_PRIVATE_SMTP_HOSTS` | Opcional | `true` so em dev/SMTP interno (ex.: Mailpit local). Default false: hosts que resolvem para rede interna sao bloqueados (anti-SSRF) |
 | `ENCRYPTION_KEY` | Sim para e-mail e chaves do painel | 32 bytes base64. Cifra senhas SMTP e chaves de integracao (AES-256-GCM) e assina o link de descadastro. Trocar invalida senhas gravadas e links emitidos; para rotacionar use `npm run secrets:reencrypt` |
 | `OLD_ENCRYPTION_KEY`, `NEW_ENCRYPTION_KEY` | So na rotacao | Usadas por `npm run secrets:reencrypt`. Uso pontual; nao deixe salvas |
@@ -177,7 +177,7 @@ npm run lint
 - `npm run test:db:reset` recria o banco de teste do zero (drop, create, migrate, seed). Use se ele ficar sujo.
 - Rode uma execucao de testes por vez: duas simultaneas colidem no mesmo banco de teste (secao 5).
 
-Outros scripts: `npm run tick` (uma rodada do scheduler), `npm run secrets:reencrypt` (rotacao da `ENCRYPTION_KEY`), `npm run build` / `npm start` (producao; rode `build` com o dev server desligado, pois usam a mesma pasta `.next`).
+Outros scripts: `npm run tick` (uma rodada do scheduler + criativos), `npm run dev:tick` (loop de dev que chama `/api/cron/tick` a cada 15 s), `npm run secrets:reencrypt` (rotacao da `ENCRYPTION_KEY`), `npm run build` / `npm start` (producao; rode `build` com o dev server desligado, pois usam a mesma pasta `.next`).
 
 ---
 
@@ -251,6 +251,14 @@ Tres papeis: SDR (1o toque), Follow-up (lembretes) e Closer (conversa apos a res
 ### 3.7 Busca de leads por Google Places (SPEC-015)
 
 Desligada por padrao. Para ligar: `LEAD_SEARCH_ENABLED=true` e a chave `places` em Configuracoes > Integracoes. Usa so a API oficial (Text Search), sem scraping. Tetos: `LEAD_SEARCH_MAX_RESULTS`, `LEAD_SEARCH_DAILY_MAX_REQUESTS`. Resultados entram deduplicados e passam pela supressao. Base legal: interesse legitimo B2B, so contatos de cadastro publico de empresas.
+
+**Buscar agora (SPEC-058a, backend):** a busca manual da campanha (`/campanhas/[id]`) so pode ser disparada pelo **owner** da organizacao; membro comum apenas ve o historico. Regras de custo e concorrencia:
+
+- **Tetos separados da busca diaria:** `LEAD_SEARCH_MANUAL_DAILY_MAX_REQUESTS` (padrao 2, teto 20) buscas manuais por campanha por dia e `LEAD_SEARCH_ORG_DAILY_MAX_REQUESTS` (padrao 10, teto 200) chamadas pagas por organizacao por dia (manual + diaria somadas, valido para disparos manuais). A diaria continua com `LEAD_SEARCH_DAILY_MAX_REQUESTS` so sobre as agendadas. Cada busca = 1 chamada Places Text Search; o preco depende do seu plano Google. Buscas bloqueadas nao consomem teto.
+- **Uma busca por campanha por vez:** duplo clique/retry devolve a busca em andamento (sem nova chamada paga); manual durante a diaria e recusado ("Ja existe uma busca em andamento"); a diaria pula se houver busca rodando. Busca "rodando" ha mais de 10 min e considerada interrompida, vira falha e libera o teto (cobrando 1 chamada).
+- **Execucao sincrona** com prazo total de 45 s (pagina com `maxDuration = 60`); estourar o prazo grava a busca como falha ("tempo limite"). O estado "rodando" fica salvo no banco e pode ser consultado por polling (`getSearchRunStatus`), inclusive apos recarregar a pagina.
+- Se a busca estiver desligada no servidor, a mensagem ao usuario e "indisponivel no momento, fale com o suporte" (a flag so e visivel ao operador).
+- Limitacao: o limitador de rajada por usuario (5 buscas/10 min) e em memoria por processo e nao vale entre instancias; a barreira real e o orcamento persistido no banco + lock por campanha. Repetir a busca tende a devolver os mesmos ~20 resultados (duplicados): paginacao fica para outra SPEC.
 
 ### 3.8 Chaves de API pelo painel (SPEC-018)
 

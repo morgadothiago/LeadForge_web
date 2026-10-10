@@ -16,6 +16,10 @@ const ALLOWLIST: Record<string, string> = {
   // SPEC-038: "esqueci/redefinir senha" — o usuário, por definição, ainda não tem sessão (ou a perdeu).
   forgotPassword: "src/lib/actions/auth.ts",
   resetPassword: "src/lib/actions/auth.ts",
+  // SPEC-049: signup via convite/código (cria a própria sessão, como login/signup) e pré-visualização do convite
+  // por token (página pública /convite/[token]; o token é a prova de posse, rate limit por IP).
+  signUpAndJoin: "src/lib/actions/org.ts",
+  previewInvite: "src/lib/actions/org.ts",
 };
 
 function walk(dir: string, out: string[] = []): string[] {
@@ -62,7 +66,8 @@ function allAsyncFns(src: string): Fn[] {
  * `requireUser()` por dentro — são "exige sessão" tanto quanto a chamada direta, só que também exigem
  * org/papel de plataforma. O grep original só procurava `requireUser(` literal.
  */
-const SESSION_GUARD_RE = /\brequireUser\s*\(|\brequireProviderOrg\s*\(|\brequireActiveProviderOrg\s*\(|\brequirePlatformAdmin\s*\(/;
+// SPEC-049: `requireOrgMember()`/`requireOrgOwner()` (`src/lib/org/guards.ts`) chamam `requireProviderOrg()` por dentro.
+const SESSION_GUARD_RE = /\brequireUser\s*\(|\brequireOrgMember\s*\(|\brequireOrgOwner\s*\(|\brequireProviderOrg\s*\(|\brequireActiveProviderOrg\s*\(|\brequirePlatformAdmin\s*\(/;
 
 // Funções de queries/actions (exportadas ou helpers locais como setStatus) que exigem sessão (delegáveis).
 const guarded = new Set<string>();
@@ -91,7 +96,7 @@ describe("estático: todo arquivo 'use server' exige sessão", () => {
     });
   }
 
-  it("allowlist só contém login/logout/forgotPassword/resetPassword de auth.ts e signUpAndStartCheckout de billing.ts", () => {
-    expect(Object.keys(ALLOWLIST).sort()).toEqual(["forgotPassword", "login", "logout", "resetPassword", "signUpAndStartCheckout"]);
+  it("allowlist só contém login/logout/forgotPassword/resetPassword de auth.ts, signUpAndStartCheckout de billing.ts e signUpAndJoin/previewInvite de org.ts", () => {
+    expect(Object.keys(ALLOWLIST).sort()).toEqual(["forgotPassword", "login", "logout", "previewInvite", "resetPassword", "signUpAndJoin", "signUpAndStartCheckout"]);
   });
 });

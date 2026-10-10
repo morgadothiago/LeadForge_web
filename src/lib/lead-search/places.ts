@@ -40,10 +40,10 @@ export class PlacesSource implements LeadSource {
   readonly id = "google_places";
   constructor(private readonly client: AxiosInstance) {}
 
-  async search(icp: Icp, limit: number) {
+  async search(icp: Icp, limit: number, signal?: AbortSignal) {
     const query = [icp.niche, ...icp.keywords.slice(0, 2), icp.location].filter(Boolean).join(" ");
     // Text Search só lê: repetir é seguro (idempotent).
-    const res = await this.client.post("/v1/places:searchText", { textQuery: query, languageCode: "pt-BR", regionCode: "BR", pageSize: Math.min(limit, 20) }, { idempotent: true });
+    const res = await this.client.post("/v1/places:searchText", { textQuery: query, languageCode: "pt-BR", regionCode: "BR", pageSize: Math.min(limit, 20) }, { idempotent: true, signal });
     const parsed = responseSchema.safeParse(res.data);
     if (!parsed.success) throw new AppError({ code: "upstream", userMessage: "Resposta inesperada da busca de leads (Places)." });
     const leads: RawLead[] = (parsed.data.places ?? []).slice(0, limit).flatMap((p) => {

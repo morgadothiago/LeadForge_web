@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { getEmailProvider, resendConfigured } from "./provider";
+import { acsConfigured, getEmailProvider, getEmailProviderChain, resendConfigured } from "./provider";
 import { SmtpEmailProvider } from "./providers/smtp";
 import { ResendEmailProvider } from "./providers/resend";
+import { AcsEmailProvider } from "./providers/acs";
 
 /** SPEC-046 — factory por env, mesmo padrão de `src/lib/billing/provider-factory.ts` (D-33-5). */
 describe("resendConfigured", () => {
@@ -33,5 +34,32 @@ describe("getEmailProvider", () => {
     const fake = { name: "smtp" as const, send: async () => ({ messageId: "x" }) };
     const provider = getEmailProvider({ RESEND_API_KEY: "re_abc" }, { provider: fake });
     expect(provider).toBe(fake);
+  });
+});
+
+describe("getEmailProviderChain (SPEC-048, D-048-1)", () => {
+  const ACS = { AZURE_COMMUNICATION_CONNECTION_STRING: "endpoint=https://x/;accesskey=k" };
+  const names = (env: Record<string, string>) => getEmailProviderChain(env).map((p) => p.name);
+
+  it("acsConfigured só com connection string", () => {
+    expect(acsConfigured({})).toBe(false);
+    expect(acsConfigured(ACS)).toBe(true);
+  });
+  it("EMAIL_PROVIDER=acs + ACS: acs -> resend -> smtp", () => {
+    expect(names({ ...ACS, EMAIL_PROVIDER: "acs", RESEND_API_KEY: "re_x" })).toEqual(["acs", "resend", "smtp"]);
+    expect(getEmailProvider({ ...ACS, EMAIL_PROVIDER: "acs" })).toBeInstanceOf(AcsEmailProvider);
+  });
+  it("EMAIL_PROVIDER=acs sem Resend: acs -> smtp", () => {
+    expect(names({ ...ACS, EMAIL_PROVIDER: "acs" })).toEqual(["acs", "smtp"]);
+  });
+  it("EMAIL_PROVIDER=acs sem ACS configurado: comportamento atual", () => {
+    expect(names({ EMAIL_PROVIDER: "acs", RESEND_API_KEY: "re_x" })).toEqual(["resend", "smtp"]);
+    expect(names({ EMAIL_PROVIDER: "acs" })).toEqual(["smtp"]);
+  });
+  it("ACS configurado mas EMAIL_PROVIDER ausente: ACS não é usado", () => {
+    expect(names({ ...ACS, RESEND_API_KEY: "re_x" })).toEqual(["resend", "smtp"]);
+  });
+  it("EMAIL_PROVIDER=smtp: só smtp", () => {
+    expect(names({ ...ACS, EMAIL_PROVIDER: "smtp", RESEND_API_KEY: "re_x" })).toEqual(["smtp"]);
   });
 });

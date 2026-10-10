@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { SignupForm } from "@/components/auth/SignupForm";
+import { SignupFlow } from "@/components/auth/SignupFlow";
 import { listActivePlans } from "@/lib/billing/plans";
 import { requireUser, UnauthorizedError, homeRouteFor } from "@/lib/auth/require-user";
 import type { BillingCadence } from "@prisma/client";
@@ -30,6 +30,8 @@ export default async function SignupPage({ searchParams }: { searchParams: Promi
   const sp = await searchParams;
   const requestedPlanRaw = Array.isArray(sp.plan) ? sp.plan[0] : sp.plan;
   const cadence = resolveCadence(sp.cadence);
+  const modoRaw = Array.isArray(sp.modo) ? sp.modo[0] : sp.modo;
+  const initialMode = modoRaw === "participar" ? "join" : "create";
 
   const plans = await listActivePlans();
   const selfServicePlans = plans.filter((p) => p.selfServiceCheckout);
@@ -59,7 +61,7 @@ export default async function SignupPage({ searchParams }: { searchParams: Promi
           <h1 className="font-heading text-lg font-semibold">Criar sua conta</h1>
           <p className="text-sm text-muted-foreground">Comece a prospectar em minutos.</p>
         </div>
-        <SignupForm planKey={plan.key} planName={plan.name} planPriceCents={price} cadence={cadence} intentCheckout={Boolean(requested)} />
+        <SignupFlow initialMode={initialMode} planKey={plan.key} planName={plan.name} planPriceCents={price} cadence={cadence} intentCheckout={Boolean(requested)} />
         <p className="text-center text-xs text-muted-foreground">
           Já tem conta?{" "}
           <Link href="/login" className="font-medium text-primary underline-offset-2 hover:underline">

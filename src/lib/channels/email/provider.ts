@@ -1,3 +1,4 @@
+import { AcsEmailProvider } from "./providers/acs";
 import { ResendEmailProvider } from "./providers/resend";
 import { SmtpEmailProvider } from "./providers/smtp";
 
@@ -21,7 +22,7 @@ export interface EmailSendResult {
 }
 
 export interface EmailProvider {
-  readonly name: "resend" | "smtp";
+  readonly name: "acs" | "resend" | "smtp";
   /** Lança em qualquer falha (rede, auth, rejeição, timeout do chamador) — normalizado por `system-mail.ts`. */
   send(input: EmailSendInput): Promise<EmailSendResult>;
 }
@@ -31,20 +32,33 @@ export interface GetEmailProviderOptions {
   provider?: EmailProvider;
 }
 
-/** `true` só quando `RESEND_API_KEY` está configurada — decide se o provider PRIMÁRIO é Resend ou SMTP direto. */
+/** `true` só quando `RESEND_API_KEY` está configurada. */
 export function resendConfigured(env: Record<string, string | undefined> = process.env): boolean {
   return Boolean(env.RESEND_API_KEY?.trim());
 }
 
+/** SPEC-048: `true` só quando a connection string do ACS está configurada. */
+export function acsConfigured(env: Record<string, string | undefined> = process.env): boolean {
+  return Boolean(env.AZURE_COMMUNICATION_CONNECTION_STRING?.trim());
+}
+
 /**
- * Provider PRIMÁRIO: Resend se `RESEND_API_KEY` estiver setada, senão SMTP direto (sem chave nenhuma
- * tentativa de Resend é feita — nunca erro fatal por chave ausente). `sendSystemEmail` (D-046-2) SEMPRE
- * mantém, à parte, um `SmtpEmailProvider` de FALLBACK para erro/timeout do Resend, mesmo quando o
- * primário aqui já é SMTP (nesse caso não há fallback: já é o próprio SMTP).
+ * SPEC-048 (D-048-1): ordem dos providers. `EMAIL_PROVIDER=acs` + ACS configurado => ACS primário, depois
+ * Resend (se configurado), depois SMTP. Qualquer outro caso mantém o comportamento da SPEC-046:
+ * Resend (se `RESEND_API_KEY`) -> SMTP. ACS sem `EMAIL_PROVIDER=acs` nunca é usado. `smtp` sempre é o
+ * último elo (D-046-2); o nome devolvido na cadeia identifica o tipo, `smtp` entra via `smtpProvider`.
  */
+export function getEmailProviderChain(env: Record<string, string | undefined> = process.env, smtpProvider: EmailProvider = new SmtpEmailProvider()): EmailProvider[] {
+  const chain: EmailProvider[] = [];
+  const wanted = env.EMAIL_PROVIDER?.trim().toLowerCase();
+  if (wanted === "acs" && acsConfigured(env)) chain.push(new AcsEmailProvider(env.AZURE_COMMUNICATION_CONNECTION_STRING!.trim()));
+  if (wanted !== "smtp" && resendConfigured(env)) chain.push(new ResendEmailProvider(env.RESEND_API_KEY!.trim()));
+  chain.push(smtpProvider);
+  return chain;
+}
+
+/** Provider PRIMÁRIO (primeiro elo de `getEmailProviderChain`). */
 export function getEmailProvider(env: Record<string, string | undefined> = process.env, opts: GetEmailProviderOptions = {}): EmailProvider {
   if (opts.provider) return opts.provider;
-  const apiKey = env.RESEND_API_KEY?.trim();
-  if (apiKey) return new ResendEmailProvider(apiKey);
-  return new SmtpEmailProvider();
+  return getEmailProviderChain(env)[0];
 }

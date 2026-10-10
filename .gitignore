@@ -43,3 +43,6 @@ next-env.d.ts
 
 # override local de portas (ver docker-compose.override.yml)
 docker-compose.override.yml
+
+# SPEC-050: provider de storage `local` (dev/teste)
+/.storage/

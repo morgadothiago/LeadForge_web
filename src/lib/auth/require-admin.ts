@@ -8,6 +8,15 @@ export class ForbiddenError extends Error {
   }
 }
 
+/** SPEC-058: sessão de provider válida, mas o usuário é `member` (não `owner`) da org ativa. Subclasse de ForbiddenError (handleActionError dá mensagem própria). */
+export class OrgOwnerRequiredError extends ForbiddenError {
+  constructor() {
+    super();
+    this.name = "OrgOwnerRequiredError";
+    this.message = "Somente o proprietário da organização pode fazer isto.";
+  }
+}
+
 /** SPEC-033: sessão de `provider` válida, mas a org está `suspended`/`cancelled` (D-33-3/D-33-4) — escrita/operação bloqueada. */
 export class OrgSuspendedError extends Error {
   constructor() {
@@ -51,4 +60,15 @@ export async function requireActiveProviderOrg(): Promise<{ user: CurrentUser; o
   const org = await prisma.organization.findUnique({ where: { id: orgId }, select: { status: true } });
   if (!org || org.status !== "active") throw new OrgSuspendedError();
   return { user, orgId };
+}
+
+/**
+ * SPEC-058: como `requireActiveProviderOrg()` + exige `Membership.orgRole = owner` NA ORG DA SESSÃO (lido do banco; nunca do cliente).
+ * Usado por ações pagas/sensíveis que só o proprietário da organização pode disparar.
+ */
+export async function requireOrgOwner(): Promise<{ user: CurrentUser; orgId: string }> {
+  const r = await requireActiveProviderOrg();
+  const m = await prisma.membership.findUnique({ where: { userId_orgId: { userId: r.user.id, orgId: r.orgId } }, select: { orgRole: true } });
+  if (!m || m.orgRole !== "owner") throw new OrgOwnerRequiredError();
+  return r;
 }

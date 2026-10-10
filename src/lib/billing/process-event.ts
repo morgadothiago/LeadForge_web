@@ -2,29 +2,19 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { withSerializableRetry } from "@/lib/db/tx-conflict";
 import { safeErrorForLog } from "@/lib/errors";
-import { sendSystemEmail } from "@/lib/channels/system-mail";
+import { notifyOrgOwners, absoluteAppUrl } from "@/lib/channels/email/send-once";
+import { trialStartedTemplate } from "@/lib/channels/email/templates/trial-started";
+import { paymentReceiptTemplate } from "@/lib/channels/email/templates/payment-receipt";
 import { subscriptionSuccessTemplate } from "@/lib/channels/email/templates/subscription-success";
+import { paymentRecoveredTemplate } from "@/lib/channels/email/templates/payment-recovered";
+import { planChangedTemplate } from "@/lib/channels/email/templates/plan-changed";
 import { subscriptionCanceledTemplate } from "@/lib/channels/email/templates/subscription-canceled";
 import type { ParsedBillingEvent } from "./provider";
+import { classifyBillingEvent, type PriorSubscriptionState } from "./classify-event";
+import { notifyPaymentFailed } from "./past-due-email";
 import { computeOrgStatus, TRIAL_DAYS, CANCEL_RETENTION_MS } from "./status-map";
 
 export type ProcessBillingEventResult = "processed" | "duplicate" | "org_not_found" | "plan_not_found";
-
-/**
- * SPEC-046 (D-046-3) — best-effort: envia para todo `Membership.orgRole === "owner"` da org. Nunca lança
- * (falha de e-mail nunca derruba o processamento do evento de billing).
- */
-async function notifyOwners(orgId: string, subject: string, html: string, text: string, scenario: "subscription_success" | "subscription_canceled"): Promise<void> {
-  const owners = await prisma.membership.findMany({ where: { orgId, orgRole: "owner" }, select: { user: { select: { email: true } } } });
-  for (const m of owners) {
-    try {
-      const r = await sendSystemEmail(m.user.email, subject, { html, text }, scenario);
-      if (!r.ok) console.error(`[billing-process-event] falha ao enviar e-mail (org ${orgId}, ${scenario}):`, safeErrorForLog(r.error));
-    } catch (e) {
-      console.error(`[billing-process-event] envio lançou (org ${orgId}, ${scenario}):`, safeErrorForLog(e));
-    }
-  }
-}
 
 /**
  * SPEC-033 — único caminho que aplica um evento de billing ao banco (`WebhookEvent` + `Subscription` +
@@ -49,7 +39,7 @@ export async function processBillingEvent(event: ParsedBillingEvent, now: Date):
   if (!plan) return "plan_not_found";
 
   try {
-    const canceledAt = await withSerializableRetry(
+    const { canceledAt, prior, trialEndsAt: appliedTrialEndsAt, pastDueSince: appliedPastDueSince } = await withSerializableRetry(
       () =>
         prisma.$transaction(
           async (tx) => {
@@ -63,7 +53,8 @@ export async function processBillingEvent(event: ParsedBillingEvent, now: Date):
               },
             });
 
-            const existing = await tx.subscription.findUnique({ where: { orgId: event.orgId }, select: { pastDueSince: true, canceledAt: true, trialEndsAt: true } });
+            const existing = await tx.subscription.findUnique({ where: { orgId: event.orgId }, select: { pastDueSince: true, canceledAt: true, trialEndsAt: true, status: true, planId: true, cadence: true, currentPeriodEnd: true } });
+            const prior: PriorSubscriptionState | null = existing ? { status: existing.status, planId: existing.planId, cadence: existing.cadence, currentPeriodEnd: existing.currentPeriodEnd } : null;
             const pastDueSince = event.status === "past_due" ? (existing?.pastDueSince ?? now) : null;
             const canceledAt = event.status === "canceled" ? (existing?.canceledAt ?? now) : null;
             const trialEndsAt = event.status === "trialing" ? (existing?.trialEndsAt ?? new Date(now.getTime() + TRIAL_DAYS * 24 * 3600_000)) : (existing?.trialEndsAt ?? null);
@@ -85,7 +76,7 @@ export async function processBillingEvent(event: ParsedBillingEvent, now: Date):
             const orgStatus = computeOrgStatus({ status: event.status, pastDueSince }, now);
             await tx.organization.update({ where: { id: event.orgId }, data: { status: orgStatus } });
 
-            return canceledAt;
+            return { canceledAt, prior, trialEndsAt, pastDueSince };
           },
           { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
         ),
@@ -96,23 +87,59 @@ export async function processBillingEvent(event: ParsedBillingEvent, now: Date):
     // o processamento do evento (nem mesmo se a própria consulta de owners falhar). Roda DEPOIS da
     // transação já commitada (o commit em si nunca depende de e-mail sair).
     try {
-      if (event.status === "active" || event.status === "trialing") {
-        const amountCents = event.cadence === "yearly" ? plan.priceYearlyCents : plan.priceMonthlyCents;
-        const { subject, html, text } = subscriptionSuccessTemplate({
-          planName: plan.name,
-          amountCents: amountCents ?? null,
-          status: event.status,
-          nextBillingDate: event.currentPeriodEnd,
-        });
-        await notifyOwners(event.orgId, subject, html, text, "subscription_success");
-      } else if (event.status === "canceled" && canceledAt) {
+      // SPEC-052a: classe do evento (estado anterior x novo + type) decide o e-mail; chave `eventId:<classe>`.
+      const cls = classifyBillingEvent(prior, event, plan.id);
+      const planAmount = event.cadence === "yearly" ? plan.priceYearlyCents : plan.priceMonthlyCents;
+      if (cls === "trial_started") {
+        // Mesma chave do e-mail de signup (`trial_started:<orgId>`): nunca 2 avisos de trial por org.
+        const { subject, html, text } = trialStartedTemplate({ planName: plan.name, trialEndsAt: appliedTrialEndsAt, link: absoluteAppUrl("/dashboard") });
+        await notifyOrgOwners({ orgId: event.orgId, subject, html, text, scenario: "trial_started", dedupeKey: `trial_started:${event.orgId}` });
+      } else if (cls === "activated") {
+        const { subject, html, text } = subscriptionSuccessTemplate({ planName: plan.name, amountCents: event.amountCents ?? planAmount ?? null, nextBillingDate: event.currentPeriodEnd });
+        await notifyOrgOwners({ orgId: event.orgId, subject, html, text, scenario: "subscription_success", dedupeKey: `${event.eventId}:activated` });
+      } else if (cls === "payment_failed" && appliedPastDueSince) {
+        // SPEC-052b: D+0 imediato no evento. Chave por episodio de past_due, compartilhada com o fallback do job.
+        await notifyPaymentFailed({ orgId: event.orgId, planName: plan.name, pastDueSince: appliedPastDueSince, amountCents: event.amountCents ?? planAmount ?? null, paymentMethod: event.paymentMethod, cardLast4: event.cardLast4 });
+      } else if (cls === "recovered") {
+        const { subject, html, text } = paymentRecoveredTemplate({ planName: plan.name, nextBillingDate: event.currentPeriodEnd, link: absoluteAppUrl("/dashboard") });
+        await notifyOrgOwners({ orgId: event.orgId, subject, html, text, scenario: "payment_recovered", dedupeKey: `${event.eventId}:recovered` });
+      } else if (cls === "plan_changed") {
+        // D-052-10: restaura o e-mail de troca de plano (regressao D-046-3 da 052a).
+        const previous = prior ? await prisma.plan.findUnique({ where: { id: prior.planId }, select: { name: true } }) : null;
+        const { subject, html, text } = planChangedTemplate({ previousPlanName: previous?.name ?? null, planName: plan.name, cadence: event.cadence, amountCents: event.amountCents ?? planAmount ?? null, nextBillingDate: event.currentPeriodEnd, link: absoluteAppUrl("/configuracoes/assinatura") });
+        await notifyOrgOwners({ orgId: event.orgId, subject, html, text, scenario: "plan_changed", dedupeKey: `${event.eventId}:plan_changed` });
+      }
+      // Recibo: renovacao (cartao/PIX) ou qualquer PIX pago (`transparent.completed` carrega paymentMethod "pix").
+      if (cls === "renewed" || ((cls === "activated" || cls === "recovered" || cls === "plan_changed") && event.paymentMethod === "pix")) {
+        // D-052-3: sem valor do provedor, cai no preco do plano (`amountFromPlan`, so interno).
+        const amountFromPlan = event.amountCents == null;
+        const amountCents = event.amountCents ?? planAmount ?? null;
+        if (amountCents !== null) {
+          if (amountFromPlan) console.info(`[billing-process-event] recibo com valor do plano (amountFromPlan) org ${event.orgId}`);
+          const paidAt = event.paidAt ?? now;
+          const periodStart = prior?.currentPeriodEnd && event.currentPeriodEnd && prior.currentPeriodEnd < event.currentPeriodEnd ? prior.currentPeriodEnd : paidAt;
+          const { subject, html, text } = paymentReceiptTemplate({
+            planName: plan.name,
+            amountCents,
+            paidAt,
+            paymentMethod: event.paymentMethod ?? null,
+            cardLast4: event.cardLast4,
+            periodStart,
+            periodEnd: event.currentPeriodEnd,
+            orderId: event.externalPaymentId,
+            link: absoluteAppUrl("/configuracoes/assinatura"),
+          });
+          await notifyOrgOwners({ orgId: event.orgId, subject, html, text, scenario: "payment_receipt", dedupeKey: `${event.eventId}:receipt` });
+        }
+      }
+      if (event.status === "canceled" && canceledAt) {
         const purgeDate = new Date(canceledAt.getTime() + CANCEL_RETENTION_MS);
         const { subject, html, text } = subscriptionCanceledTemplate({
           planName: plan.name,
           accessUntil: event.currentPeriodEnd,
           purgeDate,
         });
-        await notifyOwners(event.orgId, subject, html, text, "subscription_canceled");
+        await notifyOrgOwners({ orgId: event.orgId, subject, html, text, scenario: "subscription_canceled", dedupeKey: `${event.eventId}:canceled` });
       }
     } catch (e) {
       console.error(`[billing-process-event] falha ao notificar owners por e-mail (org ${event.orgId}):`, safeErrorForLog(e));

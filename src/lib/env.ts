@@ -42,12 +42,45 @@ export const envSchema = z.object({
   RESEND_FROM_SUPPORT: z.string().min(1).optional(),
   RESEND_FROM_BILLING: z.string().min(1).optional(),
   RESEND_FROM_EMAIL: z.string().min(1).optional(),
+  /** SPEC-050: storage de arquivos (todos opcionais; validados em runtime por `storage/config.ts`, sem derrubar o app). Connection string so server-side. */
+  STORAGE_PROVIDER: z.enum(["azure", "local"]).optional(),
+  AZURE_STORAGE_CONNECTION_STRING: z.string().min(1).optional(),
+  AZURE_STORAGE_CONTAINER: z.string().min(1).optional(),
+  STORAGE_LOCAL_DIR: z.string().min(1).optional(),
+  STORAGE_MAX_FILE_BYTES: z.string().optional(),
+  STORAGE_ALLOWED_MIME: z.string().optional(),
+  /** SPEC-048: provider primário do e-mail de sistema (acs|resend|smtp); ausente = comportamento SPEC-046. */
+  EMAIL_PROVIDER: z.string().optional(),
+  /** SPEC-048 (D-048-2): connection string do ACS — segredo, só server-side. */
+  AZURE_COMMUNICATION_CONNECTION_STRING: z.string().min(1).optional(),
+  /** SPEC-048 (D-048-5): remetentes por cenário (MailFrom do domínio verificado no ACS). */
+  ACS_FROM_NOREPLY: z.string().min(1).optional(),
+  ACS_FROM_SUPPORT: z.string().min(1).optional(),
+  ACS_FROM_BILLING: z.string().min(1).optional(),
+  /** SPEC-051 (D-051-1..7): criativos de video com avatar IA (todos opcionais; validados em runtime por `creatives/config.ts`). Chave de provedor real (futura) so server-side. */
+  CREATIVE_PROVIDER: z.string().optional(),
+  CREATIVE_MAX_CONCURRENT_JOBS_PER_ORG: z.string().optional(),
+  CREATIVE_MAX_PER_MONTH_PER_ORG: z.string().optional(),
+  CREATIVE_MAX_DURATION_SEC: z.string().optional(),
+  CREATIVE_MAX_SCRIPT_CHARS: z.string().optional(),
+  CREATIVE_SCRIPT_BLOCKLIST: z.string().optional(),
+  CREATIVE_JOB_TIMEOUT_MS: z.string().optional(),
+  CREATIVE_JOB_MAX_ATTEMPTS: z.string().optional(),
+  CREATIVE_MOCK_DELAY_MS: z.string().optional(),
+  /** SPEC-049 (D-049-14): cabeçalho de IP que o proxy/CDN de confiança sobrescreve (ex.: x-real-ip). Obrigatório em produção (ver `parseEnv`). */
+  TRUSTED_PROXY_IP_HEADER: z.string().trim().min(1).optional(),
 });
 
 export type Env = z.infer<typeof envSchema>;
 
 export function parseEnv(source: Record<string, string | undefined>): Env {
-  return envSchema.parse(source);
+  const env = envSchema.parse(source);
+  // Sem o cabeçalho confiável o limite por IP (login, signup, convites) fica desligado. Exigido só no runtime de
+  // produção: `next build` também roda com NODE_ENV=production e não deve quebrar por isso.
+  if (source.NODE_ENV === "production" && source.NEXT_PHASE !== "phase-production-build" && !env.TRUSTED_PROXY_IP_HEADER) {
+    throw new Error("TRUSTED_PROXY_IP_HEADER é obrigatória em produção (ex.: x-real-ip, cf-connecting-ip): sem ela o rate limit por IP fica desativado.");
+  }
+  return env;
 }
 
 let cached: Env | undefined;

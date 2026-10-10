@@ -6,10 +6,11 @@ import { prisma } from "@/lib/prisma";
 import { ForbiddenError, requireProviderOrg } from "@/lib/auth/require-admin";
 import { createSession } from "@/lib/auth/session";
 import { hashPassword } from "@/lib/auth/password";
-import { getClientIp } from "@/lib/auth/client-ip";
+import { getClientIpKey } from "@/lib/auth/client-ip";
 import { SlidingLimiter } from "@/lib/integrations/rate-limit";
 import { getPaymentProvider } from "@/lib/billing/provider-factory";
 import { TRIAL_DAYS } from "@/lib/billing/status-map";
+import { sendTrialStartedEmail } from "@/lib/billing/trial-email";
 import { checkoutSchema, signupSchema } from "@/lib/schemas/billing";
 import { failure, formError, safeAction, success, zodErrors, type ActionResult } from "./result";
 
@@ -87,7 +88,7 @@ async function uniqueSlug(base: string): Promise<string> {
  */
 export async function signUpAndStartCheckout(input: unknown): Promise<ActionResult<{ redirectTo: string }>> {
   return safeAction(async () => {
-    const ip = getClientIp(await headers());
+    const ip = getClientIpKey(await headers());
     const wait = signupLimiter.hit(ip);
     if (wait > 0) return formError(`Muitas tentativas. Tente novamente em ${wait}s.`);
 
@@ -95,7 +96,7 @@ export async function signUpAndStartCheckout(input: unknown): Promise<ActionResu
     if (!parsed.success) return failure(zodErrors(parsed.error));
     const { name, email, password, orgName, planKey } = parsed.data;
 
-    const plan = await prisma.plan.findUnique({ where: { key: planKey }, select: { id: true, active: true, selfServiceCheckout: true } });
+    const plan = await prisma.plan.findUnique({ where: { key: planKey }, select: { id: true, name: true, active: true, selfServiceCheckout: true } });
     if (!plan || !plan.active || !plan.selfServiceCheckout) {
       return failure({ planKey: ["Este plano não está disponível para assinatura self-service. Fale com vendas."] });
     }
@@ -128,6 +129,7 @@ export async function signUpAndStartCheckout(input: unknown): Promise<ActionResu
       throw e;
     }
 
+    await sendTrialStartedEmail(orgId, plan.name, trialEndsAt);
     await createSession(userId, orgId, "provider");
     return success({ redirectTo: "/dashboard" });
   });

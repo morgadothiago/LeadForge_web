@@ -34,6 +34,9 @@ export class MockPaymentProvider implements PaymentProvider {
       cancelAtPeriodEnd: false,
       externalCustomerId: `mock_cus_${input.orgId}`,
       externalSubscriptionId: `mock_sub_${randomUUID()}`,
+      paymentMethod: "card",
+      externalPaymentId: eventId,
+      paidAt: now,
     };
     const result = await processBillingEvent(event, now);
     if (result === "org_not_found") throw new AppError({ code: "not_found", userMessage: "Organização não encontrada." });
@@ -85,5 +88,10 @@ function parseMockEventShape(json: unknown): ParsedBillingEvent | null {
     cancelAtPeriodEnd: o.cancelAtPeriodEnd === true,
     externalCustomerId: typeof o.externalCustomerId === "string" ? o.externalCustomerId : null,
     externalSubscriptionId: typeof o.externalSubscriptionId === "string" ? o.externalSubscriptionId : null,
+    amountCents: typeof o.amountCents === "number" && Number.isInteger(o.amountCents) ? o.amountCents : null,
+    paymentMethod: o.paymentMethod === "card" || o.paymentMethod === "pix" ? o.paymentMethod : null,
+    cardLast4: typeof o.cardLast4 === "string" && /^\d{4}$/.test(o.cardLast4) ? o.cardLast4 : null,
+    externalPaymentId: typeof o.externalPaymentId === "string" ? o.externalPaymentId : null,
+    paidAt: typeof o.paidAt === "string" && !Number.isNaN(new Date(o.paidAt).getTime()) ? new Date(o.paidAt) : null,
   };
 }

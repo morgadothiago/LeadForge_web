@@ -1,7 +1,8 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { scopedPrisma } from "@/lib/tenant/scoped-prisma";
-import { safeErrorForLog } from "@/lib/errors";
+import { AppError, safeErrorForLog } from "@/lib/errors";
+import { orgHasFiles, purgeOrgFiles } from "@/lib/storage/service";
 import { CANCEL_RETENTION_MS } from "./status-map";
 
 /**
@@ -39,6 +40,13 @@ export async function purgeCanceledOrgs(now: Date): Promise<PurgeResult> {
       await db.lead.updateMany({ data: { name: ANON_NAME, email: null, phone: null, website: null, linkedin: null, rawData: Prisma.DbNull } });
       await db.touch.updateMany({ data: { content: null, subject: null } });
       await db.leadNote.updateMany({ data: { body: ANON_NOTE } });
+      // SPEC-050: remove tambem os blobs `orgs/{orgId}/`. Org com arquivos e storage indisponivel => erro (nao marca
+      // purgedAt; o proximo tick tenta de novo). Org sem arquivos e storage nao configurado => segue normalmente.
+      try {
+        await purgeOrgFiles(org.id);
+      } catch (e) {
+        if (!(e instanceof AppError && e.code === "config") || (await orgHasFiles(org.id))) throw e;
+      }
       await prisma.organization.update({ where: { id: org.id }, data: { purgedAt: now } });
       purged++;
     } catch (e) {

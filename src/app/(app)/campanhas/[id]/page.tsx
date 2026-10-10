@@ -13,6 +13,8 @@ import { listWhatsAppInstances } from "@/lib/queries/whatsapp";
 import { idSchema } from "@/lib/schemas/campaign";
 
 export const dynamic = "force-dynamic";
+// SPEC-058: a server action "Buscar agora" roda síncrona (prazo interno de 45 s); maxDuration da página vale para as actions usadas nela.
+export const maxDuration = 60;
 
 export default async function Page({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;

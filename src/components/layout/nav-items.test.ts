@@ -1,16 +1,16 @@
 import { describe, expect, it } from "vitest";
-import { ADMIN_NAV_ITEMS, NAV_ITEMS, getPageTitle, isActivePath } from "./nav-items";
+import { ADMIN_NAV_ITEMS, NAV_ITEMS, NAV_SECTIONS, aggregateFresh, flattenItems, flattenSections, hasActiveChild, getPageTitle, isActivePath, type NavItem } from "./nav-items";
 
 describe("nav-items", () => {
-  it("mantém 9 itens na ordem e com rótulos PT-BR", () => {
-    expect(NAV_ITEMS.map((i) => i.label)).toEqual(["Dashboard", "Pipeline", "Calendário", "Leads", "Campanhas", "Sequences", "Aprovações", "Notificações", "Configurações"]);
+  it("mantém 10 itens na ordem e com rótulos PT-BR", () => {
+    expect(NAV_ITEMS.map((i) => i.label)).toEqual(["Dashboard", "Leads", "Pipeline", "Campanhas", "Sequences", "Calendário", "Criativos", "Aprovações", "Notificações", "Configurações"]);
   });
   it("rotas novas e bolinha: Pipeline/Dashboard/Campanhas/Sequences sem badgeKey", () => {
-    expect(NAV_ITEMS).toHaveLength(9);
+    expect(NAV_ITEMS).toHaveLength(10);
     expect(NAV_ITEMS.find((i) => i.href === "/calendario")?.badgeKey).toBe("calendario");
     expect(NAV_ITEMS.find((i) => i.href === "/notificacoes")?.badgeKey).toBe("notificacoes");
-    expect(NAV_ITEMS.filter((i) => i.badgeKey).map((i) => i.href)).toEqual(["/calendario", "/leads", "/aprovacoes", "/notificacoes", "/configuracoes"]);
-    expect(new Set(NAV_ITEMS.map((i) => i.href)).size).toBe(9);
+    expect(NAV_ITEMS.filter((i) => i.badgeKey).map((i) => i.href)).toEqual(["/leads", "/calendario", "/aprovacoes", "/notificacoes", "/configuracoes"]);
+    expect(new Set(NAV_ITEMS.map((i) => i.href)).size).toBe(10);
   });
   it("isActivePath: exato, prefixo e falso-positivo", () => {
     expect(isActivePath("/leads", "/leads")).toBe(true);
@@ -33,5 +33,46 @@ describe("nav-items", () => {
   it("getPageTitle reconhece rotas de administração (lista e detalhe)", () => {
     expect(getPageTitle("/admin/organizacoes")).toBe("Administração");
     expect(getPageTitle("/admin/organizacoes/abc-123")).toBe("Administração");
+  });
+
+  describe("SPEC-057: NAV_SECTIONS", () => {
+    it("seções na ordem, com títulos e itens da SPEC", () => {
+      expect(NAV_SECTIONS.map((s) => s.title)).toEqual([undefined, "Captação de leads", "Criativos", "Automação", "Conta"]);
+      expect(NAV_SECTIONS.map((s) => s.items.map((i) => i.label))).toEqual([
+        ["Dashboard"],
+        ["Leads", "Pipeline", "Campanhas", "Sequences", "Calendário"],
+        ["Criativos"],
+        ["Aprovações"],
+        ["Notificações", "Configurações"],
+      ]);
+    });
+    it("NAV_ITEMS é o flatten das seções; Criativos tem tag new e nenhum subitem inventado", () => {
+      expect(NAV_ITEMS).toEqual(flattenSections(NAV_SECTIONS));
+      expect(NAV_ITEMS.find((i) => i.href === "/criativos")).toMatchObject({ tag: "new" });
+      expect(NAV_ITEMS.some((i) => i.children)).toBe(false);
+    });
+    it("ADMIN_NAV_ITEMS nunca entra em NAV_SECTIONS", () => {
+      expect(flattenSections(NAV_SECTIONS).some((i) => i.href.startsWith("/admin"))).toBe(false);
+    });
+    const parent: NavItem = {
+      ...NAV_ITEMS[0],
+      href: "/p",
+      badgeKey: undefined,
+      children: [
+        { ...NAV_ITEMS[0], href: "/p/a", badgeKey: "leads" },
+        { ...NAV_ITEMS[0], href: "/p/b", badgeKey: "calendario" },
+      ],
+    };
+    it("flatten inclui filhos; filho ativo abre o pai", () => {
+      expect(flattenItems([parent]).map((i) => i.href)).toEqual(["/p", "/p/a", "/p/b"]);
+      expect(hasActiveChild("/p/b/1", parent)).toBe(true);
+      expect(hasActiveChild("/outra", parent)).toBe(false);
+      expect(getPageTitle("/leads")).toBe("Leads");
+    });
+    it("bolinha agregada soma os filhos", () => {
+      const counts: Record<string, number> = { leads: 2, calendario: 1 };
+      expect(aggregateFresh(parent, (k) => counts[k] ?? 0)).toBe(3);
+      expect(aggregateFresh(parent, () => 0)).toBe(0);
+    });
   });
 });
