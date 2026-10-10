@@ -68,9 +68,6 @@ reprovar no QA e não for corrigível sozinho, fica **sem commit** e listado aba
 - **Tudo commitado e no GitHub** na branch `feat/specs-048-051` (último commit da 052b: `019f3e4`): SPECs 048, 049 (a/b), 050, 051 (a/b),
   052a, 052b (sem cartão), 057 e 058 (a/b), mais docs. Migrations aplicadas no banco de dev: todas, até `20261013120000`.
 - **Verificação final:** `tsc` limpo; lint 0 erros (14 warnings antigos); vitest completo em banco novo: 150 arquivos, 1868 testes.
-- **PR aberto: https://github.com/morgadothiago/LeadForge_web/pull/1** (base `main`, sem conflito, `main` sem proteção de branch).
-- **MERGE NÃO FEITO:** pedi para fazer o merge na `main` e o `gh pr merge` foi **negado pelo classificador de permissões do Claude Code**
-  ("merge sem revisão"). Não contornei (nada de push direto na `main`). **Para concluir:** abra o PR e clique em *Merge pull request*,
-  ou rode `gh pr merge 1 --merge` você mesmo no terminal (`! gh pr merge 1 --merge` aqui no Claude Code). Depois: `git checkout main && git pull`.
+- **MERGE FEITO:** PR #1 mergeado na `main` em 2026-10-10 (commit `7da5ef0`, mergeado por você com `gh pr merge 1 --merge`). A `main` tem tudo: SPECs 048-052b, 057, 058.
 - **Falta validar com você:** blocos D, E (E6-E11 só após a migration, já aplicada), F e G do `docs/ROTEIRO_DE_TESTES.md`.
 - **Próximo trabalho** depende das decisões da seção 3 (Q-052-5 cartão AbacatePay, 053-056, avatar real, LLM grátis SPEC-036, drift, rate limit persistente).
