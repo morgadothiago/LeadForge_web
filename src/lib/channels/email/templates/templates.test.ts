@@ -6,6 +6,10 @@ import { subscriptionSuccessTemplate } from "./subscription-success";
 import { subscriptionCanceledTemplate } from "./subscription-canceled";
 import { trialStartedTemplate } from "./trial-started";
 import { paymentReceiptTemplate } from "./payment-receipt";
+import { paymentFailedTemplate } from "./payment-failed";
+import { paymentRecoveredTemplate } from "./payment-recovered";
+import { renewalUpcomingTemplate } from "./renewal-upcoming";
+import { planChangedTemplate } from "./plan-changed";
 
 /**
  * SPEC-046 — cobre os 5 templates gerando `{subject, html, text}` a partir do mesmo dado. Verifica
@@ -126,5 +130,30 @@ describe("paymentReceiptTemplate (SPEC-052a)", () => {
     expect(text).not.toContain("4111111111111111");
     expect(html).not.toContain("4111111111111111");
     expect(text).toContain("Cartão");
+  });
+});
+
+describe("templates SPEC-052b", () => {
+  const link = "https://app.x.com/configuracoes/assinatura";
+  it("paymentFailed: assunto por passo, D+7 = ultimo aviso, link absoluto, so 4 digitos", () => {
+    const base = { planName: "Starter", amountCents: 9900, suspendDate: new Date("2026-03-08T00:00:00Z"), link };
+    expect(paymentFailedTemplate({ ...base, step: "d0" }).subject).toMatch(/processar seu pagamento/);
+    expect(paymentFailedTemplate({ ...base, step: "d3" }).subject).toMatch(/Lembrete/);
+    expect(paymentFailedTemplate({ ...base, step: "d5" }).subject).toMatch(/continua pendente/);
+    const d7 = paymentFailedTemplate({ ...base, step: "d7", paymentMethod: "card", cardLast4: "4242" });
+    expect(d7.subject).toMatch(/Último aviso/);
+    for (const c of [d7.html, d7.text]) { expect(c).toContain(link); expect(c).toContain("99,00"); expect(c).toContain("final 4242"); }
+    expect(paymentFailedTemplate({ ...base, step: "d0", paymentMethod: "card", cardLast4: "4111111111111111" }).text).not.toContain("4111111111111111");
+    expect(paymentFailedTemplate({ ...base, step: "d0", amountCents: null }).text).not.toContain("Valor");
+  });
+  it("paymentRecovered / renewalUpcoming / planChanged: conteudo essencial e escape", () => {
+    const r = paymentRecoveredTemplate({ planName: "<b>X</b>", nextBillingDate: new Date("2026-04-01T00:00:00Z"), link: "https://app.x.com/dashboard" });
+    expect(r.html).not.toContain("<b>X</b>");
+    expect(r.text).toContain("https://app.x.com/dashboard");
+    const u = renewalUpcomingTemplate({ planName: "Pro", amountCents: 120000, renewalDate: new Date("2026-04-01T00:00:00Z"), cadence: "yearly", paymentMethod: "pix", link });
+    expect(u.text).toContain("anual"); expect(u.text).toContain("PIX"); expect(u.html).toContain(link);
+    const p = planChangedTemplate({ previousPlanName: "Starter", planName: "Pro", cadence: "monthly", amountCents: 19900, nextBillingDate: new Date("2026-04-01T00:00:00Z"), link });
+    expect(p.subject).toContain("Pro"); expect(p.text).toContain("de Starter para Pro"); expect(p.html).toContain(link);
+    expect(planChangedTemplate({ previousPlanName: null, planName: "Pro", cadence: "yearly", amountCents: null, nextBillingDate: null, link }).text).toContain("alterado para Pro");
   });
 });

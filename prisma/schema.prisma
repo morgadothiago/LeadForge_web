@@ -1093,6 +1093,11 @@ enum BillingReminderKind {
   past_due_started
   auto_suspended
   purge_warning
+  /// SPEC-052b: regua de cobranca ancorada em pastDueSince (D+3/D+5/D+7) e aviso de renovacao (anchor = currentPeriodEnd).
+  past_due_d3
+  past_due_d5
+  past_due_d7
+  renewal_upcoming
 }
 
 /// SPEC-026: auditoria das acoes de gestao do app (sem PII: so ids) + idempotencia por (deviceId, Idempotency-Key).

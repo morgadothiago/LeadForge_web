@@ -6,9 +6,12 @@ import { notifyOrgOwners, absoluteAppUrl } from "@/lib/channels/email/send-once"
 import { trialStartedTemplate } from "@/lib/channels/email/templates/trial-started";
 import { paymentReceiptTemplate } from "@/lib/channels/email/templates/payment-receipt";
 import { subscriptionSuccessTemplate } from "@/lib/channels/email/templates/subscription-success";
+import { paymentRecoveredTemplate } from "@/lib/channels/email/templates/payment-recovered";
+import { planChangedTemplate } from "@/lib/channels/email/templates/plan-changed";
 import { subscriptionCanceledTemplate } from "@/lib/channels/email/templates/subscription-canceled";
 import type { ParsedBillingEvent } from "./provider";
 import { classifyBillingEvent, type PriorSubscriptionState } from "./classify-event";
+import { notifyPaymentFailed } from "./past-due-email";
 import { computeOrgStatus, TRIAL_DAYS, CANCEL_RETENTION_MS } from "./status-map";
 
 export type ProcessBillingEventResult = "processed" | "duplicate" | "org_not_found" | "plan_not_found";
@@ -36,7 +39,7 @@ export async function processBillingEvent(event: ParsedBillingEvent, now: Date):
   if (!plan) return "plan_not_found";
 
   try {
-    const { canceledAt, prior, trialEndsAt: appliedTrialEndsAt } = await withSerializableRetry(
+    const { canceledAt, prior, trialEndsAt: appliedTrialEndsAt, pastDueSince: appliedPastDueSince } = await withSerializableRetry(
       () =>
         prisma.$transaction(
           async (tx) => {
@@ -73,7 +76,7 @@ export async function processBillingEvent(event: ParsedBillingEvent, now: Date):
             const orgStatus = computeOrgStatus({ status: event.status, pastDueSince }, now);
             await tx.organization.update({ where: { id: event.orgId }, data: { status: orgStatus } });
 
-            return { canceledAt, prior, trialEndsAt };
+            return { canceledAt, prior, trialEndsAt, pastDueSince };
           },
           { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
         ),
@@ -94,6 +97,17 @@ export async function processBillingEvent(event: ParsedBillingEvent, now: Date):
       } else if (cls === "activated") {
         const { subject, html, text } = subscriptionSuccessTemplate({ planName: plan.name, amountCents: event.amountCents ?? planAmount ?? null, nextBillingDate: event.currentPeriodEnd });
         await notifyOrgOwners({ orgId: event.orgId, subject, html, text, scenario: "subscription_success", dedupeKey: `${event.eventId}:activated` });
+      } else if (cls === "payment_failed" && appliedPastDueSince) {
+        // SPEC-052b: D+0 imediato no evento. Chave por episodio de past_due, compartilhada com o fallback do job.
+        await notifyPaymentFailed({ orgId: event.orgId, planName: plan.name, pastDueSince: appliedPastDueSince, amountCents: event.amountCents ?? planAmount ?? null, paymentMethod: event.paymentMethod, cardLast4: event.cardLast4 });
+      } else if (cls === "recovered") {
+        const { subject, html, text } = paymentRecoveredTemplate({ planName: plan.name, nextBillingDate: event.currentPeriodEnd, link: absoluteAppUrl("/dashboard") });
+        await notifyOrgOwners({ orgId: event.orgId, subject, html, text, scenario: "payment_recovered", dedupeKey: `${event.eventId}:recovered` });
+      } else if (cls === "plan_changed") {
+        // D-052-10: restaura o e-mail de troca de plano (regressao D-046-3 da 052a).
+        const previous = prior ? await prisma.plan.findUnique({ where: { id: prior.planId }, select: { name: true } }) : null;
+        const { subject, html, text } = planChangedTemplate({ previousPlanName: previous?.name ?? null, planName: plan.name, cadence: event.cadence, amountCents: event.amountCents ?? planAmount ?? null, nextBillingDate: event.currentPeriodEnd, link: absoluteAppUrl("/configuracoes/assinatura") });
+        await notifyOrgOwners({ orgId: event.orgId, subject, html, text, scenario: "plan_changed", dedupeKey: `${event.eventId}:plan_changed` });
       }
       // Recibo: renovacao (cartao/PIX) ou qualquer PIX pago (`transparent.completed` carrega paymentMethod "pix").
       if (cls === "renewed" || ((cls === "activated" || cls === "recovered" || cls === "plan_changed") && event.paymentMethod === "pix")) {

@@ -66,13 +66,14 @@ describe("processBillingEvent — e-mail de assinatura efetuada (SPEC-046, D-046
     expect(subject).toMatch(/teste/i);
   });
 
-  it("SPEC-052a: troca de plano (active->active, planId mudou) e CLASSIFICADA como plan_changed mas NAO envia e-mail ate a 052b", async () => {
+  it("SPEC-052b (D-052-10): troca de plano (active->active, planId mudou) envia e-mail plan_changed (regressao D-046-3 resolvida)", async () => {
     await processBillingEvent(baseEvent({ status: "active", planKey: "starter" }), NOW);
     expect(sendSystemEmail).toHaveBeenCalledTimes(1);
     vi.mocked(sendSystemEmail).mockClear();
 
     await processBillingEvent(baseEvent({ status: "active", planKey: "pro" }), NOW);
-    expect(sendSystemEmail).not.toHaveBeenCalled();
+    expect(sendSystemEmail).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(sendSystemEmail).mock.calls[0][3]).toBe("plan_changed");
   });
 
   it("evento duplicado (mesmo eventId): NÃO reenvia e-mail (idempotência do processamento cobre o e-mail também)", async () => {
@@ -86,11 +87,11 @@ describe("processBillingEvent — e-mail de assinatura efetuada (SPEC-046, D-046
     expect(sendSystemEmail).not.toHaveBeenCalled();
   });
 
-  it("past_due/incomplete: NÃO dispara e-mail de assinatura efetuada", async () => {
+  it("past_due: NÃO dispara e-mail de assinatura efetuada (dispara so o de falha, 052b)", async () => {
     await processBillingEvent(baseEvent({ status: "active" }), NOW);
     vi.mocked(sendSystemEmail).mockClear();
     await processBillingEvent(baseEvent({ status: "past_due" }), NOW);
-    expect(sendSystemEmail).not.toHaveBeenCalled();
+    expect(vi.mocked(sendSystemEmail).mock.calls.map((c) => c[3])).toEqual(["payment_failed"]);
   });
 
   it("falha total do envio (sendSystemEmail lança): processBillingEvent NÃO lança, continua retornando 'processed'", async () => {

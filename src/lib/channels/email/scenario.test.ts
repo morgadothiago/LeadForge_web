@@ -58,3 +58,13 @@ describe("fromAddressForScenario — cenarios SPEC-052a", () => {
     }
   });
 });
+
+describe("fromAddressForScenario — cenarios SPEC-052b", () => {
+  it("payment_failed, payment_recovered, renewal_upcoming e plan_changed usam o remetente billing (Resend e ACS)", () => {
+    const env = { RESEND_FROM_BILLING: "cobranca@d.com", ACS_FROM_BILLING: "acs-cobranca@d.com" };
+    for (const s of ["payment_failed", "payment_recovered", "renewal_upcoming", "plan_changed"] as const) {
+      expect(fromAddressForScenario(s, env)).toBe("cobranca@d.com");
+      expect(fromAddressForScenario(s, env, "acs")).toBe("acs-cobranca@d.com");
+    }
+  });
+});

@@ -28,8 +28,8 @@ reprovar no QA e não for corrigível sozinho, fica **sem commit** e listado aba
 
 | # | Decisão | Bloqueia | Minha recomendação |
 |---|---|---|---|
-| 1 | Aprovar **SPEC-052b** (falha de cobrança, régua D+3/5/7, recuperação, próxima cobrança, troca de plano) | e-mails de cobrança restantes | Aprovar a parte de PIX/mock já; cartão espera a Q-052-5 |
-| 2 | **Q-052-5**: nomes dos eventos de falha/recuperação de cartão do AbacatePay (precisa da doc/sandbox do provedor) | 052b só na parte de cartão | Pesquisar na doc do provedor |
+| 1 | ~~Aprovar SPEC-052b~~ **FEITO**: 052b (parte sem cartão) implementada, sem commit ainda. Falta aplicar a migration `20261013120000_billing_reminder_kinds_052b` no banco de dev (`npx prisma migrate deploy`) e validar o bloco E | -- | -- |
+| 2 | **Q-052-5**: nomes dos eventos de falha/recuperação de cartão do AbacatePay (precisa da doc/sandbox do provedor) | 052b só na parte de cartão (mapear eventos de falha/recuperação de cartão; sem isso a régua de cartão só dispara pelo estado/grace via job) | Pesquisar na doc do provedor |
 | 3 | Aprovar **SPEC-053** (cancelamento/reativação), **054** (exclusão de conta LGPD), **055** (verificação/segurança de cadastro), **056** (e-mails de organização) | cada uma delas | Responder as 5 decisões de e-mail abaixo |
 | 4 | **5 decisões de e-mail**: (a) cancelamento: acesso até fim do período ou imediato? reembolso? (b) exclusão de conta: soft ou hard, em quantos dias? (c) recibo: só e-mail informativo (já assumido) (d) régua de cartão e PIX igual (já assumido) (e) verificação de e-mail: obrigatória antes de usar ou só aviso? | 053-056 | (a) até fim do período, sem reembolso proporcional; (b) soft delete 30 dias e depois purga; (e) obrigatória para enviar mensagens, não para entrar |
 | 5 | **Provedor de avatar real** (Q-051-1: HeyGen, D-ID, Synthesia, Tavus ou Azure AI Speech Avatar) | criativos reais (hoje só mock) | Escolher 1 e abrir SPEC; antes cumprir D-051-15 (SSRF/timeouts) |
@@ -57,7 +57,9 @@ reprovar no QA e não for corrigível sozinho, fica **sem commit** e listado aba
 - 052a: se o provedor de e-mail falhar na hora do envio, aquele e-mail **se perde** (chave de idempotência reservada antes; sem retry).
 - 052a: o signup espera o envio do e-mail de trial antes de criar a sessão (SMTP lento atrasa o cadastro).
 - 052a: `EmailDispatchLog` sem purga; falta teste de integração das actions `signUpAndStartCheckout`/`createOrganization` chamando o trial.
-- Troca de plano está **sem e-mail** até a 052b (regressão consciente).
+- Troca de plano: e-mail restaurado na 052b (regressão D-046-3 resolvida).
+- 052b: D+7 da régua sai no mesmo instante da suspensão automática (grace 7d inalterado), então o e-mail "Último aviso" e o "conta suspensa" podem chegar juntos no mesmo tick.
+- 052b: o e-mail de falha de cartão no AbacatePay não existe (Q-052-5); a régua de cartão só começa quando algo coloca a assinatura em past_due.
 - Termos da Places API restringem cache/armazenamento de dados: confirme antes de operar em escala.
 - `.storage/` (arquivos locais) e `.env` não vão para o git (conferido).
 

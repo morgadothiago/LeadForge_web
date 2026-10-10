@@ -69,8 +69,8 @@ describe("sendBillingReminders (SPEC-039, D-039-2)", () => {
     await prisma.organization.update({ where: { id: org.orgId }, data: { status: "suspended", suspendedReason: "automatic" } });
 
     const r = await sendBillingReminders(now);
-    // 1 para past_due_started (mesma ancora, kind diferente) + 1 para auto_suspended.
-    expect(r.sent).toBe(2);
+    // past_due_started (fallback D+0) + D+7 (so o passo mais recente devido; D+3/D+5 reservados em silencio, SPEC-052b) + auto_suspended.
+    expect(r.sent).toBe(3);
     const subjects = vi.mocked(sendSystemEmail).mock.calls.map((c) => c[1]);
     expect(subjects.some((s) => /suspensa/i.test(s))).toBe(true);
   });

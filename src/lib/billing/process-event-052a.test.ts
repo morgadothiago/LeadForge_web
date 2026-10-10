@@ -82,20 +82,20 @@ describe("processBillingEvent — classificacao e e-mail (SPEC-052a)", () => {
     expect(scenarios()).toEqual(["payment_receipt"]);
   });
 
-  it("recuperacao (past_due -> active) sem PIX: classificada, sem e-mail novo (052b)", async () => {
+  it("recuperacao (past_due -> active) sem PIX: envia payment_recovered (052b), sem recibo", async () => {
     await processBillingEvent(ev(), NOW);
     await processBillingEvent(ev({ type: "payment.failed", status: "past_due" }), NOW);
-    expect(scenarios()).toEqual(["subscription_success"]);
+    expect(scenarios()).toEqual(["subscription_success", "payment_failed"]);
     vi.mocked(sendSystemEmail).mockClear();
     await processBillingEvent(ev({ type: "payment.recovered", currentPeriodEnd: NEXT2 }), NOW);
-    expect(sendSystemEmail).not.toHaveBeenCalled();
+    expect(scenarios()).toEqual(["payment_recovered"]);
   });
 
-  it("falha de pagamento: sem e-mail novo (052b); job diario preservado", async () => {
+  it("falha de pagamento: envia payment_failed imediato (052b)", async () => {
     await processBillingEvent(ev(), NOW);
     vi.mocked(sendSystemEmail).mockClear();
     await processBillingEvent(ev({ type: "payment.failed", status: "past_due" }), NOW);
-    expect(sendSystemEmail).not.toHaveBeenCalled();
+    expect(scenarios()).toEqual(["payment_failed"]);
   });
 
   it("reentrega do mesmo evento nao duplica recibo", async () => {

@@ -12,7 +12,7 @@
  * Fallback em cascata, sempre que o env específico do cenário não estiver setado (nunca erro fatal):
  * env do cenário -> `RESEND_FROM_EMAIL` (genérico, opcional) -> `SMTP_USER` -> "no-reply@leadforge.local".
  */
-export type EmailScenario = "password_reset" | "courtesy_welcome" | "billing_reminder" | "subscription_success" | "subscription_canceled" | "org_invite" | "trial_started" | "payment_receipt";
+export type EmailScenario = "password_reset" | "courtesy_welcome" | "billing_reminder" | "subscription_success" | "subscription_canceled" | "org_invite" | "trial_started" | "payment_receipt" | "payment_failed" | "payment_recovered" | "renewal_upcoming" | "plan_changed";
 
 const SCENARIO_ENV_VAR: Record<EmailScenario, string> = {
   password_reset: "RESEND_FROM_NOREPLY",
@@ -25,6 +25,11 @@ const SCENARIO_ENV_VAR: Record<EmailScenario, string> = {
   // SPEC-052a: e-mails de ciclo de assinatura/cobranca saem do remetente billing.
   trial_started: "RESEND_FROM_BILLING",
   payment_receipt: "RESEND_FROM_BILLING",
+  // SPEC-052b: falha/regua, recuperacao, proxima cobranca e troca de plano tambem saem do remetente billing.
+  payment_failed: "RESEND_FROM_BILLING",
+  payment_recovered: "RESEND_FROM_BILLING",
+  renewal_upcoming: "RESEND_FROM_BILLING",
+  plan_changed: "RESEND_FROM_BILLING",
 };
 
 /** SPEC-048 (D-048-5): remetentes do ACS (precisam ser MailFrom do domínio verificado no ACS). */
@@ -37,6 +42,10 @@ const ACS_SCENARIO_ENV_VAR: Record<EmailScenario, string> = {
   org_invite: "ACS_FROM_NOREPLY",
   trial_started: "ACS_FROM_BILLING",
   payment_receipt: "ACS_FROM_BILLING",
+  payment_failed: "ACS_FROM_BILLING",
+  payment_recovered: "ACS_FROM_BILLING",
+  renewal_upcoming: "ACS_FROM_BILLING",
+  plan_changed: "ACS_FROM_BILLING",
 };
 
 const DEFAULT_FROM = "no-reply@leadforge.local";

@@ -94,7 +94,7 @@ Rotas previstas: `/organizacoes`, `/configuracoes/equipe`, `/convite/[token]`.
 | D3 | Cancelar um criativo ainda na fila; excluir um pronto | Some/cancela sem erro | [ ] | |
 | D4 | Org B abre `/criativos` | **Nada** do tenant A aparece (isolamento, bloqueante) | [ ] | |
 
-## E. E-mails de assinatura (SPEC-052a): conferir no Mailpit (http://localhost:8025)
+## E. E-mails de assinatura (SPEC-052a/052b): conferir no Mailpit (http://localhost:8025)
 
 | # | Passo | Esperado | OK | Observado |
 |---|---|---|---|---|
@@ -103,6 +103,12 @@ Rotas previstas: `/organizacoes`, `/configuracoes/equipe`, `/convite/[token]`.
 | E3 | Criar 2ª organização em `/organizacoes` | Chega outro "início do trial" para essa org | [ ] | |
 | E4 | Conferir o texto | PT-BR, links absolutos, sem dado sensível; recibo (se aparecer) com rodapé "não é nota fiscal" e só 4 dígitos do cartão | [ ] | |
 | E5 | Recibo/renovação/PIX | **Não testável em local** sem webhook real do AbacatePay (só testes com mock) | — | |
+| E6 | Falha de pagamento imediata (052b): `POST /api/billing/webhook` com `Authorization: Bearer <MOCK_WEBHOOK_SECRET>` (provedor mock) e JSON `{"eventId":"x1","type":"payment.failed","orgId":"<id>","planKey":"starter","cadence":"monthly","status":"past_due"}` (eventId novo a cada chamada) | Chega "Não conseguimos processar seu pagamento" (1 só, mesmo repetindo com outro eventId; reenviar o mesmo eventId também não duplica) | [ ] | |
+| E7 | Régua D+3/D+5/D+7 (052b): rodar `npm run dev:tick` e recuar `Subscription.pastDueSince` no banco de dev (3, 5, 7 dias atrás) de uma org em past_due | Chega 1 e-mail por degrau; D+7 diz "Último aviso: sua conta será suspensa"; nunca D+3/5/7 juntos; reexecutar o tick não repete | [ ] | |
+| E8 | Recuperação (052b): mesmo webhook com `"type":"payment.recovered","status":"active"` (eventId novo) | Chega "Pagamento regularizado"; régua para de enviar | [ ] | |
+| E9 | Troca de plano (052b): webhook `subscription.updated`, `status:"active"`, `planKey` diferente do atual (org já ativa) | Chega "Seu plano foi alterado para …" com plano anterior e novo | [ ] | |
+| E10 | Próxima cobrança (052b): org `active` com ciclo anual (ou `pixManaged`) e `currentPeriodEnd` daqui a <= 7 dias + `npm run dev:tick` | Chega "Sua assinatura renova em breve" (1 por ciclo) | [ ] | |
+| E11 | Falha/recuperação de **cartão** AbacatePay | **Não existe** (Q-052-5 aberta) e só testável com provedor real; só a régua por estado/grace (job) cobre cartão. PIX vencido real (`abacatepay_pix_expired_*`) idem: só com AbacatePay real | — | |
 
 ## F. Sidebar agrupada (SPEC-057) e seletor de organização (SPEC-049b D-049-16/17)
 

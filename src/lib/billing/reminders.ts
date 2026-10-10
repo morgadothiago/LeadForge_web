@@ -1,8 +1,11 @@
 import { Prisma, type BillingReminderKind } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { safeErrorForLog } from "@/lib/errors";
-import { notifyOrgOwners } from "@/lib/channels/email/send-once";
+import { notifyOrgOwners, absoluteAppUrl } from "@/lib/channels/email/send-once";
+import { paymentFailedTemplate, type PaymentFailedStep } from "@/lib/channels/email/templates/payment-failed";
+import { renewalUpcomingTemplate } from "@/lib/channels/email/templates/renewal-upcoming";
 import { billingReminderTemplate, type BillingReminderVariant } from "@/lib/channels/email/templates/billing-reminder";
+import { notifyPaymentFailed } from "./past-due-email";
 import { CANCEL_RETENTION_MS, PAST_DUE_GRACE_MS } from "./status-map";
 
 /**
@@ -80,15 +83,100 @@ async function remindTrialEnding(now: Date, state: BillingReminderResult): Promi
   }
 }
 
-/** 2. Início do past_due (grace period de 7 dias começando). */
+/**
+ * 2. Início do past_due. SPEC-052b: D+0 sai NO evento `payment.failed`; este gatilho vira FALLBACK idempotente
+ * (ex.: past_due vindo de outro caminho/evento perdido) e usa a MESMA chave de dedupe do e-mail do evento
+ * (`pastDueEpisodeKey`) — nunca duplica, nem em corrida evento x job. Mantem `BillingReminderLog` (past_due_started).
+ */
 async function remindPastDueStarted(state: BillingReminderResult): Promise<void> {
   const subs = await prisma.subscription.findMany({
     where: { status: "past_due", pastDueSince: { not: null } },
-    select: { orgId: true, pastDueSince: true },
+    select: { orgId: true, pastDueSince: true, cadence: true, plan: { select: { name: true, priceMonthlyCents: true, priceYearlyCents: true } } },
   });
   for (const s of subs) {
     if (!s.pastDueSince) continue;
-    await remind(state, s.orgId, "past_due_started", s.pastDueSince);
+    try {
+      if (!(await claim(s.orgId, "past_due_started", s.pastDueSince))) continue;
+      await notifyPaymentFailed({ orgId: s.orgId, planName: s.plan.name, pastDueSince: s.pastDueSince, amountCents: s.cadence === "yearly" ? s.plan.priceYearlyCents : s.plan.priceMonthlyCents });
+      state.sent++;
+    } catch (e) {
+      state.errors++;
+      console.error(`[billing-reminders] falha ao processar aviso (org ${s.orgId}, kind past_due_started):`, safeErrorForLog(e));
+    }
+  }
+}
+
+/** SPEC-052b: regua D+3/D+5/D+7 (D-052-4: igual cartao e PIX). Para sozinha ao sair de past_due (filtro por status). */
+const PAST_DUE_STEPS: Array<{ kind: "past_due_d3" | "past_due_d5" | "past_due_d7"; step: PaymentFailedStep; days: number }> = [
+  { kind: "past_due_d3", step: "d3", days: 3 },
+  { kind: "past_due_d5", step: "d5", days: 5 },
+  { kind: "past_due_d7", step: "d7", days: 7 },
+];
+
+async function remindPastDueLadder(now: Date, state: BillingReminderResult): Promise<void> {
+  const subs = await prisma.subscription.findMany({
+    where: { status: "past_due", pastDueSince: { not: null } },
+    select: { orgId: true, pastDueSince: true, cadence: true, plan: { select: { name: true, priceMonthlyCents: true, priceYearlyCents: true } } },
+  });
+  for (const s of subs) {
+    const since = s.pastDueSince;
+    if (!since) continue;
+    // So o passo MAIS RECENTE devido e enviado; passos anteriores perdidos (ex.: tick parado) sao reservados em
+    // silencio para nunca disparar D+3, D+5 e D+7 de uma vez.
+    const due = PAST_DUE_STEPS.filter(({ days }) => now.getTime() - since.getTime() >= days * 24 * 3600_000);
+    for (const { kind, step } of due) {
+      const isLatest = kind === due[due.length - 1].kind;
+      try {
+        if (!(await claim(s.orgId, kind, since))) continue;
+        if (!isLatest) continue;
+        const { subject, html, text } = paymentFailedTemplate({
+          step,
+          planName: s.plan.name,
+          amountCents: s.cadence === "yearly" ? s.plan.priceYearlyCents : s.plan.priceMonthlyCents,
+          suspendDate: new Date(since.getTime() + PAST_DUE_GRACE_MS),
+          link: absoluteAppUrl("/configuracoes/assinatura"),
+        });
+        await notifyOrgOwners({ orgId: s.orgId, scenario: "payment_failed", subject, html, text, dedupeKey: `${kind}:${s.orgId}:${since.toISOString()}` });
+        state.sent++;
+      } catch (e) {
+        state.errors++;
+        console.error(`[billing-reminders] falha ao processar aviso (org ${s.orgId}, kind ${kind}):`, safeErrorForLog(e));
+      }
+    }
+  }
+}
+
+const RENEWAL_WARNING_MS = 7 * 24 * 3600_000;
+
+/** SPEC-052b: aviso 7 dias antes da proxima cobranca (anual e PIX). Ancora = currentPeriodEnd (uma vez por ciclo). */
+async function remindRenewalUpcoming(now: Date, state: BillingReminderResult): Promise<void> {
+  const subs = await prisma.subscription.findMany({
+    where: {
+      status: "active",
+      cancelAtPeriodEnd: false,
+      currentPeriodEnd: { gt: now, lte: new Date(now.getTime() + RENEWAL_WARNING_MS) },
+      OR: [{ cadence: "yearly" }, { pixManaged: true }],
+    },
+    select: { orgId: true, cadence: true, pixManaged: true, currentPeriodEnd: true, plan: { select: { name: true, priceMonthlyCents: true, priceYearlyCents: true } } },
+  });
+  for (const s of subs) {
+    if (!s.currentPeriodEnd) continue;
+    try {
+      if (!(await claim(s.orgId, "renewal_upcoming", s.currentPeriodEnd))) continue;
+      const { subject, html, text } = renewalUpcomingTemplate({
+        planName: s.plan.name,
+        amountCents: s.cadence === "yearly" ? s.plan.priceYearlyCents : s.plan.priceMonthlyCents,
+        renewalDate: s.currentPeriodEnd,
+        cadence: s.cadence,
+        paymentMethod: s.pixManaged ? "pix" : null,
+        link: absoluteAppUrl("/configuracoes/assinatura"),
+      });
+      await notifyOrgOwners({ orgId: s.orgId, scenario: "renewal_upcoming", subject, html, text, dedupeKey: `renewal_upcoming:${s.orgId}:${s.currentPeriodEnd.toISOString()}` });
+      state.sent++;
+    } catch (e) {
+      state.errors++;
+      console.error(`[billing-reminders] falha ao processar aviso (org ${s.orgId}, kind renewal_upcoming):`, safeErrorForLog(e));
+    }
   }
 }
 
@@ -131,7 +219,9 @@ export async function sendBillingReminders(now: Date): Promise<BillingReminderRe
   const state: BillingReminderResult = { sent: 0, errors: 0 };
   await remindTrialEnding(now, state);
   await remindPastDueStarted(state);
+  await remindPastDueLadder(now, state);
   await remindAutoSuspended(now, state);
   await remindPurgeWarning(now, state);
+  await remindRenewalUpcoming(now, state);
   return state;
 }

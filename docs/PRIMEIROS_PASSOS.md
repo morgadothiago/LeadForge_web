@@ -13,7 +13,7 @@ ninguém rodou no navegador/serviço real: só leitura de código e testes autom
 >   Também ausentes de propósito: `LEAD_SEARCH_ENABLED` (busca de leads desligada), `CREATIVE_*`, `STORAGE_*`.
 > - **E-mail já desviado para o Mailpit:** `SMTP_HOST=localhost`, `SMTP_PORT=1025`, `ALLOW_PRIVATE_SMTP_HOSTS=true`.
 >   Container `mailpit` no ar; caixa em http://localhost:8025. Nada sai para a internet.
-> - **Migrations:** 39 no repo, a última é `20261012120000_email_dispatch_log` (SPEC-052a). No banco de dev
+> - **Migrations:** 40 no repo, a última é `20261013120000_billing_reminder_kinds_052b` (SPEC-052b, adiciona 4 valores ao enum `BillingReminderKind`; **ainda não aplicada no banco de dev**: rode `npx prisma migrate deploy`). No banco de dev
 >   `npx prisma migrate status` diz "Database schema is up to date" (conferido em 2026-10-10). Em outro clone/banco,
 >   aplique com `npx prisma migrate deploy` (ver 1.3).
 > - **Containers no ar:** `leadforge-postgres-1`, `leadforge-redis-1` e `mailpit` (o `evolution` e o `n8n` não).
@@ -73,9 +73,13 @@ ninguém rodou no navegador/serviço real: só leitura de código e testes autom
   - Ver as mensagens em http://localhost:8025. As mensagens somem se o container for recriado.
   - O e-mail de sistema (reset de senha, convite, trial, cobrança) usa, nesta ordem, ACS (`EMAIL_PROVIDER=acs`), Resend
     (se `RESEND_API_KEY`) e por fim o SMTP do `.env`; sem os dois primeiros, cai no Mailpit.
-  - **E-mails transacionais da SPEC-052a que você vê aqui:** início do trial (signup ou nova organização) e "Assinatura
-    confirmada"; recibo só em renovação/PIX. A 052b (falha de pagamento, régua, troca de plano) e as SPECs 053-056
-    (cancelamento, exclusão LGPD, boas-vindas/verificação, e-mails de organização) estão **DRAFT: não existem**.
+  - **E-mails transacionais das SPECs 052a/052b que você vê aqui:** início do trial (signup ou nova organização),
+    "Assinatura confirmada", recibo (renovação/PIX), **falha de pagamento imediata**, **régua D+3/D+5/D+7** (D+7 = último
+    aviso antes de suspender; igual para cartão e PIX; o grace de 7 dias não mudou), **pagamento regularizado**,
+    **próxima cobrança** (7 dias antes, só anual e PIX) e **troca de plano**. Disparo local via webhook do provedor mock e
+    `npm run dev:tick` (passos E6 a E10 do `docs/ROTEIRO_DE_TESTES.md`). **Não existe:** e-mail de falha/recuperação de
+    **cartão** do AbacatePay (Q-052-5 aberta, nomes dos eventos desconhecidos) e PDF/nota fiscal (recibo é só informativo).
+    As SPECs 053-056 (cancelamento, exclusão LGPD, boas-vindas/verificação, e-mails de organização) estão **DRAFT: não existem**.
   - **Para voltar a enviar pelo Gmail de verdade:** `SMTP_HOST=smtp.gmail.com`, `SMTP_PORT=587`, remova
     `ALLOW_PRIVATE_SMTP_HOSTS` e reinicie. Sem isso nenhum e-mail sai da sua máquina.
 - [ ] **3.B Resend (grátis, 100/dia).** `RESEND_API_KEY=` e `RESEND_FROM_NOREPLY=` (domínio verificado).
