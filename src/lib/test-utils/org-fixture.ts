@@ -79,6 +79,9 @@ export async function purgeTestOrg(org: TestOrg): Promise<void> {
     await prisma.agentSettings.deleteMany({ where: { orgId } });
     await prisma.meetingSettings.deleteMany({ where: { orgId } });
     await prisma.webhookEvent.deleteMany({ where: { orgId } });
+    await prisma.creativeJob.deleteMany({ where: { orgId } });
+    await prisma.creative.deleteMany({ where: { orgId } });
+    await prisma.storedFile.deleteMany({ where: { orgId } });
 
     await prisma.membership.deleteMany({ where: { orgId } });
     await prisma.organization.deleteMany({ where: { id: orgId } });

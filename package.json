@@ -17,9 +17,12 @@
     "tick": "tsx src/scripts/tick.ts",
     "openapi:export": "tsx src/scripts/export-openapi.ts",
     "secrets:reencrypt": "tsx src/scripts/reencrypt-secrets.ts",
-    "billing:purge": "tsx src/scripts/purge-canceled-orgs.ts"
+    "billing:purge": "tsx src/scripts/purge-canceled-orgs.ts",
+    "org:backfill-last": "tsx src/scripts/backfill-last-org.ts"
   },
   "dependencies": {
+    "@azure/communication-email": "^1.1.0",
+    "@azure/storage-blob": "^12.34.0",
     "@base-ui/react": "^1.8.0",
     "@dnd-kit/core": "^6.3.1",
     "@dnd-kit/sortable": "^10.0.0",

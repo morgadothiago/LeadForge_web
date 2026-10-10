@@ -53,6 +53,11 @@ const DIRECT_ORG_MODELS = [
   // `@@unique([provider, externalAccountId])` é global — a checagem de colisão entre orgs é explícita
   // na action (`src/lib/actions/lead-source.ts`), nunca via leitura cross-tenant aqui.
   "leadSourceBinding",
+  // SPEC-050: metadado de arquivo no storage (orgId obrigatorio; blobKey sempre sob `orgs/{orgId}/`).
+  "storedFile",
+  // SPEC-051: criativos de video com avatar IA (orgId obrigatorio; so org ativa da sessao).
+  "creative",
+  "creativeJob",
 ] as const;
 
 /** Modelos sem `orgId` próprio: caminho de relação (nomes de campo do Prisma, não de tabela) até um modelo de DIRECT_ORG_MODELS. */
