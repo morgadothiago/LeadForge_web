@@ -3,7 +3,7 @@ import type { BillingCadence } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { AppError } from "@/lib/errors";
 import { processBillingEvent } from "../process-event";
-import type { CheckoutSessionInput, CheckoutSessionResult, ParsedBillingEvent, PaymentProvider, PortalSessionInput, PortalSessionResult } from "../provider";
+import type { CancelSubscriptionInput, CancelSubscriptionResult, ResumeSubscriptionInput, ResumeSubscriptionResult, CheckoutSessionInput, CheckoutSessionResult, ParsedBillingEvent, PaymentProvider, PortalSessionInput, PortalSessionResult } from "../provider";
 
 const PERIOD_MS: Record<BillingCadence, number> = { monthly: 30 * 24 * 3600_000, yearly: 365 * 24 * 3600_000 };
 
@@ -46,6 +46,15 @@ export class MockPaymentProvider implements PaymentProvider {
 
   async createPortalSession(input: PortalSessionInput): Promise<PortalSessionResult> {
     return { url: `${input.returnUrl}${input.returnUrl.includes("?") ? "&" : "?"}portal=mock` };
+  }
+
+  /** SPEC-053a: sem gateway externo — nada a chamar; a action aplica o estado local pelo `processBillingEvent`. */
+  async cancelSubscription(_input: CancelSubscriptionInput): Promise<CancelSubscriptionResult> {
+    return { providerConfirmed: true };
+  }
+
+  async resumeSubscription(_input: ResumeSubscriptionInput): Promise<ResumeSubscriptionResult> {
+    return { providerConfirmed: true };
   }
 
   verifyWebhookSignature(_rawBody: string, _signatureHeader: string | null): boolean {

@@ -49,7 +49,8 @@ export async function runPixRenewalJob(now: Date, injectedProvider?: AbacatePayP
   }
 
   const subs = await prisma.subscription.findMany({
-    where: { pixManaged: true, status: { in: [...ELIGIBLE_STATUSES] } },
+    // SPEC-053a: cancelamento agendado (`cancelAtPeriodEnd`) para de gerar cobranca; o job de efetivacao encerra no fim do periodo.
+    where: { pixManaged: true, cancelAtPeriodEnd: false, status: { in: [...ELIGIBLE_STATUSES] } },
     select: {
       orgId: true, cadence: true, currentPeriodEnd: true, pixChargeId: true, pixChargeExpiresAt: true,
       plan: { select: { key: true } },

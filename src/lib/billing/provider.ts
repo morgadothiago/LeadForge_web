@@ -70,10 +70,34 @@ export interface ParsedBillingEvent {
   paidAt?: Date | null;
 }
 
+/** SPEC-053a — cancelamento VOLUNTARIO pela app. `atPeriodEnd=false` = imediato (trial, D-053-3). */
+export interface CancelSubscriptionInput {
+  orgId: string;
+  atPeriodEnd: boolean;
+}
+export interface CancelSubscriptionResult {
+  /**
+   * `true` = o provedor confirmou o cancelamento/agendamento (nao havera nova cobranca).
+   * `false` = fallback documentado (D-053-5): provedor sem endpoint (AbacatePay cartao) ou assinatura sem
+   * recorrencia no provedor (PIX); o LeadForge marca localmente e para de gerar cobranca.
+   */
+  providerConfirmed: boolean;
+}
+export interface ResumeSubscriptionInput {
+  orgId: string;
+}
+export interface ResumeSubscriptionResult {
+  providerConfirmed: boolean;
+}
+
 export interface PaymentProvider {
   readonly name: "mock" | "stripe" | "abacatepay";
   createCheckoutSession(input: CheckoutSessionInput): Promise<CheckoutSessionResult>;
   createPortalSession(input: PortalSessionInput): Promise<PortalSessionResult>;
+  /** SPEC-053a — agenda/efetiva o cancelamento no provedor. Lanca `AppError` se o provedor falhar (a action NAO aplica estado local). */
+  cancelSubscription(input: CancelSubscriptionInput): Promise<CancelSubscriptionResult>;
+  /** SPEC-053a — desfaz o cancelamento agendado (`cancelAtPeriodEnd`) antes do fim do periodo. */
+  resumeSubscription(input: ResumeSubscriptionInput): Promise<ResumeSubscriptionResult>;
   /** `false` = 401 no Route Handler. Mock: sempre `true` (sem assinatura externa a validar, D-33-5). */
   verifyWebhookSignature(rawBody: string, signatureHeader: string | null): boolean;
   /** `null` = payload não reconhecido (ignorado, 200 "ignored" — nunca 500 por evento desconhecido). */

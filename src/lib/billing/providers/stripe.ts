@@ -1,6 +1,6 @@
 import Stripe from "stripe";
 import { AppError } from "@/lib/errors";
-import type { CheckoutSessionInput, CheckoutSessionResult, ParsedBillingEvent, PaymentProvider, PortalSessionInput, PortalSessionResult } from "../provider";
+import type { CancelSubscriptionInput, CancelSubscriptionResult, ResumeSubscriptionInput, ResumeSubscriptionResult, CheckoutSessionInput, CheckoutSessionResult, ParsedBillingEvent, PaymentProvider, PortalSessionInput, PortalSessionResult } from "../provider";
 
 /**
  * SPEC-033 (D-33-1/D-33-5) — adapter Stripe REAL, implementado e pronto, mas INATIVO por padrão: o
@@ -38,6 +38,24 @@ export class StripePaymentProvider implements PaymentProvider {
       code: "config",
       userMessage: "Portal de assinatura indisponível no momento. Tente novamente mais tarde.",
       cause: new Error(`StripePaymentProvider.createPortalSession não ativado (org ${input.orgId}).`),
+    });
+  }
+
+  async cancelSubscription(input: CancelSubscriptionInput): Promise<CancelSubscriptionResult> {
+    // Implementação real ficaria: this.client.subscriptions.update(id, { cancel_at_period_end: true }) / .cancel(id).
+    throw new AppError({
+      code: "config",
+      userMessage: "Cancelamento indisponível no momento. Tente novamente mais tarde.",
+      cause: new Error(`StripePaymentProvider.cancelSubscription não ativado (org ${input.orgId}).`),
+    });
+  }
+
+  async resumeSubscription(input: ResumeSubscriptionInput): Promise<ResumeSubscriptionResult> {
+    // Implementação real ficaria: this.client.subscriptions.update(id, { cancel_at_period_end: false }).
+    throw new AppError({
+      code: "config",
+      userMessage: "Reativação indisponível no momento. Tente novamente mais tarde.",
+      cause: new Error(`StripePaymentProvider.resumeSubscription não ativado (org ${input.orgId}).`),
     });
   }
 

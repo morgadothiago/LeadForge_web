@@ -37,3 +37,27 @@ export function limitLabel(value: number | null, unit: string): string {
   if (value === null) return `${unit} ilimitado(s)`;
   return `${value.toLocaleString("pt-BR")} ${unit}`;
 }
+
+/** SPEC-053b (D-053-1/3/4) — retenção dos dados após o cancelamento efetivado. */
+export const RETENTION_DAYS = 90;
+const DAY_MS = 86_400_000;
+export const addDays = (d: Date, days: number): Date => new Date(d.getTime() + days * DAY_MS);
+
+export type CancelUiState = "none" | "scheduled" | "canceled";
+
+/** Estado de cancelamento para a UI. `canceled` = efetivado (status canceled OU agendado com período vencido: reativar exige nova contratação, D-053-4). */
+export function cancelUiState(sub: { status: SubscriptionStatus; cancelAtPeriodEnd: boolean; currentPeriodEnd: Date | null }, now: Date = new Date()): CancelUiState {
+  if (sub.status === "canceled") return "canceled";
+  if (sub.cancelAtPeriodEnd) return sub.currentPeriodEnd && sub.currentPeriodEnd.getTime() > now.getTime() ? "scheduled" : "canceled";
+  return "none";
+}
+
+/** Data de expurgo: efetivado = canceledAt + 90d; agendado = currentPeriodEnd + 90d; senão null. */
+export function purgeDateFor(sub: { canceledAt: Date | null; currentPeriodEnd: Date | null }, state: CancelUiState): Date | null {
+  if (state === "canceled") {
+    const anchor = sub.canceledAt ?? sub.currentPeriodEnd;
+    return anchor ? addDays(anchor, RETENTION_DAYS) : null;
+  }
+  if (state === "scheduled" && sub.currentPeriodEnd) return addDays(sub.currentPeriodEnd, RETENTION_DAYS);
+  return null;
+}

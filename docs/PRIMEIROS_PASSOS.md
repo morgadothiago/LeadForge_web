@@ -1,224 +1,556 @@
-# Primeiros passos: fazer o LeadForge funcionar (checklist)
+# Primeiros passos: fazer o LeadForge funcionar (versão para criança de 5 anos)
 
-Marque cada item e rode o "Como verificar". Complementa o `docs/GUIA.md` (referência completa) e o
-`docs/CONFIGURACAO_POS_PROJETO.md` (o que configurar depois de cada SPEC) e o `docs/ROTEIRO_DE_TESTES.md` (o que
-clicar e o que esperar). Revisado contra o código em 2026-10-10 (noite). Onde estiver escrito "não verificado",
-ninguém rodou no navegador/serviço real: só leitura de código e testes automatizados.
+Este guia é um passo a passo. Marque cada item ✅ quando terminar. Em cada passo tem o comando, **o que você deve
+ver na tela** e como conferir.
 
-> **Estado do seu ambiente nesta data** (só nomes, nunca valores):
-> - `.env` tem `POSTGRES_PASSWORD`, `DATABASE_URL`, `AUTH_SECRET`, `AUTH_URL`, `ADMIN_EMAIL`, `ADMIN_PASSWORD`,
->   `ENCRYPTION_KEY`, `CRON_SECRET`, `INGEST_SECRET`, `N8N_ENCRYPTION_KEY`, `EVOLUTION_*` e `SMTP_*`. Faltam (todas
->   opcionais): `RESEND_API_KEY`, `APP_BASE_URL` (os links dos e-mails caem em `AUTH_URL`, depois em
->   `http://localhost:3000`; em produção defina-a) e qualquer chave de LLM.
->   Também ausentes de propósito: `LEAD_SEARCH_ENABLED` (busca de leads desligada), `CREATIVE_*`, `STORAGE_*`.
-> - **E-mail já desviado para o Mailpit:** `SMTP_HOST=localhost`, `SMTP_PORT=1025`, `ALLOW_PRIVATE_SMTP_HOSTS=true`.
->   Container `mailpit` no ar; caixa em http://localhost:8025. Nada sai para a internet.
-> - **Migrations:** 40 no repo, a última é `20261013120000_billing_reminder_kinds_052b` (SPEC-052b, adiciona 4 valores ao enum `BillingReminderKind`; **ainda não aplicada no banco de dev**: rode `npx prisma migrate deploy`). No banco de dev
->   `npx prisma migrate status` diz "Database schema is up to date" (conferido em 2026-10-10). Em outro clone/banco,
->   aplique com `npx prisma migrate deploy` (ver 1.3).
-> - **Containers no ar:** `leadforge-postgres-1`, `leadforge-redis-1` e `mailpit` (o `evolution` e o `n8n` não).
-> - `PAYMENT_PROVIDER` não está definido: o default `mock` já basta.
+Ele ajuda os outros guias: `docs/GUIA.md` (o livro completo), `docs/CONFIGURACAO_POS_PROJETO.md` (o que arrumar depois
+de cada SPEC) e `docs/ROTEIRO_DE_TESTES.md` (o que clicar e o que esperar).
+Revisado contra o código em 2026-10-10 (noite). Onde estiver escrito "não verificado", ninguém testou no navegador ou
+no serviço de verdade: só se leu o código e rodaram testes automáticos.
+
+---
+
+## O que é o LeadForge?
+
+Imagine uma lojinha que precisa de clientes. Ela não sabe onde achá-los. O LeadForge é o ajudante dessa lojinha.
+
+Ele procura pessoas e empresas que podem comprar (a gente chama de **lead**: um "possível cliente"). Depois ele
+conversa com elas por você e organiza tudo num quadro. Assim você não se perde.
+
+### O que dá para fazer
+
+- 🔎 **Achar clientes:** buscar empresas no Google Maps (nome, telefone, site, endereço).
+- 💬 **Mandar mensagens:** falar com os clientes pelo WhatsApp e por e-mail, em sequência.
+- 🎬 **Criar vídeos e criativos:** fazer vídeos de apresentação com avatar (hoje é de mentirinha, só para testar).
+- 👨‍👩‍👧 **Organizações com várias pessoas:** como uma sala de aula. Cada organização é uma sala, e você convida
+  amigos para entrar.
+- 💳 **Planos e cobrança:** planos como "pequeno" e "grande", teste grátis (trial) e cobrança.
+- 📧 **E-mails automáticos:** o sistema avisa sozinho: "bem-vindo", "pagamento falhou", "recibo", "convite".
+
+### Palavras que vão aparecer (o dicionário rápido)
+
+- **Docker:** uma caixinha mágica onde os programas moram, para não bagunçar o seu computador.
+- **Postgres:** o armário gigante onde o LeadForge guarda tudo (o banco de dados).
+- **Redis:** um bloquinho de recados rápidos, que o sistema usa para lembrar de coisas por pouco tempo.
+- **Migration:** arrumar as gavetas do armário. Cada migration é uma ordem do tipo "crie uma gaveta nova".
+- **Seed:** colocar brinquedos de exemplo no armário vazio, para você ter o que ver.
+- **`.env`:** um caderninho de segredos. Tem senhas e chaves. Nunca mostre para ninguém.
+- **Tick:** um despertador que acorda o sistema a cada minuto para ele fazer as tarefas atrasadas.
+- **Webhook:** o carteiro. Ele bate na porta para avisar "o pagamento chegou!".
+- **Mock:** de mentirinha. É um brinquedo que faz de conta que é de verdade. Não gasta dinheiro.
+- **Mailpit:** uma caixa de correio de brinquedo. Os e-mails chegam nela e não saem do seu computador.
+- **SPEC:** a receita de uma funcionalidade, escrita antes de fazer.
+- **Provider (provedor):** o "fornecedor" de um serviço, tipo quem entrega o pagamento ou o e-mail.
+
+---
+
+## Como está o seu ambiente hoje (só nomes, nunca valores)
+
+- O caderninho `.env` já tem: `POSTGRES_PASSWORD`, `DATABASE_URL`, `AUTH_SECRET`, `AUTH_URL`, `ADMIN_EMAIL`,
+  `ADMIN_PASSWORD`, `ENCRYPTION_KEY`, `CRON_SECRET`, `INGEST_SECRET`, `N8N_ENCRYPTION_KEY`, `EVOLUTION_*` e `SMTP_*`.
+- Faltam, mas **todas são opcionais**:
+  - `RESEND_API_KEY`
+  - `APP_BASE_URL` (os links dos e-mails usam `AUTH_URL` e, se faltar, `http://localhost:3000`; em produção, defina)
+  - qualquer chave de LLM (o "cérebro" que escreve mensagens)
+- Ausentes de propósito: `LEAD_SEARCH_ENABLED` (a busca de leads está desligada), `CREATIVE_*` e `STORAGE_*`.
+- 📬 **O e-mail já vai para o Mailpit:** `SMTP_HOST=localhost`, `SMTP_PORT=1025`, `ALLOW_PRIVATE_SMTP_HOSTS=true`. A caixa
+  fica em http://localhost:8025. Nada sai para a internet.
+- 🗄️ **Migrations (gavetas):** são 40 no projeto. A última é `20261013120000_billing_reminder_kinds_052b` (SPEC-052b:
+  ela ensina ao sistema 4 tipos novos de aviso de cobrança, no enum `BillingReminderKind`, que é uma lista de opções).
+  - ⚠️ Essa gaveta **ainda não foi aplicada no banco de dev**. Rode `npx prisma migrate deploy`.
+  - Antes dela, `npx prisma migrate status` dizia "Database schema is up to date" (conferido em 2026-10-10).
+  - Em outro computador ou banco novo, aplique tudo com `npx prisma migrate deploy` (passo 1.3).
+- 🐳 **Caixinhas no ar:** `leadforge-postgres-1`, `leadforge-redis-1` e `mailpit`. O `evolution` e o `n8n` não.
+- 💳 `PAYMENT_PROVIDER` não está definido. Tudo bem: o padrão `mock` (de mentirinha) já basta.
 
 ---
 
 ## Fase 1: o app abre e você entra (obrigatório)
 
-- [ ] **1.1 Docker rodando.** No Mac com Colima: `colima start`.
-  - Verificar: `docker ps` não dá erro.
-- [ ] **1.2 Postgres e Redis no ar.** `docker compose up -d postgres redis`
-  - Verificar: `docker ps` mostra `leadforge-postgres-1` e `leadforge-redis-1`.
-  - Sintoma de que esqueceu: a página `/` devolve **500** (a landing lê os planos no banco).
-- [ ] **1.3 Migrations aplicadas.** Use **`npx prisma migrate deploy`** (sem as migrations de criativos e de `EmailDispatchLog`, `/criativos` e os e-mails de cobrança dão erro de tabela inexistente). Depois **reinicie** o `npm run dev`.
-  - **NÃO use `prisma migrate dev` neste banco** (aviso ainda procede, reconferido em 2026-10-10 com
-    `prisma migrate diff`): o banco de dev tem colunas que o schema atual não tem (`User.document`/`documentType`,
-    `Organization.document`/`documentType`/`documentBlocked`/`trialBlocked`, `Plan.abacatepayProductId` e os índices
-    `User_document_*`), criadas por migrations `20260928*` de outro clone que **não existem neste repo**. O
-    `migrate dev` proporia **apagar essas colunas e os dados**. Um banco novo (clone limpo) não tem esse drift.
-  - Verificar: `npx prisma migrate status` não lista migrations pendentes.
-- [ ] **1.4 Seed (admin + dados de exemplo).** `npm run db:seed`
-  - Os leads do seed têm `source="seed"` e **nunca recebem mensagem real** (a menos que `ALLOW_SEED_SENDS` esteja ligada;
-    não ligue).
-  - Cria/atualiza o admin a partir de `ADMIN_EMAIL`/`ADMIN_PASSWORD` (senha de 12+ caracteres; sem elas o admin com
-    senha não é criado e o login fica indisponível). Idempotente.
-- [ ] **1.5 Subir o app.** `npm run dev` → http://localhost:3000
-  - Verificar: `curl -s -o /dev/null -w "%{http_code}\n" localhost:3000` → `200`.
-- [ ] **1.6 Entrar.** http://localhost:3000/login com `ADMIN_EMAIL` / `ADMIN_PASSWORD` do `.env`.
-  - Verificar: cai no `/dashboard`.
+### 1.1 Ligar o Docker
 
-## Fase 2: cadastro, planos e cobrança sem gastar nada
+Docker é a caixinha mágica. Sem ela ligada, nada mais funciona. No Mac com Colima:
 
-- [ ] **2.1 Cobrança em modo mock: nada a configurar** (a Stripe é só um stub; o adapter da AbacatePay, SPEC-047, existe
-  mas exige conta e chaves `ABACATEPAY_*`: não testado com conta real). Sem `PAYMENT_PROVIDER` o default já é `mock`: checkout e
-  trial funcionam ponta a ponta sem conta nem chaves externas. `MOCK_WEBHOOK_SECRET` só é necessário para chamar a
-  rota HTTP `POST /api/billing/webhook` (sem ele ela responde 503); o checkout interno não depende dele.
-  - Verificar: o signup de uma conta nova chega ao checkout fictício sem pedir cartão.
-- [ ] **2.2 Criar uma conta nova** em `/signup` e conferir que cai em outra organização.
-  - Com o Mailpit (Fase 3) aberto, o e-mail **"início do trial"** deve aparecer para o owner (SPEC-052a; idempotente: um
-    por organização). No checkout mock, o e-mail "Assinatura confirmada" é esperado; o **recibo** só sai para renovação
-    ou PIX pago (não para o checkout mock). Esperado por leitura de código, **não verificado em navegador**.
-- [ ] **2.3 Multi-tenant (SPEC-049, já entregue)**: criar 2ª organização em `/organizacoes`, convidar um e-mail em
-  `/configuracoes/equipe`, aceitar em `/convite/[token]` (o e-mail chega no Mailpit) e trocar de organização no seletor.
-  Roteiro completo: bloco C de `docs/ROTEIRO_DE_TESTES.md` (o texto dele ainda diz que a 049b não existe: está
-  desatualizado). Em bancos antigos, `npm run org:backfill-last` preenche `User.lastOrgId` (idempotente; só imprime
-  contagens). Validação em navegador: **não feita**.
-- [ ] **2.4 Menu lateral (SPEC-057, agrupada em seções: Captação de leads, Criativos, Automação, Conta).** Marcada
-  IMPLEMENTED no `specs/README.md`, mas o código da sidebar ainda está sendo ajustado nesta branch: **em andamento**,
-  confira visualmente depois que parar de mudar. O `platform_admin` vê só o item "Administração" (`/admin/organizacoes`).
+```bash
+colima start
+```
 
-## Fase 3: e-mail (escolha UMA opção)
+- **O que você deve ver na tela:** várias linhas de "starting..." e, no fim, "done".
+- Como conferir: `docker ps` não dá erro (pode aparecer uma lista vazia, e isso é normal).
 
-- [x] **3.A Sem enviar nada (JÁ CONFIGURADO neste ambiente).** Mailpit local, com autenticação liberada:
-  `docker run -d --name mailpit --restart unless-stopped -p 1025:1025 -p 8025:8025 -e MP_SMTP_AUTH_ACCEPT_ANY=1 -e MP_SMTP_AUTH_ALLOW_INSECURE=1 axllent/mailpit`
-  - `.env`: `SMTP_HOST=localhost`, `SMTP_PORT=1025`, `ALLOW_PRIVATE_SMTP_HOSTS=true` (reinicie o app ao mudar).
-  - Ver as mensagens em http://localhost:8025. As mensagens somem se o container for recriado.
-  - O e-mail de sistema (reset de senha, convite, trial, cobrança) usa, nesta ordem, ACS (`EMAIL_PROVIDER=acs`), Resend
-    (se `RESEND_API_KEY`) e por fim o SMTP do `.env`; sem os dois primeiros, cai no Mailpit.
-  - **E-mails transacionais das SPECs 052a/052b que você vê aqui:** início do trial (signup ou nova organização),
-    "Assinatura confirmada", recibo (renovação/PIX), **falha de pagamento imediata**, **régua D+3/D+5/D+6** (D+6 = último
-    aviso, 24h antes de suspender; igual para cartão e PIX; o grace de 7 dias não mudou), **pagamento regularizado**,
-    **próxima cobrança** (7 dias antes, só anual e PIX) e **troca de plano**. Disparo local via webhook do provedor mock e
-    `npm run dev:tick` (passos E6 a E10 do `docs/ROTEIRO_DE_TESTES.md`). **Não existe:** e-mail de falha/recuperação de
-    **cartão** do AbacatePay (Q-052-5 aberta, nomes dos eventos desconhecidos) e PDF/nota fiscal (recibo é só informativo).
-    As SPECs 053-056 (cancelamento, exclusão LGPD, boas-vindas/verificação, e-mails de organização) estão **DRAFT: não existem**.
-  - **Para voltar a enviar pelo Gmail de verdade:** `SMTP_HOST=smtp.gmail.com`, `SMTP_PORT=587`, remova
-    `ALLOW_PRIVATE_SMTP_HOSTS` e reinicie. Sem isso nenhum e-mail sai da sua máquina.
-- [ ] **3.B Resend (grátis, 100/dia).** `RESEND_API_KEY=` e `RESEND_FROM_NOREPLY=` (domínio verificado).
-- [ ] **3.C Azure Communication Services (SPEC-048).** `EMAIL_PROVIDER=acs`,
-  `AZURE_COMMUNICATION_CONNECTION_STRING=` e `ACS_FROM_NOREPLY=` (MailFrom do domínio verificado no ACS).
-  Passo a passo em `docs/CONFIGURACAO_POS_PROJETO.md` seção 2b.
-  - Verificar (qualquer opção): `/esqueci-senha` com o e-mail do admin e conferir que a mensagem chegou.
-  - Custo: Mailpit grátis; Resend 100/dia grátis (confirme no site); ACS cobra por e-mail (confirme no portal Azure).
-  - Nunca testado contra Resend nem ACS reais: só testes com provider mockado.
+### 1.2 Ligar o armário (Postgres) e o bloquinho (Redis)
 
-## Fase 4: arquivos (SPEC-050), funciona sem Azure
+```bash
+docker compose up -d postgres redis
+```
 
-- [ ] **4.1 Nada a fazer para testar.** Sem `AZURE_STORAGE_CONNECTION_STRING` o provider **`local`** grava em `.storage/`
-  (`STORAGE_LOCAL_DIR` muda a pasta; ignorada pelo git). Em produção sem Azure e sem `STORAGE_PROVIDER=local` a feature
-  responde 503. Limites opcionais: `STORAGE_MAX_FILE_BYTES`, `STORAGE_ALLOWED_MIME`. Rotas: `/api/storage/files`.
-  Custo local: zero. Limitação: disco local não serve para produção em Vercel (sistema de arquivos efêmero).
-- [ ] **4.2 Azure Blob de verdade (depois).** `AZURE_STORAGE_CONNECTION_STRING=` + `AZURE_STORAGE_CONTAINER=` (container
-  **privado**). Seção 2c de `docs/CONFIGURACAO_POS_PROJETO.md`.
-  - Nunca foi testado contra Azure real: só mock e SAS offline.
+- **O que você deve ver na tela:** "Started" ou "Running" para `postgres` e `redis`.
+- Como conferir: `docker ps` mostra `leadforge-postgres-1` e `leadforge-redis-1`.
+- ⚠️ Se esquecer este passo, a página `/` dá erro **500** (a página inicial lê os planos no armário).
 
-## Fase 5: WhatsApp (opcional)
+### 1.3 Arrumar as gavetas (migrations)
 
-- [ ] **5.1** `docker compose up -d evolution` (não sobe junto com 1.2; porta 8080; precisa de `EVOLUTION_API_URL` e
-  `EVOLUTION_API_KEY` no `.env`, já presentes).
-  - Verificar: `docker ps` mostra o container da Evolution e a tela de WhatsApp lista a instância.
-  - O `n8n` (SPEC-014, `docker compose up -d n8n`, porta 5678) é opcional; a ingestão `POST /api/integrations/leads` só
-    liga com `INTEGRATION_LEADS_ENABLED=true` e `INGEST_SECRET` de 32+ caracteres. Ver `docs/N8N.md`.
-- [ ] **5.2** Em Configurações > WhatsApp, criar a instância e ler o QR code.
-  - Use um **chip descartável**: a Evolution é não-oficial e o número pode ser banido. Custo: o chip. Não verificado
-    de ponta a ponta nesta revisão.
+```bash
+npx prisma migrate deploy
+```
 
-## Fase 6: LLM dos agentes (SPEC-018/019)
+- **O que você deve ver na tela:** "Applying migration ..." para cada gaveta nova e, no fim, "All migrations have been
+  successfully applied". Se não há nada novo: "No pending migrations to apply".
+- Sem as migrations de criativos e de `EmailDispatchLog` (o caderno de e-mails enviados), `/criativos` e os e-mails de
+  cobrança dão erro de "tabela inexistente".
+- ⚠️ **Depois de aplicar, pare o `npm run dev` e ligue de novo.** O app antigo guarda uma cópia velha do mapa das gavetas
+  (o Prisma Client) e falha em silêncio.
+- Como conferir: `npx prisma migrate status` não lista nenhuma migration pendente.
 
-**Realidade hoje:** o código só tem `ClaudeProvider` (`https://api.anthropic.com`, pago, sem tier grátis) e um
-`FakeLlmProvider` de testes. **Não existe LLM gratuito pronto no projeto.** Verifique: `src/lib/agents/provider.ts`.
-A SPEC-036 (LLM gratuito OpenAI-compatible) está APROVADA, mas **a implementação está pendente**.
+🚫 **NÃO use `prisma migrate dev` neste banco.** O aviso continua valendo (reconferido em 2026-10-10 com
+`prisma migrate diff`). O banco de dev tem gavetas que o projeto atual não conhece:
+- `User.document` e `User.documentType`
+- `Organization.document`, `documentType`, `documentBlocked` e `trialBlocked`
+- `Plan.abacatepayProductId`
+- os índices `User_document_*`
 
-- [ ] **6.1 Testar sem LLM (grátis).** Deixe os agentes desligados (kill switch global, que é o padrão) e use templates
-  fixos nos passos da sequência.
-- [ ] **6.2 Testar com Claude.** Configurações > Integrações > LLM: cole a chave da Anthropic. Fica cifrada com a
-  `ENCRYPTION_KEY`. É pago.
-- [ ] **6.3 Usar um LLM grátis.** Exige uma SPEC nova: um adapter que implemente `LlmProvider` e escolha o provedor
-  em `getLlmProvider()` (é exatamente a SPEC-036, já aprovada). Opções para avaliar (confirme limites e termos na página oficial antes, mudam sempre):
+Elas vieram de migrations `20260928*` de outro computador, que **não existem neste projeto**. O `migrate dev` ia
+propor **jogar fora essas gavetas e tudo que está dentro**. Um banco novo (clone limpo) não tem esse problema.
 
-| Opção | Custo | Observação |
-|---|---|---|
-| Gemini API (Google AI Studio) | tier gratuito com limite de taxa | no tier grátis o conteúdo pode ser usado para melhorar produtos (atenção a LGPD/dados de leads) |
-| Groq | tier gratuito com limite de taxa | API compatível com o formato OpenAI; modelos abertos |
-| OpenRouter | alguns modelos `:free` | disponibilidade e limites variam |
-| Ollama (local) | grátis, só a máquina | nenhum dado sai do computador; qualidade depende do hardware; API compatível com OpenAI em `localhost:11434` |
+### 1.4 Colocar brinquedos de exemplo (seed)
 
-  Recomendação: **um único adapter "OpenAI-compatible"** (base URL + chave + modelo configuráveis) cobre Groq,
-  OpenRouter, Ollama e o endpoint de compatibilidade do Gemini. Escopo já coberto pela **SPEC-036** (a SPEC-052 agora é de e-mails de cobrança); falta só implementar.
+```bash
+npm run db:seed
+```
 
-## Fase 7: criativos com avatar (SPEC-051, implementada com provedor de demonstração; avatar mock)
+- **O que você deve ver na tela:** mensagens de que criou o admin, os planos e os dados de exemplo. Sem erro vermelho.
+- Os leads do seed têm `source="seed"` e **nunca recebem mensagem de verdade** (só receberiam se `ALLOW_SEED_SENDS`
+  estivesse ligada; não ligue).
+- Ele cria ou atualiza o admin usando `ADMIN_EMAIL` e `ADMIN_PASSWORD`. A senha precisa ter 12+ caracteres. Sem essas
+  duas, o admin com senha não é criado e você não consegue entrar.
+- Pode rodar de novo sem medo (idempotente: repetir não bagunça).
 
-- [ ] **7.1** Aplicar a migration (1.3) e reiniciar. Entrar em **`/criativos`** (item "Criativos" na sidebar).
-- [ ] **7.2** Nada a configurar: o provider padrão é **`mock`** (vídeo placeholder, custo zero, nunca usa a rede) e a tela
-  mostra o aviso "Provedor de demonstração (mock)". Em produção só liga com `CREATIVE_PROVIDER=mock` explícito.
-- [ ] **7.3 Os criativos só avançam quando o tick roda.** Em local ninguém chama o tick sozinho. Em um **segundo terminal**,
-  deixe rodando: `npm run dev:tick` (chama `POST /api/cron/tick` a cada 15 s; `DEV_TICK_INTERVAL_MS` ajusta, mínimo 2000).
-  O criativo sai de "Na fila" e conclui em ~15-30 s (o mock leva ~3 s, `CREATIVE_MOCK_DELAY_MS`). Manual, sem loop:
-  `npm run tick` (também processa criativos; a 1a rodada envia ao mock e a 2a conclui) ou
-  `curl -fsS -X POST -H "Authorization: Bearer $CRON_SECRET" http://localhost:3000/api/cron/tick`. Sem tick o criativo fica em "Na fila".
-- [ ] **7.4** Limites por org (envs `CREATIVE_*`, ver `.env.example`): 2 gerações simultâneas e 20 criativos por mês.
-- Provedor real (HeyGen, D-ID, Synthesia, Tavus ou Azure AI Speech Avatar): decisão em aberto (Q-051-1). Antes de ligar
-  um, cumpra o D-051-15 da SPEC-051 (proteção SSRF e timeouts no download do vídeo).
-- Limitação: o vídeo é um placeholder; nenhum avatar real é gerado. Custo: zero (mock). O único provider aceito em
-  `CREATIVE_PROVIDERS` é `mock`.
-- Status: 051a (backend) e 051b (frontend) constam como IMPLEMENTED no `specs/README.md`; **não validado em navegador
-  autenticado**.
+### 1.5 Ligar o app
 
-## Fase 8: busca de leads pelo Google Maps / Places (SPEC-015; botão "Buscar leads" na campanha)
+```bash
+npm run dev
+```
 
-**Desligada por padrão** (`LEAD_SEARCH_ENABLED` ausente no seu `.env`). O app usa só a **Places API (New)** (`POST places.googleapis.com/v1/places:searchText`) com uma chave
-de API. Não usa Maps JavaScript, mapa nem geocoding. A chave vai só no servidor (header `X-Goog-Api-Key`) e fica cifrada no banco.
-Traz nome, telefone, site, endereço e nota. **Não traz e-mail de decisor.**
+- **O que você deve ver na tela:** "Ready" e o endereço http://localhost:3000.
+- Como conferir, em outro terminal:
 
-- [ ] **8.1 Projeto no Google Cloud.** console.cloud.google.com > criar projeto.
-- [ ] **8.2 Faturamento.** O Google exige cartão para liberar a chave, mesmo dentro da cota grátis.
-- [ ] **8.3 Ativar a "Places API (New)".** Não confundir com a "Places API" antiga: o código usa a nova.
-- [ ] **8.4 Criar a chave** em APIs e serviços > Credenciais > chave de API.
-- [ ] **8.5 Restringir a chave** só à "Places API (New)". **Não** restrinja por site (a chamada sai do servidor); por IP só se o
-  servidor tiver IP fixo.
-- [ ] **8.6 Teto e alerta de orçamento** em Faturamento. É a sua proteção real contra gasto.
-- [ ] **8.7 Cadastrar no app.** Logado como **admin**: `/configuracoes/integracoes` > Places > colar a chave.
-- [ ] **8.8 Ligar.** No `.env`: `LEAD_SEARCH_ENABLED=true` e reinicie o `npm run dev`.
-  Tetos opcionais: `LEAD_SEARCH_MAX_RESULTS` (padrão 20, máx. 60), `LEAD_SEARCH_DAILY_MAX_REQUESTS` (padrão 3/dia/campanha, busca
-  diária pelo tick), `LEAD_SEARCH_MAX_CAMPAIGNS_PER_TICK` (padrão 3), `LEAD_SEARCH_TICK_DEADLINE_MS` (padrão 30000) e, da
-  SPEC-058, `LEAD_SEARCH_MANUAL_DAILY_MAX_REQUESTS` (padrão 2/dia/campanha)
-  e `LEAD_SEARCH_ORG_DAILY_MAX_REQUESTS` (padrão 10/dia/org).
-- [ ] **8.9 Testar.** Crie uma campanha **ativa** com ICP (ex.: nicho "dentistas", local "Curitiba"), abra `/campanhas/[id]` e
-  use **Buscar leads** (ou deixe o `npm run dev:tick` rodando para a busca diária). Os leads entram em `/leads` e no
-  Pipeline como `novo_lead`, deduplicados e sem contatos em opt-out.
-  - Verificar: o resultado mostra novos/duplicados; repetir a mesma busca devolve quase só duplicados (1 página de até 20
-    resultados por chamada; paginação fica para SPEC futura).
+```bash
+curl -s -o /dev/null -w "%{http_code}\n" localhost:3000
+```
 
-**Custo (consultado em 2026-09-19 no `docs/GUIA.md` 4.6; confirme na página oficial, muda):** Text Search Pro 5.000 grátis/mês e
-depois US$ 32 por 1.000; Enterprise 1.000 grátis/mês e depois US$ 35 por 1.000. Campos de telefone e site tendem a cair na
-Enterprise, mas **o SKU realmente acionado não foi confirmado**.
+Deve aparecer `200`. Isso quer dizer "tudo certo".
 
-**Riscos:** os termos da Places API restringem cache/armazenamento de dados; confirme os termos vigentes antes de operar em
-escala. Base legal registrada: interesse legítimo B2B, com opt-out aplicado antes de criar o lead.
+### 1.6 Entrar
 
-**Estado:** SPEC-058 IMPLEMENTADA (058a backend e 058b frontend, QA aprovado em 2026-10-10): só o **owner** dispara "Buscar agora";
-tetos manual 2/dia/campanha e 10/dia/org, separados do teto da busca diária; estado "rodando" sobrevive a recarregar a
-página; resultado com novos/duplicados/suprimidos. **Nunca foi rodada com a API real do Google** (só testes com resposta
-mockada) e a tela nunca foi vista em navegador: use o bloco G de `docs/ROTEIRO_DE_TESTES.md`.
+Abra http://localhost:3000/login e use `ADMIN_EMAIL` e `ADMIN_PASSWORD` do seu `.env`.
+
+- **O que você deve ver na tela:** o painel (`/dashboard`).
 
 ---
 
-## Testes
+## Fase 2: cadastro, planos e cobrança sem gastar nada
 
-- [ ] `npx tsc --noEmit` (ou `npm run typecheck`) e `npm run lint`
-  - Estado em 2026-10-10 (após a SPEC-058): `tsc` limpo; `lint` 0 erros (14 warnings que já existiam); vitest completo em banco
-    novo: 149 arquivos, 1852 testes passando.
-- [ ] `npm test` (vitest): **use um banco de teste limpo**. O `leadforge_test` acumula lixo e gera falsas falhas
-  (`Unique constraint failed on WhatsAppInstance_instanceName_key`, contagens 21 vs 20). Num banco novo:
-  `TEST_DATABASE_URL=postgresql://leadforge:<senha>@localhost:5434/leadforge_clean_test npm test`
-  (o setup cria, migra e semeia o banco sozinho; o nome precisa terminar em `_test`).
-  **Nunca rode os testes sem `TEST_DATABASE_URL`**: cairiam no `leadforge_test` compartilhado e sujo.
-  Hoje há **144 arquivos de teste** (`*.test.ts(x)`). A última rodada completa registrada em banco limpo foi de 141
-  arquivos e 1732 testes passando; **não foi reexecutada nesta revisão** (e o código de busca de leads está em mudança).
-  `npm run test:db:reset` recria o banco de teste.
+### 2.1 Cobrança de mentirinha (mock): não precisa configurar nada
 
-## Se algo der errado
+- Sem `PAYMENT_PROVIDER`, o padrão é `mock`. Checkout e trial funcionam do começo ao fim, sem conta e sem chaves.
+- A Stripe é só um "esqueleto" (stub). O adaptador da AbacatePay (SPEC-047) existe, mas pede conta e chaves
+  `ABACATEPAY_*`. Ele **não foi testado com conta de verdade**.
+- `MOCK_WEBHOOK_SECRET` só serve para chamar a rota do carteiro `POST /api/billing/webhook` na mão. Sem ele, a rota
+  responde 503. O checkout interno não precisa dele.
+- **O que você deve ver na tela:** o cadastro de uma conta nova chega num checkout de faz de conta, **sem pedir cartão**.
 
-| Sintoma | Causa provável | Ação |
-|---|---|---|
-| `/` retorna 500 | Postgres fora do ar | 1.1 e 1.2 |
-| `docker ps` falha com "colima.sock" | Colima parado | `colima start` |
-| `prisma migrate dev` quer dropar colunas | drift do banco de dev | **não confirme**; use `migrate deploy` |
-| App não sobe em produção | falta `TRUSTED_PROXY_IP_HEADER` | defina (ex.: `x-real-ip`); é obrigatória em produção (SPEC-049; o `next build` não exige) |
-| Nenhuma mensagem/busca/criativo roda sozinho em produção | falta agendar o tick ou `CRON_SECRET` (32+ caracteres; sem ele `/api/cron/tick` responde 503) | `vercel.json` já agenda o tick por minuto (exige plano pago na Vercel); defina `CRON_SECRET`; ver `docs/CONFIGURACAO_POS_PROJETO.md` |
-| `/criativos` ou `/api/storage/*` dão 503 em produção | `CREATIVE_PROVIDER=mock` e/ou storage não definidos | Fases 4 e 7 |
-| Rate limit por IP "desligado" em produção | mesma causa | idem |
-| E-mail não chega na caixa | olhando o lugar errado | com o Mailpit, abra http://localhost:8025 (não o Gmail) |
-| E-mail não chega no Mailpit | container parado ou `.env` sem reiniciar | `docker ps` mostra `mailpit`? Reinicie o `npm run dev` |
-| Busca de leads "indisponível"/sem resultados | `LEAD_SEARCH_ENABLED` ausente, chave `places` não cadastrada ou campanha inativa | Fase 8 |
-| E-mail de trial/recibo não chega depois de uma migration nova | o `npm run dev` antigo segura o Prisma Client velho (falha em silêncio) | pare e reinicie o `npm run dev` |
-| Criativo fica em "Na fila" | o tick não rodou | `npm run dev:tick` em outro terminal (7.3) |
-| `/criativos` dá erro de tabela | migration dos criativos não aplicada | 1.3 |
+### 2.2 Criar uma conta nova
+
+Vá em `/signup` e crie uma conta.
+
+- **O que você deve ver na tela:** você cai numa organização nova (outra sala).
+- Com o Mailpit aberto (Fase 3), chega o e-mail **"início do trial"** para o dono da conta (SPEC-052a; só um por
+  organização).
+- No checkout de mentirinha, o e-mail "Assinatura confirmada" é esperado.
+- O **recibo** só sai em renovação ou PIX pago, não no checkout de mentirinha.
+- Isso foi esperado pela leitura do código e **não foi verificado em navegador**.
+
+### 2.3 Várias pessoas na mesma empresa (multi-tenant, SPEC-049, já entregue)
+
+Multi-tenant quer dizer: um prédio com vários apartamentos. Cada organização é um apartamento e ninguém vê o que
+é do vizinho.
+
+1. Crie uma 2ª organização em `/organizacoes`.
+2. Convide um e-mail em `/configuracoes/equipe`.
+3. Aceite o convite em `/convite/[token]` (o e-mail chega no Mailpit).
+4. Troque de organização no seletor.
+
+- **O que você deve ver na tela:** o convite chega no Mailpit com o e-mail mascarado; ao aceitar, a pessoa entra na
+  organização; o seletor muda de "apartamento".
+- Roteiro completo: bloco C de `docs/ROTEIRO_DE_TESTES.md`. O texto dele ainda diz que a 049b não existe: está
+  desatualizado.
+- Em bancos antigos, rode `npm run org:backfill-last`. Ele preenche `User.lastOrgId` (a última organização usada) e só
+  imprime contagens. Pode repetir sem medo.
+- Validação em navegador: **não foi feita**.
+
+### 2.4 Menu lateral (SPEC-057)
+
+O menu é dividido em quatro seções: **Captação de leads, Criativos, Automação e Conta**.
+
+- Está marcada como IMPLEMENTED no `specs/README.md`, mas o código da sidebar ainda estava sendo ajustado nesta branch.
+  Está **em andamento**: confira com os olhos depois que parar de mudar.
+- O `platform_admin` (o "chefe do prédio") vê só o item "Administração" (`/admin/organizacoes`).
+
+---
+
+### 2.5 Cancelar a assinatura e voltar atrás (SPEC-053)
+
+Agora dá para cancelar o plano sozinho, sem falar com ninguém. É como cancelar a revistinha: você continua recebendo até o
+último dia que já pagou.
+
+1. Entre em **Configurações > Assinatura**. Só o **dono** da organização vê o botão **Cancelar assinatura**.
+2. Clique nele. Abre uma janelinha que diz até quando você ainda pode usar, que os seus dados ficam guardados por 90 dias
+   e que não há devolução de dinheiro. Marque a caixinha "Entendi" e confirme.
+3. Você continua usando tudo até o último dia pago. Chega um e-mail com o pedido e a data final.
+4. Mudou de ideia antes do fim? Clique em **Manter assinatura**. Chega um e-mail confirmando.
+5. Passado o último dia, a conta fica pausada e chega um e-mail dizendo que o cancelamento valeu. Para voltar, clique em
+   **Reassinar**. Os dados ficam guardados por 90 dias; depois disso são apagados.
+6. Se você ainda está no teste grátis (trial), cancelar vale **na hora**.
+
+✅ O que você deve ver: um e-mail por ação (mesmo clicando duas vezes) no Mailpit, http://localhost:8025. Quem não é dono não
+vê os botões. Para ver o "último dia" chegar, deixe `npm run dev:tick` aberto em outro terminal. A lista completa de testes
+está no bloco H do `docs/ROTEIRO_DE_TESTES.md`.
+
+⚠️ Se o pagamento é por cartão do AbacatePay, o cancelamento vale só dentro do LeadForge; o cartão pode continuar sendo
+cobrado até alguém cancelar no painel do AbacatePay.
+
+## Fase 3: e-mail (escolha UMA opção)
+
+### 3.A Sem enviar nada de verdade (✅ JÁ CONFIGURADO neste ambiente)
+
+É o Mailpit, a caixa de correio de brinquedo. Já aceita qualquer login. Para criar do zero:
+
+```bash
+docker run -d --name mailpit --restart unless-stopped -p 1025:1025 -p 8025:8025 -e MP_SMTP_AUTH_ACCEPT_ANY=1 -e MP_SMTP_AUTH_ALLOW_INSECURE=1 axllent/mailpit
+```
+
+- No `.env`: `SMTP_HOST=localhost`, `SMTP_PORT=1025`, `ALLOW_PRIVATE_SMTP_HOSTS=true`. Reinicie o app ao mudar.
+- **O que você deve ver na tela:** em http://localhost:8025, uma caixa de entrada. As mensagens somem se a caixinha for
+  recriada.
+- Quem manda o e-mail de sistema (reset de senha, convite, trial, cobrança)? O sistema tenta nesta ordem:
+  1. ACS (`EMAIL_PROVIDER=acs`)
+  2. Resend (se houver `RESEND_API_KEY`)
+  3. o SMTP do `.env`
+
+  Sem os dois primeiros, cai no Mailpit.
+
+**E-mails automáticos das SPECs 052a/052b que você vê aqui:**
+- início do trial (no cadastro ou numa organização nova)
+- "Assinatura confirmada"
+- recibo (renovação ou PIX)
+- **falha de pagamento imediata**
+- **régua de cobrança D+3, D+5 e D+6:** é uma escadinha de lembretes. **D+6 é o último aviso**, 24 horas antes de
+  suspender. Vale igual para cartão e PIX. O prazo de tolerância (grace) de 7 dias não mudou.
+- **pagamento regularizado**
+- **próxima cobrança** (7 dias antes; só plano anual e PIX)
+- **troca de plano**
+
+Como disparar na sua máquina: o carteiro (webhook) do provedor mock avisa e o despertador (`npm run dev:tick`) acorda
+o sistema. Passos E6 a E10 do `docs/ROTEIRO_DE_TESTES.md`.
+
+**O que NÃO existe:**
+- e-mail de falha ou recuperação de **cartão** da AbacatePay (pergunta Q-052-5 ainda aberta; não se sabe o nome dos
+  eventos)
+- PDF ou nota fiscal (o recibo é só informativo)
+- As SPECs 053 a 056 (cancelamento, exclusão LGPD, boas-vindas/verificação, e-mails de organização) estão **DRAFT**:
+  ainda são só receitas escritas, não existem no app.
+
+**Para voltar a mandar pelo Gmail de verdade:** `SMTP_HOST=smtp.gmail.com`, `SMTP_PORT=587`, apague
+`ALLOW_PRIVATE_SMTP_HOSTS` e reinicie. Sem isso, nenhum e-mail sai da sua máquina.
+
+### 3.B Resend (grátis, 100 por dia)
+
+No `.env`: `RESEND_API_KEY=` e `RESEND_FROM_NOREPLY=` (um domínio verificado, ou seja, confirmado como seu).
+
+### 3.C Azure Communication Services (SPEC-048)
+
+No `.env`: `EMAIL_PROVIDER=acs`, `AZURE_COMMUNICATION_CONNECTION_STRING=` e `ACS_FROM_NOREPLY=` (o MailFrom do domínio
+verificado no ACS). Passo a passo na seção 2b de `docs/CONFIGURACAO_POS_PROJETO.md`.
+
+### Como conferir (qualquer opção)
+
+Abra `/esqueci-senha`, digite o e-mail do admin e envie.
+
+- **O que você deve ver na tela:** uma mensagem de "e-mail enviado" e, na sua caixa (Mailpit ou real), a mensagem
+  chegando.
+
+Custo: Mailpit é grátis. Resend tem 100 por dia grátis (confirme no site). ACS cobra por e-mail (confirme no portal
+Azure). Nunca foi testado contra Resend nem ACS de verdade: só testes com provedor de mentirinha.
+
+---
+
+## Fase 4: arquivos (SPEC-050), funciona sem Azure
+
+### 4.1 Para testar, não precisa fazer nada
+
+- Sem `AZURE_STORAGE_CONNECTION_STRING`, o provider **`local`** guarda os arquivos na pasta `.storage/` do projeto.
+  O git ignora essa pasta.
+- `STORAGE_LOCAL_DIR` muda a pasta.
+- Em produção, sem Azure e sem `STORAGE_PROVIDER=local`, a função responde 503.
+- Limites opcionais: `STORAGE_MAX_FILE_BYTES` e `STORAGE_ALLOWED_MIME` (os tipos de arquivo aceitos).
+- Rotas: `/api/storage/files`.
+- Custo local: zero.
+- ⚠️ Limitação: disco local não serve para produção na Vercel (lá o disco some a cada vez, é efêmero).
+
+### 4.2 Azure Blob de verdade (depois)
+
+No `.env`: `AZURE_STORAGE_CONNECTION_STRING=` e `AZURE_STORAGE_CONTAINER=` (o container tem que ser **privado**).
+Seção 2c de `docs/CONFIGURACAO_POS_PROJETO.md`.
+
+- Nunca foi testado contra Azure de verdade: só com mock e links SAS (de acesso temporário) sem internet.
+
+---
+
+## Fase 5: WhatsApp (opcional)
+
+### 5.1 Ligar a Evolution
+
+A Evolution é a ponte entre o LeadForge e o WhatsApp.
+
+```bash
+docker compose up -d evolution
+```
+
+- Ela não sobe junto com o passo 1.2. Usa a porta 8080 e precisa de `EVOLUTION_API_URL` e `EVOLUTION_API_KEY` no
+  `.env` (já estão lá).
+- **O que você deve ver na tela:** `docker ps` mostra a Evolution, e a tela de WhatsApp lista a instância.
+- O `n8n` (SPEC-014) é opcional: `docker compose up -d n8n`, porta 5678. Ele é um robô que liga um app a outro.
+  A entrada de leads por `POST /api/integrations/leads` só liga com `INTEGRATION_LEADS_ENABLED=true` e um
+  `INGEST_SECRET` de 32+ caracteres. Veja `docs/N8N.md`.
+
+### 5.2 Conectar um número
+
+Em Configurações > WhatsApp, crie a instância e leia o QR code com o celular.
+
+- **O que você deve ver na tela:** um quadradinho de QR code; depois de ler, o status fica "conectado".
+- ⚠️ Use um **chip descartável**. A Evolution não é oficial e o número pode ser banido. Custo: o chip. Não foi
+  verificado do começo ao fim nesta revisão.
+
+---
+
+## Fase 6: o cérebro dos agentes (LLM, SPEC-018/019)
+
+LLM é um "cérebro de computador" que sabe escrever textos. Os agentes do LeadForge usam um para escrever mensagens.
+
+**Como está hoje:** o código só tem o `ClaudeProvider` (`https://api.anthropic.com`, pago, sem parte grátis) e um
+`FakeLlmProvider` (de mentirinha, só para testes). **Não existe cérebro gratuito pronto no projeto.** Para conferir:
+`src/lib/agents/provider.ts`. A SPEC-036 (LLM gratuito no formato OpenAI) está APROVADA, mas **a implementação está
+pendente**.
+
+### 6.1 Testar sem cérebro (grátis)
+
+Deixe os agentes desligados (o interruptor geral, kill switch, já vem desligado) e use textos fixos (templates) nos
+passos da sequência.
+
+- **O que você deve ver na tela:** as sequências andam com textos prontos, sem agente escrevendo.
+
+### 6.2 Testar com Claude
+
+Em Configurações > Integrações > LLM, cole a chave da Anthropic. Ela fica trancada (cifrada) com a `ENCRYPTION_KEY`.
+É pago.
+
+### 6.3 Usar um cérebro grátis
+
+Isso pede uma SPEC nova: um adaptador que implemente `LlmProvider` e escolha o provedor em `getLlmProvider()`. É
+exatamente a SPEC-036, já aprovada. Opções para avaliar (confirme limites e termos na página oficial antes: mudam sempre):
+
+- **Gemini API (Google AI Studio):** tem faixa grátis com limite de velocidade. Atenção: nela, o conteúdo pode ser
+  usado para melhorar produtos do Google (cuidado com LGPD e dados de leads).
+- **Groq:** faixa grátis com limite de velocidade. API no formato OpenAI; modelos abertos.
+- **OpenRouter:** alguns modelos `:free`. Disponibilidade e limites variam.
+- **Ollama (local):** grátis, usa só a sua máquina. Nenhum dado sai do computador. A qualidade depende do hardware.
+  API no formato OpenAI em `localhost:11434`.
+
+**Recomendação:** um único adaptador "OpenAI-compatible" (endereço base + chave + modelo configuráveis) serve para
+Groq, OpenRouter, Ollama e o endpoint de compatibilidade do Gemini. Isso já está na **SPEC-036** (a SPEC-052 agora é
+de e-mails de cobrança). Falta só implementar.
+
+---
+
+## Fase 7: criativos com avatar (SPEC-051, provedor de demonstração; avatar de mentirinha)
+
+### 7.1 Aplicar as gavetas e reiniciar
+
+Faça o passo 1.3 e reinicie o `npm run dev`. Entre em **`/criativos`** (item "Criativos" no menu).
+
+- **O que você deve ver na tela:** a página de criativos com o aviso "Provedor de demonstração (mock)".
+
+### 7.2 Não precisa configurar nada
+
+O provider padrão é **`mock`**: faz um vídeo placeholder (de enfeite), custo zero, e nunca usa a internet. Em
+produção, só liga com `CREATIVE_PROVIDER=mock` escrito de propósito.
+
+### 7.3 Os criativos só andam quando o despertador (tick) toca
+
+Em casa, ninguém toca o despertador sozinho. Num **segundo terminal**, deixe rodando:
+
+```bash
+npm run dev:tick
+```
+
+- Ele chama `POST /api/cron/tick` a cada 15 segundos. `DEV_TICK_INTERVAL_MS` ajusta (mínimo 2000).
+- **O que você deve ver na tela:** o criativo sai de "Na fila" e termina em uns 15 a 30 segundos (o mock leva uns
+  3 s; `CREATIVE_MOCK_DELAY_MS` muda isso).
+- Sem o tick, o criativo fica parado em "Na fila".
+
+Modo manual, sem ficar em loop:
+
+```bash
+npm run tick
+```
+
+Ele também cuida dos criativos. Na 1ª rodada envia ao mock e na 2ª termina. Ou, com `curl`:
+
+```bash
+curl -fsS -X POST -H "Authorization: Bearer $CRON_SECRET" http://localhost:3000/api/cron/tick
+```
+
+### 7.4 Limites por organização
+
+As envs `CREATIVE_*` (veja `.env.example`) limitam: 2 gerações ao mesmo tempo e 20 criativos por mês.
+
+### Coisas para saber
+
+- Provedor de verdade (HeyGen, D-ID, Synthesia, Tavus ou Azure AI Speech Avatar): decisão em aberto (Q-051-1). Antes de
+  ligar um, cumpra o D-051-15 da SPEC-051 (proteção SSRF, que impede o servidor de ser enganado a visitar endereços
+  perigosos, e limites de tempo no download do vídeo).
+- Limitação: o vídeo é um placeholder. Nenhum avatar de verdade é gerado. Custo: zero. O único provider aceito em
+  `CREATIVE_PROVIDERS` é `mock`.
+- Status: 051a (backend) e 051b (frontend) constam como IMPLEMENTED no `specs/README.md`. **Não validado em navegador
+  logado.**
+
+---
+
+## Fase 8: achar clientes no Google Maps (Places, SPEC-015; botão "Buscar leads" na campanha)
+
+**Vem desligada** (`LEAD_SEARCH_ENABLED` não está no seu `.env`). O app usa só a **Places API (New)**
+(`POST places.googleapis.com/v1/places:searchText`) com uma chave de API (uma "senha" para falar com o Google).
+Não usa Maps JavaScript, mapa nem geocoding. A chave fica só no servidor (cabeçalho `X-Goog-Api-Key`) e trancada
+(cifrada) no banco.
+
+Ele traz nome, telefone, site, endereço e nota. **Não traz e-mail de decisor.**
+
+### 8.1 a 8.6: preparar o Google
+
+- [ ] **8.1 Projeto no Google Cloud.** console.cloud.google.com e crie um projeto.
+- [ ] **8.2 Faturamento.** O Google pede cartão para liberar a chave, mesmo dentro da cota grátis.
+- [ ] **8.3 Ativar a "Places API (New)".** Não confunda com a "Places API" antiga: o código usa a nova.
+- [ ] **8.4 Criar a chave** em APIs e serviços > Credenciais > chave de API.
+- [ ] **8.5 Restringir a chave** só à "Places API (New)". **Não** restrinja por site (a chamada sai do servidor). Por IP,
+  só se o servidor tiver IP fixo.
+- [ ] **8.6 Teto e alerta de orçamento** em Faturamento. É a sua proteção de verdade contra gastar demais.
+
+### 8.7 Guardar a chave no app
+
+Logado como **admin**: `/configuracoes/integracoes` > Places > cole a chave.
+
+### 8.8 Ligar
+
+No `.env`: `LEAD_SEARCH_ENABLED=true`. Depois **reinicie o `npm run dev`**.
+
+Tetos opcionais (limites de segurança):
+- `LEAD_SEARCH_MAX_RESULTS`: padrão 20, máximo 60
+- `LEAD_SEARCH_DAILY_MAX_REQUESTS`: padrão 3 por dia por campanha (busca diária feita pelo tick)
+- `LEAD_SEARCH_MAX_CAMPAIGNS_PER_TICK`: padrão 3
+- `LEAD_SEARCH_TICK_DEADLINE_MS`: padrão 30000
+- da SPEC-058: `LEAD_SEARCH_MANUAL_DAILY_MAX_REQUESTS` (padrão 2 por dia por campanha) e
+  `LEAD_SEARCH_ORG_DAILY_MAX_REQUESTS` (padrão 10 por dia por organização)
+
+### 8.9 Testar
+
+1. Crie uma campanha **ativa** com ICP (o "cliente ideal"; exemplo: nicho "dentistas", local "Curitiba").
+2. Abra `/campanhas/[id]` e clique em **Buscar leads**. Ou deixe o `npm run dev:tick` rodando para a busca diária.
+
+- **O que você deve ver na tela:** o resultado mostra quantos são novos e quantos já existiam (duplicados). Os leads
+  entram em `/leads` e no Pipeline como `novo_lead`, sem repetidos e sem quem pediu para não ser contatado (opt-out).
+- Se repetir a mesma busca, quase tudo vem como duplicado (cada chamada traz 1 página de até 20 resultados; páginas
+  seguintes ficam para uma SPEC futura).
+
+### Quanto custa
+
+Consultado em 2026-09-19 no `docs/GUIA.md` 4.6 (confirme na página oficial, muda):
+- Text Search Pro: 5.000 grátis por mês; depois US$ 32 por 1.000.
+- Enterprise: 1.000 grátis por mês; depois US$ 35 por 1.000.
+- Telefone e site tendem a cair na Enterprise, mas **o SKU realmente cobrado não foi confirmado**.
+
+### Cuidados
+
+Os termos da Places API limitam guardar dados (cache). Confirme os termos atuais antes de usar em grande escala. Base
+legal registrada: interesse legítimo B2B, com o opt-out aplicado antes de criar o lead.
+
+### Como está
+
+SPEC-058 IMPLEMENTADA (058a backend e 058b frontend, QA aprovado em 2026-10-10):
+- só o **owner** (dono) dispara "Buscar agora"
+- tetos manuais de 2 por dia por campanha e 10 por dia por organização, separados do teto da busca diária
+- o estado "rodando" sobrevive a recarregar a página
+- o resultado mostra novos, duplicados e suprimidos
+
+⚠️ **Nunca rodou com a API de verdade do Google** (só testes com resposta de mentirinha) e a tela nunca foi vista em
+navegador. Use o bloco G de `docs/ROTEIRO_DE_TESTES.md`.
+
+---
+
+## Testes (o professor corrigindo a prova)
+
+### Conferir o código
+
+```bash
+npx tsc --noEmit
+npm run lint
+```
+
+`npm run typecheck` faz o mesmo que o `tsc`.
+
+- **O que você deve ver na tela:** o `tsc` sem nenhuma linha de erro; o `lint` com 0 erros.
+- Estado em 2026-10-10 (depois da SPEC-058): `tsc` limpo; `lint` com 0 erros (14 avisos que já existiam); vitest
+  completo em banco novo: 149 arquivos, 1852 testes passando.
+
+### Rodar os testes (vitest)
+
+⚠️ **Use um banco de teste limpo.** O `leadforge_test` acumula sujeira e dá falsas falhas (por exemplo
+`Unique constraint failed on WhatsAppInstance_instanceName_key` e contagens 21 contra 20). Num banco novo:
+
+```bash
+TEST_DATABASE_URL=postgresql://leadforge:<senha>@localhost:5434/leadforge_clean_test npm test
+```
+
+- O setup cria, arruma e semeia o banco sozinho. O nome precisa terminar em `_test`.
+- **O que você deve ver na tela:** a lista dos arquivos de teste passando e, no fim, "Tests ... passed".
+- 🚫 **Nunca rode os testes sem `TEST_DATABASE_URL`**: eles cairiam no `leadforge_test` compartilhado e sujo.
+- Hoje há **144 arquivos de teste** (`*.test.ts(x)`). A última rodada completa registrada em banco limpo foi de 141
+  arquivos e 1732 testes passando; **não foi repetida nesta revisão** (e o código da busca de leads está mudando).
+- Para apagar e recriar o banco de teste: `npm run test:db:reset`.
+
+---
+
+## Se deu ruim, olhe aqui
+
+- **A página `/` mostra erro 500.** O armário (Postgres) está desligado. Faça os passos 1.1 e 1.2.
+- **`docker ps` falha falando de "colima.sock".** O Colima está parado. Rode `colima start`.
+- **`prisma migrate dev` quer apagar colunas.** É o desencontro do banco de dev (drift). **Não confirme.** Use
+  `migrate deploy`.
+- **O app não liga em produção.** Falta `TRUSTED_PROXY_IP_HEADER`. Defina (exemplo: `x-real-ip`). É obrigatória em
+  produção (SPEC-049; o `next build` não exige).
+- **Nada roda sozinho em produção (mensagens, busca, criativos).** Falta agendar o despertador (tick) ou falta o
+  `CRON_SECRET` (32+ caracteres; sem ele `/api/cron/tick` responde 503). O `vercel.json` já agenda o tick a cada
+  minuto (exige plano pago na Vercel). Defina o `CRON_SECRET`. Veja `docs/CONFIGURACAO_POS_PROJETO.md`.
+- **`/criativos` ou `/api/storage/*` dão 503 em produção.** `CREATIVE_PROVIDER=mock` e/ou o storage não foram
+  definidos. Veja as Fases 4 e 7.
+- **O limite de pedidos por IP (rate limit) aparece "desligado" em produção.** Mesma causa de cima
+  (`TRUSTED_PROXY_IP_HEADER`).
+- **O e-mail não chega na caixa.** Talvez você esteja olhando o lugar errado. Com o Mailpit, abra
+  http://localhost:8025 (não o Gmail).
+- **O e-mail não chega nem no Mailpit.** A caixinha está parada ou o `.env` mudou sem reiniciar. `docker ps` mostra o
+  `mailpit`? Reinicie o `npm run dev`.
+- **A busca de leads diz "indisponível" ou não acha nada.** `LEAD_SEARCH_ENABLED` não está ligada, a chave `places`
+  não foi cadastrada ou a campanha está inativa. Veja a Fase 8.
+- **O e-mail de trial ou de recibo não chega depois de uma migration nova.** O `npm run dev` antigo ainda segura o
+  Prisma Client velho e falha em silêncio. Pare e reinicie o `npm run dev`.
+- **O criativo fica em "Na fila".** O despertador não tocou. Rode `npm run dev:tick` em outro terminal (passo 7.3).
+- **`/criativos` dá erro de tabela.** A migration dos criativos não foi aplicada. Passo 1.3.

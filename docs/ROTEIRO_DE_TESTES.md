@@ -137,6 +137,19 @@ e uma campanha **ativa** com ICP (ex.: "dentistas" em "Curitiba"). Defina teto d
 | G7 | Tenant B abre a mesma campanha por URL | 404/negado; nenhum lead de A (isolamento, bloqueante) | [ ] | |
 | G8 | Conferir custo no Google Cloud depois | Poucas requisições; confirmar o SKU cobrado (Pro vs Enterprise, ainda não confirmado) | [ ] | |
 
+## H. Cancelamento e reativação da assinatura (SPEC-053): em `/configuracoes/assinatura`, como owner
+
+| # | O que fazer | O que deve acontecer | OK? | Observado |
+|---|---|---|---|---|
+| H1 | Plano pago ativo: clicar **Cancelar assinatura**, marcar a confirmação e confirmar | Modal mostra data de fim de acesso, retenção de 90 dias e "sem reembolso"; botão só habilita após marcar; aviso "cancelamento agendado" e a org continua usável | [ ] | |
+| H2 | Ver o Mailpit | 1 e-mail "pedido de cancelamento recebido" com a data de fim do acesso (só 1, mesmo com duplo clique) | [ ] | |
+| H3 | Clicar **Manter assinatura** | Aviso some; e-mail "reativação confirmada" (1) | [ ] | |
+| H4 | Cancelar de novo e deixar o período vencer (rodar `npm run dev:tick` com `currentPeriodEnd` no passado) | Org suspensa só agora; e-mail "cancelamento efetivado" (1) com retenção de 90 dias; tela mostra "cancelada" e **Reassinar** | [ ] | |
+| H5 | Em trial: cancelar | Efeito imediato (modal avisa) | [ ] | |
+| H6 | Logar como **member** | Não vê botões de cancelar/manter; chamar a action direto é recusado | [ ] | |
+| H7 | Mais de 5 tentativas em 10 min | Mensagem de limite | [ ] | |
+| H8 | Org B tenta cancelar a assinatura da org A | Impossível (a org vem da sessão); sem vazamento | [ ] | |
+
 ## Se algo falhar, me mande
 
 1. O passo (ex.: `B5`), o e-mail logado e a URL.

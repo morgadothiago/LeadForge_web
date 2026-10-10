@@ -1,5 +1,5 @@
 # SPEC-056 — E-mails de eventos de organizacao para owners (membro entrou/saiu/removido, convite aceito)
-- status: DRAFT | domain: backend | depende de: 049, 052 (`sendOnce`/`notifyOrgOwners`) | catalogo: #17 (P1)
+- status: APPROVED (2026-10-10) | domain: backend | depende de: 049, 052 (`sendOnce`/`notifyOrgOwners`) | catalogo: #17 (P1)
 
 ## Objetivo
 Notificar os owners da organizacao quando: um convite e aceito/membro entra (via convite ou codigo), um membro sai, um membro e removido, e o papel de um membro muda; e notificar o proprio membro removido/afetado quando fizer sentido.
@@ -30,3 +30,6 @@ Notificar os owners da organizacao quando: um convite e aceito/membro entra (via
 - Q-056-1: notificar tambem o membro removido / que teve papel alterado?
 - Q-056-2: e-mail imediato por evento ou resumo (digest) para entradas por codigo?
 - Q-056-3: quais eventos entram no P1 (so entrada/remocao/saida, ou tambem mudanca de papel)?
+
+## Decisoes registradas (2026-10-10, usuario aprovou com as recomendacoes do RETOMAR secao 3 item 4)
+- D-056-1 (decisao (c)/(d) do RETOMAR n/a): sem decisoes especificas; Q-056-1..3 seguem abertas ate a implementacao.

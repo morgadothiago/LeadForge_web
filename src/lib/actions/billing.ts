@@ -1,7 +1,8 @@
 "use server";
 
+import { randomUUID } from "node:crypto";
 import { headers } from "next/headers";
-import { Prisma } from "@prisma/client";
+import { Prisma, type SubscriptionStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { ForbiddenError, requireProviderOrg } from "@/lib/auth/require-admin";
 import { createSession } from "@/lib/auth/session";
@@ -9,6 +10,7 @@ import { hashPassword } from "@/lib/auth/password";
 import { getClientIpKey } from "@/lib/auth/client-ip";
 import { SlidingLimiter } from "@/lib/integrations/rate-limit";
 import { getPaymentProvider } from "@/lib/billing/provider-factory";
+import { processBillingEvent } from "@/lib/billing/process-event";
 import { TRIAL_DAYS } from "@/lib/billing/status-map";
 import { sendTrialStartedEmail } from "@/lib/billing/trial-email";
 import { checkoutSchema, signupSchema } from "@/lib/schemas/billing";
@@ -57,6 +59,102 @@ export async function createPortalSession(): Promise<ActionResult<{ url: string 
     const provider = getPaymentProvider();
     const result = await provider.createPortalSession({ orgId, returnUrl: `${baseUrl()}/configuracoes/assinatura` });
     return success({ url: result.url });
+  });
+}
+
+const cancelLimiter = new SlidingLimiter(5, 10 * 60_000);
+
+/** Estado devolvido ao frontend (053b): `cancelAtPeriodEnd` + `currentPeriodEnd` (fim do acesso) + `status`. */
+export interface SubscriptionChangeResult {
+  status: SubscriptionStatus;
+  cancelAtPeriodEnd: boolean;
+  currentPeriodEnd: Date | null;
+  /** `scheduled` = cancelamento agendado p/ fim do periodo; `immediate` = efetivado agora (trial/sem periodo pago); `already` = nada a fazer (idempotente). */
+  outcome: "scheduled" | "immediate" | "already";
+}
+
+/**
+ * SPEC-053a (D-053-1..6) — cancelar a assinatura da org ativa. Owner-only, rate limit, SEM senha (modal no front).
+ * Plano pago em dia: `cancelAtPeriodEnd=true`, acesso ate `currentPeriodEnd`, sem reembolso. Trial (ou sem periodo
+ * pago vigente): efetivo imediato (D-053-3). Provedor primeiro: se o provedor FALHAR (lanca), nada e gravado localmente
+ * (o usuario tenta de novo, sem divergencia). Provedor sem endpoint (AbacatePay cartao/PIX) => fallback local
+ * (D-053-5). Estado aplicado pelo MESMO `processBillingEvent`/`status-map.ts`. Idempotente.
+ */
+export async function cancelSubscription(): Promise<ActionResult<SubscriptionChangeResult>> {
+  return safeAction(async () => {
+    const { orgId } = await requireOwner();
+    if (cancelLimiter.hit(orgId) > 0) return formError("Muitas tentativas. Aguarde alguns minutos e tente novamente.");
+    const sub = await prisma.subscription.findUnique({
+      where: { orgId },
+      select: { status: true, cadence: true, currentPeriodEnd: true, cancelAtPeriodEnd: true, externalCustomerId: true, externalSubscriptionId: true, plan: { select: { key: true } } },
+    });
+    if (!sub) return formError("Nenhuma assinatura encontrada para cancelar.");
+    if (sub.status === "canceled" || sub.cancelAtPeriodEnd) {
+      return success({ status: sub.status, cancelAtPeriodEnd: sub.cancelAtPeriodEnd, currentPeriodEnd: sub.currentPeriodEnd, outcome: "already" });
+    }
+    const now = new Date();
+    const atPeriodEnd = (sub.status === "active" || sub.status === "past_due") && !!sub.currentPeriodEnd && sub.currentPeriodEnd.getTime() > now.getTime();
+    await getPaymentProvider().cancelSubscription({ orgId, atPeriodEnd });
+    const result = await processBillingEvent(
+      {
+        eventId: `app_cancel:${orgId}:${randomUUID()}`,
+        type: atPeriodEnd ? "subscription.updated" : "subscription.canceled",
+        orgId,
+        planKey: sub.plan.key,
+        cadence: sub.cadence,
+        status: atPeriodEnd ? sub.status : "canceled",
+        currentPeriodEnd: sub.currentPeriodEnd,
+        cancelAtPeriodEnd: atPeriodEnd,
+        externalCustomerId: sub.externalCustomerId,
+        externalSubscriptionId: sub.externalSubscriptionId,
+      },
+      now,
+    );
+    if (result === "org_not_found" || result === "plan_not_found") return formError("Não foi possível cancelar a assinatura.");
+    return success({ status: atPeriodEnd ? sub.status : "canceled", cancelAtPeriodEnd: atPeriodEnd, currentPeriodEnd: sub.currentPeriodEnd, outcome: atPeriodEnd ? "scheduled" : "immediate" });
+  });
+}
+
+/**
+ * SPEC-053a (D-053-4/6) — desfaz o cancelamento AGENDADO antes do fim do periodo (acesso nunca foi interrompido).
+ * Assinatura ja efetivada (`canceled`/periodo vencido): reativar = nova contratacao via `createCheckoutSession`
+ * (dados mantidos ate o expurgo, D-053-4); esta action recusa com mensagem. Idempotente (sem cancelamento
+ * agendado => `already`, sem e-mail).
+ */
+export async function reactivateSubscription(): Promise<ActionResult<SubscriptionChangeResult>> {
+  return safeAction(async () => {
+    const { orgId } = await requireOwner();
+    if (cancelLimiter.hit(orgId) > 0) return formError("Muitas tentativas. Aguarde alguns minutos e tente novamente.");
+    const sub = await prisma.subscription.findUnique({
+      where: { orgId },
+      select: { status: true, cadence: true, currentPeriodEnd: true, cancelAtPeriodEnd: true, externalCustomerId: true, externalSubscriptionId: true, plan: { select: { key: true } } },
+    });
+    if (!sub) return formError("Nenhuma assinatura encontrada.");
+    const now = new Date();
+    if (sub.status === "canceled" || (sub.cancelAtPeriodEnd && (!sub.currentPeriodEnd || sub.currentPeriodEnd.getTime() <= now.getTime()))) {
+      return formError("O cancelamento já foi efetivado. Contrate um plano novamente em Configurações > Assinatura para reativar.");
+    }
+    if (!sub.cancelAtPeriodEnd) {
+      return success({ status: sub.status, cancelAtPeriodEnd: false, currentPeriodEnd: sub.currentPeriodEnd, outcome: "already" });
+    }
+    await getPaymentProvider().resumeSubscription({ orgId });
+    const result = await processBillingEvent(
+      {
+        eventId: `app_reactivate:${orgId}:${randomUUID()}`,
+        type: "subscription.updated",
+        orgId,
+        planKey: sub.plan.key,
+        cadence: sub.cadence,
+        status: sub.status,
+        currentPeriodEnd: sub.currentPeriodEnd,
+        cancelAtPeriodEnd: false,
+        externalCustomerId: sub.externalCustomerId,
+        externalSubscriptionId: sub.externalSubscriptionId,
+      },
+      now,
+    );
+    if (result === "org_not_found" || result === "plan_not_found") return formError("Não foi possível reativar a assinatura.");
+    return success({ status: sub.status, cancelAtPeriodEnd: false, currentPeriodEnd: sub.currentPeriodEnd, outcome: "scheduled" });
   });
 }
 

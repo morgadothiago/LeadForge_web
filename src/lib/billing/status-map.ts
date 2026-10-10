@@ -12,14 +12,21 @@ import { prisma } from "@/lib/prisma";
  * - `past_due` dentro do grace (7d)   -> `active` (com aviso; banner fica para SPEC-034)
  * - `past_due` fora do grace          -> `suspended`
  * - `canceled`/`incomplete`           -> `suspended` (soft-block imediato ao cancelar, D-33-4; dado nunca é apagado aqui)
+ * - `cancelAtPeriodEnd` (SPEC-053, D-053-1): acesso até `currentPeriodEnd`, `suspended` a partir dele (substitui D-33-4 só p/ cancelamento voluntário)
  */
 export const PAST_DUE_GRACE_MS = 7 * 24 * 3600_000;
 export const TRIAL_DAYS = 14;
 /** D-33-4: retenção de 90 dias após cancelamento, depois o job de expurgo (`purge.ts`) anonimiza o dado. */
 export const CANCEL_RETENTION_MS = 90 * 24 * 3600_000;
 
-export function computeOrgStatus(sub: Pick<Subscription, "status" | "pastDueSince"> | null, now: Date): OrgStatus {
+export function computeOrgStatus(
+  sub: (Pick<Subscription, "status" | "pastDueSince"> & Partial<Pick<Subscription, "cancelAtPeriodEnd" | "currentPeriodEnd">>) | null,
+  now: Date,
+): OrgStatus {
   if (!sub) return "active"; // org sem Subscription ainda (não deveria acontecer fora de testes/backfill) — nunca bloqueia por omissão.
+  // SPEC-053 (D-053-1): cancelamento voluntário ao fim do período — acesso mantido até `currentPeriodEnd`;
+  // depois dele suspende (o job de efetivação grava `canceled`, mas o gate já não depende dele rodar).
+  if (sub.cancelAtPeriodEnd && sub.status !== "canceled" && sub.currentPeriodEnd && now.getTime() >= sub.currentPeriodEnd.getTime()) return "suspended";
   switch (sub.status) {
     case "trialing":
     case "active":
@@ -52,7 +59,7 @@ export function computeOrgStatus(sub: Pick<Subscription, "status" | "pastDueSinc
  */
 export async function syncOrgStatuses(now: Date): Promise<number> {
   const subs = await prisma.subscription.findMany({
-    select: { orgId: true, status: true, pastDueSince: true, org: { select: { status: true } } },
+    select: { orgId: true, status: true, pastDueSince: true, cancelAtPeriodEnd: true, currentPeriodEnd: true, org: { select: { status: true } } },
   });
   let changed = 0;
   for (const s of subs) {

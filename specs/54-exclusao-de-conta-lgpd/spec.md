@@ -1,5 +1,5 @@
 # SPEC-054 — Exclusao de conta/perfil (LGPD) com confirmacao por e-mail e e-mails de solicitacao/conclusao
-- status: DRAFT | domain: fullstack (## Backend, ## Frontend) | depende de: 033, 049, 052 (`sendOnce`), 055 (token/verificacao compartilham padrao; nao bloqueante) | catalogo: #13, #14 (P0, LGPD)
+- status: APPROVED (2026-10-10) | domain: fullstack (## Backend, ## Frontend) | depende de: 033, 049, 052 (`sendOnce`), 055 (token/verificacao compartilham padrao; nao bloqueante) | catalogo: #13, #14 (P0, LGPD)
 
 ## Objetivo
 Permitir que o usuario peca a exclusao da propria conta (direito de eliminacao, LGPD art. 18), com confirmacao por e-mail (token uso unico, expiracao curta), janela de arrependimento, e-mail "solicitacao recebida" e e-mail "conta excluida" explicando o que foi apagado/anonimizado e o que e retido por obrigacao legal. Cobre dono unico de organizacao com outros membros e usuario em varias orgs.
@@ -45,3 +45,8 @@ Permitir que o usuario peca a exclusao da propria conta (direito de eliminacao, 
 - Q-054-5: autoria de campanhas do usuario excluido: reatribuir a outro owner ou manter autor anonimizado?
 - Q-054-6: incluir exportacao de dados antes de excluir?
 - Q-054-7: dividir em SPEC backend + frontend?
+
+## Decisoes registradas (2026-10-10, usuario aprovou com as recomendacoes do RETOMAR secao 3 item 4)
+- D-054-1 (Q-054-1, CONFIRMED): soft delete (anonimizacao do `User` mantendo a linha), purga definitiva apos 30 dias.
+- Demais questoes (Q-054-2..7) seguem abertas e serao tratadas quando a 054 for implementada.
+- Decisoes transversais: (c) recibo = so e-mail informativo; (d) regua de cartao e PIX igual.

@@ -12,6 +12,8 @@ export interface SubscriptionView {
   currentPeriodEnd: Date | null;
   cancelAtPeriodEnd: boolean;
   trialEndsAt: Date | null;
+  /** SPEC-053b: ancora da retenção de 90 dias (expurgo = canceledAt + 90d); null enquanto não efetivado. */
+  canceledAt: Date | null;
 }
 
 export interface BillingSummary {
@@ -30,7 +32,7 @@ export async function getBillingSummary(): Promise<BillingSummary> {
     prisma.membership.findUnique({ where: { userId_orgId: { userId: user.id, orgId } }, select: { orgRole: true } }),
     prisma.subscription.findUnique({
       where: { orgId },
-      select: { status: true, cadence: true, currentPeriodEnd: true, cancelAtPeriodEnd: true, trialEndsAt: true, plan: { select: { key: true, name: true } } },
+      select: { status: true, cadence: true, currentPeriodEnd: true, cancelAtPeriodEnd: true, trialEndsAt: true, canceledAt: true, plan: { select: { key: true, name: true } } },
     }),
   ]);
   return {
@@ -45,6 +47,7 @@ export async function getBillingSummary(): Promise<BillingSummary> {
           currentPeriodEnd: sub.currentPeriodEnd,
           cancelAtPeriodEnd: sub.cancelAtPeriodEnd,
           trialEndsAt: sub.trialEndsAt,
+          canceledAt: sub.canceledAt,
         }
       : null,
   };

@@ -5,7 +5,7 @@ import type { BillingCadence } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { AppError } from "@/lib/errors";
 import { createHttpClient, type HttpClientOptions } from "@/lib/http";
-import type { CheckoutSessionInput, CheckoutSessionResult, ParsedBillingEvent, PaymentProvider, PortalSessionInput, PortalSessionResult } from "../provider";
+import type { CancelSubscriptionInput, CancelSubscriptionResult, ResumeSubscriptionInput, ResumeSubscriptionResult, CheckoutSessionInput, CheckoutSessionResult, ParsedBillingEvent, PaymentProvider, PortalSessionInput, PortalSessionResult } from "../provider";
 
 /**
  * SPEC-047 (D-047-1/D-047-2) — adapter AbacatePay (gateway brasileiro, foco em PIX). Implementação
@@ -157,6 +157,23 @@ export class AbacatePayPaymentProvider implements PaymentProvider {
     // CONFIRMADO na doc (spec.md): não existe portal de self-service no AbacatePay (nenhuma página
     // hospedada tipo Stripe Billing Portal) — erro tratado em vez de quebrar (Fora do escopo, spec.md).
     throw new AppError({ code: "config", userMessage: "Gestão de assinatura indisponível para este provedor." });
+  }
+
+  /**
+   * SPEC-053a (D-053-5): o AbacatePay NAO tem endpoint de cancelar/retomar assinatura confirmado na doc
+   * (ver mapAbacatePayEvent: `subscriptions/cancel|change-plan` nao implementados). Fallback documentado:
+   * - PIX (`pixManaged`): sem recorrencia no provedor — cancelar = o LeadForge para de gerar cobranca
+   *   (`pix-renewal.ts` ignora `cancelAtPeriodEnd`); nada a chamar.
+   * - Cartao: cancelamento so MARCADO localmente (`providerConfirmed: false`). LIMITACAO: sem chamada ao
+   *   provedor, a recorrencia do cartao pode continuar cobrando ate o cancelamento ser feito por fora
+   *   (suporte/painel AbacatePay); um webhook `subscription.renewed` posterior sobrescreve o estado local.
+   */
+  async cancelSubscription(_input: CancelSubscriptionInput): Promise<CancelSubscriptionResult> {
+    return { providerConfirmed: false };
+  }
+
+  async resumeSubscription(_input: ResumeSubscriptionInput): Promise<ResumeSubscriptionResult> {
+    return { providerConfirmed: false };
   }
 
   /**

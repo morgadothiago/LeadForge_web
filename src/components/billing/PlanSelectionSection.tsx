@@ -44,7 +44,7 @@ export function PlanSelectionSection({
   }
 
   return (
-    <section aria-labelledby="planos-h" className="space-y-4">
+    <section id="planos" aria-labelledby="planos-h" className="scroll-mt-20 space-y-4">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h3 id="planos-h" className="font-heading text-base font-semibold">

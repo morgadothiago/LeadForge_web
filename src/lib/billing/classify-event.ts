@@ -15,6 +15,8 @@ export interface PriorSubscriptionState {
   planId: string;
   cadence: BillingCadence;
   currentPeriodEnd: Date | null;
+  /** SPEC-053a: cancelamento agendado antes do evento (detecta transicoes cancelar/reativar). */
+  cancelAtPeriodEnd?: boolean;
 }
 
 export function classifyBillingEvent(prior: PriorSubscriptionState | null, event: ParsedBillingEvent, newPlanId: string): BillingEventClass {

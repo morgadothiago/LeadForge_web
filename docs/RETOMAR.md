@@ -16,7 +16,7 @@ em outro terminal** (sem ele criativos ficam em "Na fila"). Mailpit: http://loca
 
 ## 2. Em andamento
 
-Nada em andamento. SPEC-057 (sidebar) e SPEC-058a/b (busca sob demanda) concluídas e na `main`.
+SPEC-053 (053a backend + 053b frontend) IMPLEMENTADA e aprovada pelo QA em 2026-10-10, **sem commit ainda** (sem migration; testes em `leadforge_053_test`: 152 arquivos/1896 testes). SPECs 053-056 APROVADAS (decisões D-053-x etc. registradas nas SPECs). Próximas: 054, 055, 056 (uma por vez). Achados baixos do QA da 053: (1) evento do provedor com `cancelAtPeriodEnd:false` após agendamento desfaz o cancelamento e manda e-mail de reativação (renovação de cartão AbacatePay); (2) modal decide "imediato" só por trial/sem período, a action também por período vencido/incomplete; (3) cartão AbacatePay pode continuar cobrando até cancelar no painel do provedor (sem endpoint, D-053-5). Antes: SPEC-057 (sidebar) e SPEC-058a/b (busca sob demanda) concluídas e na `main`.
 
 Regra combinada: **só commitar quando tudo estiver verde** (tsc, lint sem erros, vitest em banco `*_test` novo, QA aprovado).
 
@@ -26,14 +26,14 @@ Regra combinada: **só commitar quando tudo estiver verde** (tsc, lint sem erros
 |---|---|---|---|
 | 1 | ~~Aprovar SPEC-052b~~ **FEITO**: 052b (parte sem cartão) implementada, sem commit ainda. Falta aplicar a migration `20261013120000_billing_reminder_kinds_052b` no banco de dev (`npx prisma migrate deploy`) e validar o bloco E | -- | -- |
 | 2 | **Q-052-5**: nomes dos eventos de falha/recuperação de cartão do AbacatePay (precisa da doc/sandbox do provedor) | 052b só na parte de cartão (mapear eventos de falha/recuperação de cartão; sem isso a régua de cartão só dispara pelo estado/grace via job) | Pesquisar na doc do provedor |
-| 3 | Aprovar **SPEC-053** (cancelamento/reativação), **054** (exclusão de conta LGPD), **055** (verificação/segurança de cadastro), **056** (e-mails de organização) | cada uma delas | Responder as 5 decisões de e-mail abaixo |
-| 4 | **5 decisões de e-mail**: (a) cancelamento: acesso até fim do período ou imediato? reembolso? (b) exclusão de conta: soft ou hard, em quantos dias? (c) recibo: só e-mail informativo (já assumido) (d) régua de cartão e PIX igual (já assumido) (e) verificação de e-mail: obrigatória antes de usar ou só aviso? | 053-056 | (a) até fim do período, sem reembolso proporcional; (b) soft delete 30 dias e depois purga; (e) obrigatória para enviar mensagens, não para entrar |
+| 3 | ~~Aprovar~~ **FEITO (2026-10-10)** **SPEC-053** (cancelamento/reativação), **054** (exclusão de conta LGPD), **055** (verificação/segurança de cadastro), **056** (e-mails de organização) | cada uma delas | Responder as 5 decisões de e-mail abaixo |
+| 4 | ~~**5 decisões de e-mail**~~ **DECIDIDAS com a recomendação (2026-10-10)**: (a) cancelamento: acesso até fim do período ou imediato? reembolso? (b) exclusão de conta: soft ou hard, em quantos dias? (c) recibo: só e-mail informativo (já assumido) (d) régua de cartão e PIX igual (já assumido) (e) verificação de e-mail: obrigatória antes de usar ou só aviso? | 053-056 | (a) até fim do período, sem reembolso proporcional; (b) soft delete 30 dias e depois purga; (e) obrigatória para enviar mensagens, não para entrar |
 | 5 | **Provedor de avatar real** (Q-051-1: HeyGen, D-ID, Synthesia, Tavus ou Azure AI Speech Avatar) | criativos reais (hoje só mock) | Escolher 1 e abrir SPEC; antes cumprir D-051-15 (SSRF/timeouts) |
 | 6 | **Q-051-11**: teto de retentativas dos criativos | ajuste fino | Aceitar o default |
 | 7 | **Drift `20260928*`** (CPF/CNPJ, trial, AbacatePay): importar essa feature ou remover as colunas do banco de dev? | limpeza de migrations; o aviso "nunca `migrate dev`" continua até lá | Decidir se a feature existe; se não, remover só no banco de dev, com backup |
 | 8 | **Rate limit persistente** (D-049-14): hoje em memória, não vale entre instâncias | produção multi-instância | SPEC própria (Redis/Postgres) antes de escalar |
 | 9 | **LLM grátis**: SPEC-036 está aprovada mas **não implementada** (adapter OpenAI-compatível: Groq/OpenRouter/Ollama/Gemini) | agentes de IA sem custo | Implementar a 036 |
-| 10 | **Q-052-6**: `trial-started` separado das boas-vindas (SPEC-055) ou um e-mail só? (assumi separado) | 055 | Revisar quando aprovar a 055 |
+| 10 | ~~**Q-052-6**~~ **decidido: separado**: `trial-started` separado das boas-vindas (SPEC-055) ou um e-mail só? (assumi separado) | 055 | Revisar quando aprovar a 055 |
 | 11 | ~~Abrir o Pull Request~~ **FEITO** (PR da branch `docs/retomar-merge-feito`; o merge é seu) | -- | -- |
 | 12 | **Paginação da busca Places** (`nextPageToken`/rotação de keywords): hoje 1 página de até 20 e repetir dá duplicados | qualidade da captação | SPEC separada depois da 058 |
 

@@ -1,5 +1,5 @@
 # SPEC-055 — E-mails de cadastro, verificacao de e-mail e seguranca da conta
-- status: DRAFT | domain: fullstack (## Backend, ## Frontend) | depende de: 038, 046, 048, 052 (`sendOnce`) | catalogo: #1 (P0), #2 (P1), #15 (P1); #16 login em dispositivo novo (P2) so registrado como futuro
+- status: APPROVED (2026-10-10) | domain: fullstack (## Backend, ## Frontend) | depende de: 038, 046, 048, 052 (`sendOnce`) | catalogo: #1 (P0), #2 (P1), #15 (P1); #16 login em dispositivo novo (P2) so registrado como futuro
 
 ## Objetivo
 Enviar boas-vindas ao usuario que se cadastra sozinho, verificar o e-mail (token uso unico) e avisar sobre alteracoes de seguranca (senha/e-mail alterados) - incluindo o endereco antigo.
@@ -41,3 +41,9 @@ Enviar boas-vindas ao usuario que se cadastra sozinho, verificar o e-mail (token
 - Q-055-4: criar tela/acao de alterar senha e e-mail do perfil nesta SPEC (hoje nao existem) ou so cobrir o reset?
 - Q-055-5: idioma unico pt-BR ou preparar i18n (en) nos templates agora? (hoje tudo pt-BR; recomendacao: so pt-BR)
 - Q-055-6: usuarios convidados via `signUpAndJoin` com token de convite: o clique no convite conta como e-mail verificado?
+
+## Decisoes registradas (2026-10-10, usuario aprovou com as recomendacoes do RETOMAR secao 3 item 4)
+- D-055-1 (Q-055-1, CONFIRMED): verificacao de e-mail e obrigatoria para ENVIAR mensagens (campanhas/sequencias), NAO para entrar no app.
+- D-055-2 (Q-055-3/Q-052-6, CONFIRMED): `trial-started` separado das boas-vindas.
+- Demais questoes (Q-055-2,4,5,6) seguem abertas.
+- Decisoes transversais: (c) recibo = so e-mail informativo; (d) regua de cartao e PIX igual.

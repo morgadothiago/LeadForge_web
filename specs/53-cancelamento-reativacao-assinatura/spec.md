@@ -1,5 +1,5 @@
 # SPEC-053 — Cancelamento e reativacao da assinatura pela app (+ e-mails)
-- status: DRAFT | domain: fullstack (## Backend, ## Frontend) | depende de: 033, 047, 052 (infra `sendOnce`/classificacao de evento) | catalogo: #10, #11, #12 (todos P0, #12 P1)
+- status: IMPLEMENTED (053a backend + 053b frontend, 2026-10-10) | domain: fullstack (## Backend, ## Frontend) | depende de: 033, 047, 052 (infra `sendOnce`/classificacao de evento) | catalogo: #10, #11, #12 (todos P0, #12 P1)
 
 ## Objetivo
 Dar ao usuario uma ACAO de cancelar (e reativar) assinatura dentro do LeadForge e enviar os e-mails correspondentes: "pedido de cancelamento recebido (acesso ate DD/MM)", "cancelamento efetivado (retencao 90 dias, como reativar)" e "reativacao confirmada".
@@ -42,3 +42,26 @@ Dar ao usuario uma ACAO de cancelar (e reativar) assinatura dentro do LeadForge 
 - Q-053-5: AbacatePay tem endpoint de cancelar assinatura de cartao? (confirmar na doc do provedor; senao cancelamento de cartao depende de acao manual/portal).
 - Q-053-6: exigir senha para confirmar o cancelamento?
 - Q-053-7: dividir em SPEC backend + SPEC frontend (preferivel pelo fluxo SDD)?
+
+## Decisoes registradas (2026-10-10, usuario aprovou com as recomendacoes do RETOMAR secao 3 item 4)
+- D-053-1 (Q-053-1, CONFIRMED): cancelar = acesso ate o fim do periodo pago (`cancelAtPeriodEnd=true`; `status-map` so suspende apos `currentPeriodEnd`). Reabre e substitui D-33-4 (soft-block imediato) APENAS para cancelamento voluntario; retencao 90 dias passa a contar da efetivacao.
+- D-053-2 (Q-053-2, CONFIRMED): sem reembolso proporcional.
+- D-053-3 (Q-053-3, INFERRED, conservador): cancelar durante o trial = efetivo imediato, mesma retencao de 90 dias.
+- D-053-4 (Q-053-4, INFERRED): reativacao dentro dos 90 dias mantem os dados; apos expurgo so novo cadastro.
+- D-053-5 (Q-053-5, INFERRED): cancelamento de cartao no AbacatePay sem endpoint confirmado = marcado no LeadForge + parar de gerar cobranca; chamada ao provedor via adapter com fallback documentado.
+- D-053-6 (Q-053-6, INFERRED): confirmacao explicita em modal (sem exigir senha).
+- D-053-7 (Q-053-7, CONFIRMED): dividida em 053a (backend) e 053b (frontend).
+- Decisoes transversais: (c) recibo = so e-mail informativo; (d) regua de cartao e PIX igual.
+
+## Implementation Notes — 053a (backend)
+- Sem migration (usa `cancelAtPeriodEnd`/`canceledAt`/`currentPeriodEnd` existentes). Banco de teste `leadforge_053_test` criado via `test:db:reset`; banco de dev NAO tocado.
+- Arquivos: `src/lib/billing/provider.ts` (+`cancelSubscription`/`resumeSubscription`), `providers/{mock,stripe,abacatepay}.ts`, `status-map.ts` (`computeOrgStatus` aceita `cancelAtPeriodEnd`/`currentPeriodEnd`: suspende a partir do fim do periodo), `process-event.ts` (e-mails #10/#11/#12), `classify-event.ts`, `cancel-effective.ts` (job) + `scheduler/run-tick.ts`, `pix-renewal.ts` (ignora `cancelAtPeriodEnd`), `actions/billing.ts` (`cancelSubscription`, `reactivateSubscription`), templates `cancel-requested.ts`, `subscription-reactivated.ts`, `subscription-canceled.ts` (revisado: `accessEndedAt` + link), `email/scenario.ts` (+`cancel_requested`, `subscription_reactivated`), testes `actions/billing-cancel.test.ts`, `templates.test.ts`, `webhook-handler.test.ts`.
+- Decisoes: provider falhando => action falha e NADA e gravado (sem divergencia); AbacatePay sem endpoint => fallback local (`providerConfirmed:false`); reativar apos efetivacao = novo checkout (`createCheckoutSession`), `reactivateSubscription` so desfaz cancelamento agendado; chave #10 = `cancel_requested:<orgId>:<now ISO>`, #12 = `reactivated:<orgId>:<now ISO>`.
+- Verificacao: tsc limpo; eslint 0 erros; vitest completo 151 arquivos / 1888 testes VERIFIED.
+- Limitacoes: cartao AbacatePay pode continuar cobrando ate cancelamento manual no provedor; Stripe e stub; reativar org ja expurgada nao e tratado aqui.
+
+## Implementation Notes — 053b (frontend)
+- Sem migration. Arquivos: `src/components/billing/CancelSubscriptionPanel.tsx` (novo: botao Cancelar + modal RHF+zod com checkbox de confirmacao, aviso "cancelamento agendado" + "Manter assinatura", aviso "cancelada" + "Reassinar" ancorado em `#planos`), `CancelSubscriptionPanel.test.tsx` (novo), `SubscriptionSummaryCard.tsx` (integra o painel; texto "Proxima cobranca" so quando nao ha cancelamento), `PlanSelectionSection.tsx` (`id="planos"`), `billing-format.ts` (`RETENTION_DAYS`, `cancelUiState`, `purgeDateFor`), `lib/schemas/billing.ts` (`cancelConfirmSchema`), `lib/queries/billing.ts` (`SubscriptionView.canceledAt`).
+- Decisoes: botoes so para owner (mesmo gating da pagina; nao-owner ve apenas o aviso de estado); modal mostra data de fim de acesso, retencao 90 dias (com data de expurgo), "sem reembolso" e, em trial, efeito imediato; apos sucesso `router.refresh()` + toast; erros da action (incl. rate limit) no `role="alert"` do modal; reassinar = nova contratacao pelo fluxo de selecao de plano ja existente (`createCheckoutSession`), sem nova action; agendado com periodo vencido e tratado como "cancelada".
+- Verificacao (VERIFIED): `tsc --noEmit` limpo; eslint 0 erros (18 warnings preexistentes); vitest completo 152 arquivos / 1896 testes (TEST_DATABASE_URL=leadforge_053_test).
+- Limitacoes: interacao do modal (submit/foco) coberta por SSR + schema, nao por teste de browser; validacao visual em 375/768/1280 e dark mode feita so por revisao de classes (tokens do design system), nao em navegador.

@@ -8,6 +8,8 @@ import { paymentReceiptTemplate } from "@/lib/channels/email/templates/payment-r
 import { subscriptionSuccessTemplate } from "@/lib/channels/email/templates/subscription-success";
 import { paymentRecoveredTemplate } from "@/lib/channels/email/templates/payment-recovered";
 import { planChangedTemplate } from "@/lib/channels/email/templates/plan-changed";
+import { cancelRequestedTemplate } from "@/lib/channels/email/templates/cancel-requested";
+import { subscriptionReactivatedTemplate } from "@/lib/channels/email/templates/subscription-reactivated";
 import { subscriptionCanceledTemplate } from "@/lib/channels/email/templates/subscription-canceled";
 import type { ParsedBillingEvent } from "./provider";
 import { classifyBillingEvent, type PriorSubscriptionState } from "./classify-event";
@@ -53,8 +55,8 @@ export async function processBillingEvent(event: ParsedBillingEvent, now: Date):
               },
             });
 
-            const existing = await tx.subscription.findUnique({ where: { orgId: event.orgId }, select: { pastDueSince: true, canceledAt: true, trialEndsAt: true, status: true, planId: true, cadence: true, currentPeriodEnd: true } });
-            const prior: PriorSubscriptionState | null = existing ? { status: existing.status, planId: existing.planId, cadence: existing.cadence, currentPeriodEnd: existing.currentPeriodEnd } : null;
+            const existing = await tx.subscription.findUnique({ where: { orgId: event.orgId }, select: { pastDueSince: true, canceledAt: true, trialEndsAt: true, status: true, planId: true, cadence: true, currentPeriodEnd: true, cancelAtPeriodEnd: true } });
+            const prior: PriorSubscriptionState | null = existing ? { status: existing.status, planId: existing.planId, cadence: existing.cadence, currentPeriodEnd: existing.currentPeriodEnd, cancelAtPeriodEnd: existing.cancelAtPeriodEnd } : null;
             const pastDueSince = event.status === "past_due" ? (existing?.pastDueSince ?? now) : null;
             const canceledAt = event.status === "canceled" ? (existing?.canceledAt ?? now) : null;
             const trialEndsAt = event.status === "trialing" ? (existing?.trialEndsAt ?? new Date(now.getTime() + TRIAL_DAYS * 24 * 3600_000)) : (existing?.trialEndsAt ?? null);
@@ -73,7 +75,7 @@ export async function processBillingEvent(event: ParsedBillingEvent, now: Date):
             };
             await tx.subscription.upsert({ where: { orgId: event.orgId }, create: { orgId: event.orgId, ...data }, update: data });
 
-            const orgStatus = computeOrgStatus({ status: event.status, pastDueSince }, now);
+            const orgStatus = computeOrgStatus({ status: event.status, pastDueSince, cancelAtPeriodEnd: event.cancelAtPeriodEnd, currentPeriodEnd: event.currentPeriodEnd }, now);
             await tx.organization.update({ where: { id: event.orgId }, data: { status: orgStatus } });
 
             return { canceledAt, prior, trialEndsAt, pastDueSince };
@@ -133,13 +135,34 @@ export async function processBillingEvent(event: ParsedBillingEvent, now: Date):
         }
       }
       if (event.status === "canceled" && canceledAt) {
+        // SPEC-053 (D-053-1): `canceled` suspende na hora (computeOrgStatus) — o e-mail afirma acesso ENCERRADO.
+        // Retencao de 90 dias conta da efetivacao (`canceledAt`). Cancelamento voluntario ao fim do periodo chega
+        // aqui pelo job de efetivacao (`cancel-effective.ts`), com `canceledAt` = quando efetivou.
         const purgeDate = new Date(canceledAt.getTime() + CANCEL_RETENTION_MS);
+        const accessEndedAt = event.currentPeriodEnd && event.currentPeriodEnd.getTime() < canceledAt.getTime() ? event.currentPeriodEnd : canceledAt;
         const { subject, html, text } = subscriptionCanceledTemplate({
           planName: plan.name,
-          accessUntil: event.currentPeriodEnd,
+          accessEndedAt,
           purgeDate,
+          link: absoluteAppUrl("/configuracoes/assinatura"),
         });
         await notifyOrgOwners({ orgId: event.orgId, subject, html, text, scenario: "subscription_canceled", dedupeKey: `${event.eventId}:canceled` });
+      }
+      // SPEC-053a (#10): cancelamento agendado (false -> true) com acesso mantido ate `currentPeriodEnd`.
+      // Chave `cancel_requested:<orgId>:<cancelRequestedAt>` (= `now` do evento, ja unico por eventId).
+      if (event.status !== "canceled" && event.cancelAtPeriodEnd && !prior?.cancelAtPeriodEnd && event.currentPeriodEnd) {
+        const { subject, html, text } = cancelRequestedTemplate({
+          planName: plan.name,
+          accessUntil: event.currentPeriodEnd,
+          purgeDate: new Date(event.currentPeriodEnd.getTime() + CANCEL_RETENTION_MS),
+          link: absoluteAppUrl("/configuracoes/assinatura"),
+        });
+        await notifyOrgOwners({ orgId: event.orgId, subject, html, text, scenario: "cancel_requested", dedupeKey: `cancel_requested:${event.orgId}:${now.toISOString()}` });
+      }
+      // SPEC-053a (#12): cancelamento agendado desfeito antes do fim do periodo (true -> false, sem ter efetivado).
+      if (event.status !== "canceled" && event.status !== "incomplete" && !event.cancelAtPeriodEnd && prior?.cancelAtPeriodEnd && prior.status !== "canceled") {
+        const { subject, html, text } = subscriptionReactivatedTemplate({ planName: plan.name, nextBillingDate: event.currentPeriodEnd, link: absoluteAppUrl("/dashboard") });
+        await notifyOrgOwners({ orgId: event.orgId, subject, html, text, scenario: "subscription_reactivated", dedupeKey: `reactivated:${event.orgId}:${now.toISOString()}` });
       }
     } catch (e) {
       console.error(`[billing-process-event] falha ao notificar owners por e-mail (org ${event.orgId}):`, safeErrorForLog(e));
