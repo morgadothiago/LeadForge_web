@@ -182,3 +182,9 @@ Contas de teste no banco de dev: `claude.a*@testes-claude.local` (senha de teste
 
 Regra combinada: **só commitar quando tudo estiver verde** (tsc, lint sem erros, vitest em banco `*_test` novo, QA aprovado); nunca
 rodar `migrate dev` neste banco.
+
+## 8. Produção (Fase 9 do PRIMEIROS_PASSOS)
+
+- Passo a passo para colocar no ar: `docs/PRIMEIROS_PASSOS.md`, Fase 9 (banco, Redis, segredos, domínio, e-mail, Azure Blob, AbacatePay, tick, roteiro de conferência de 12 itens).
+- **Achado corrigido:** o `buildCommand` da Vercel roda `prisma db seed` a cada deploy, e o seed criava organização e 20 leads de demonstração em produção. Agora, com `VERCEL_ENV=production` ou `NODE_ENV=production`, o seed cria só planos e o admin (`isProductionEnv` em `prisma/seed.ts`, com teste).
+- **Atenção:** a cada deploy o seed **repõe a senha** do admin para `ADMIN_PASSWORD`. Preços dos planos são PLACEHOLDER (D-33-2): confirme antes de abrir ao público.

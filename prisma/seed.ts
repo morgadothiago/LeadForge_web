@@ -396,12 +396,22 @@ export async function seedAdmin(
   return "upserted";
 }
 
+/** Em producao (Vercel `production` ou NODE_ENV=production) NAO cria org/leads de demonstracao: so planos + admin. */
+export function isProductionEnv(env: NodeJS.ProcessEnv = process.env): boolean {
+  return env.VERCEL_ENV === "production" || env.NODE_ENV === "production";
+}
+
 async function main() {
   const prisma = new PrismaClient({
     adapter: new PrismaPg({ connectionString: process.env.DATABASE_URL }),
   });
   try {
-    await seed(prisma);
+    if (isProductionEnv()) {
+      await seedPlans(prisma);
+      console.log("[seed] producao: dados de demonstracao ignorados (so planos e admin).");
+    } else {
+      await seed(prisma);
+    }
     await seedAdmin(prisma);
     console.log("seed ok");
   } finally {

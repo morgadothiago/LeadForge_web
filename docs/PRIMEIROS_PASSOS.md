@@ -637,6 +637,125 @@ navegador. Use os blocos G e N de `docs/ROTEIRO_DE_TESTES.md`.
 
 ---
 
+## Fase 9: colocar no ar (produção, Vercel)
+
+Até aqui o LeadForge morou na **sua casa** (o seu computador). Agora vamos mudá-lo para um **prédio público** na internet, onde
+qualquer pessoa chega pelo endereço. Mudança de casa tem lista: se faltar uma caixa, falta o prato. Siga na ordem e marque ✅.
+
+⚠️ **Regra de ouro:** em produção **nada de brinquedo**. Sem `mock` de cobrança, sem `ALLOW_SEED_SENDS`, sem Mailpit.
+Nunca coloque segredos no GitHub: eles vão só no painel da Vercel (Settings > Environment Variables).
+
+### 9.1 O armário de produção (Postgres gerenciado)
+
+O Postgres do Docker é só da sua casa. Em produção você precisa de um armário na nuvem (Neon, Supabase, Vercel Marketplace
+ou outro Postgres).
+
+1. Crie um banco Postgres na nuvem e copie **dois** endereços: o **normal com pool** e o **direto sem pool** (unpooled).
+2. Na Vercel, crie `DATABASE_URL` (com pool) e `DATABASE_URL_UNPOOLED` (direto).
+
+✅ O que você deve ver: no build da Vercel, o `vercel.json` roda sozinho `prisma migrate deploy` (arruma as gavetas) usando o
+endereço direto. Se o build falhar aqui, o endereço direto está errado.
+
+### 9.2 O bloquinho de recados (Redis)
+
+1. Crie um Redis na nuvem (Upstash ou Vercel Marketplace) e copie a URL (`rediss://...`).
+2. Na Vercel, crie `REDIS_URL`. Sem ele o app funciona, mas o limite de tentativas vale só por cópia do app (veja 2.9).
+
+### 9.3 Os segredos (gere cada um com seu próprio comando)
+
+Cada um é uma senha longa e **diferente**. No terminal:
+
+```bash
+openssl rand -base64 48     # AUTH_SECRET
+openssl rand -base64 32     # ENCRYPTION_KEY (guarde cópia: se perder, senhas SMTP e links de descadastro quebram)
+openssl rand -base64 32 | tr '+/' '-_' | tr -d '=\n'   # CRON_SECRET (rode de novo para INGEST_SECRET, se usar)
+```
+
+Crie na Vercel: `AUTH_SECRET`, `ENCRYPTION_KEY`, `CRON_SECRET`.
+
+### 9.4 O endereço e quem é o chefe
+
+1. Compre/aponte o domínio na Vercel (Settings > Domains). Use `https`.
+2. Crie `AUTH_URL` e `APP_BASE_URL` com o endereço final (ex.: `https://app.seudominio.com`, **sem** barra no fim). Os links
+   dos e-mails (convite, confirmar e-mail, excluir conta) usam esse endereço.
+3. Crie `TRUSTED_PROXY_IP_HEADER=x-real-ip`. **É obrigatória em produção**: sem ela o limite por IP fica desligado.
+4. Crie `ADMIN_EMAIL` e `ADMIN_PASSWORD` (12+ caracteres, forte). O seed cria esse usuário. ⚠️ A cada deploy a senha dele é
+   **reposta** para o valor de `ADMIN_PASSWORD`. Mudou a senha pelo app? Mude também aqui.
+
+✅ O que você deve ver: no log do build, `[seed] producao: dados de demonstração ignorados (só planos e admin).`.
+Em produção o seed **não** cria organização nem leads de brinquedo (a Vercel define `VERCEL_ENV=production` sozinha).
+
+⚠️ Os preços dos planos vêm marcados como **PLACEHOLDER** (D-33-2). O seed só cria o plano se ele não existir; para mudar o
+preço depois, edite a tabela `Plan` ou peça uma SPEC. Confira antes de abrir para o público.
+
+### 9.5 E-mail de verdade (escolha UMA opção, veja a Fase 3)
+
+Sem e-mail real ninguém recebe convite, confirmação, recibo nem aviso de cobrança.
+
+- **Resend:** `RESEND_API_KEY` + `RESEND_FROM_NOREPLY`, `RESEND_FROM_SUPPORT`, `RESEND_FROM_BILLING` (domínio verificado no Resend).
+- **Azure (ACS):** `EMAIL_PROVIDER=acs`, `AZURE_COMMUNICATION_CONNECTION_STRING`, `ACS_FROM_NOREPLY`, `ACS_FROM_SUPPORT`, `ACS_FROM_BILLING`.
+- **Só SMTP:** `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`.
+
+⚠️ O remetente do `.env` de dev (`seu-email@gmail.com`) é de mentirinha. Use um endereço do **seu domínio**, verificado
+(SPF/DKIM) no provedor, senão cai no spam.
+
+### 9.6 Arquivos (vídeos e imagens)
+
+Sem Azure Blob, `/criativos` e downloads respondem 503 em produção.
+
+1. Crie uma conta de armazenamento no Azure e um container **privado**.
+2. Na Vercel: `STORAGE_PROVIDER=azure`, `AZURE_STORAGE_CONNECTION_STRING`, `AZURE_STORAGE_CONTAINER`.
+3. Criativos: `CREATIVE_PROVIDER=mock` (o avatar real ainda não existe; os vídeos continuam de mentirinha).
+
+### 9.7 Cobrança de verdade (AbacatePay)
+
+1. Crie a conta e pegue `ABACATEPAY_API_KEY` e invente um `ABACATEPAY_WEBHOOK_SECRET` (32+ caracteres).
+2. Na Vercel: `PAYMENT_PROVIDER=abacatepay`, e as duas chaves.
+3. No painel do AbacatePay, cadastre o webhook (o carteiro) apontando para `https://SEU-ENDERECO/api/billing/webhook`
+   com o segredo, como o provedor pedir.
+4. Faça **um pagamento de teste** (PIX de valor baixo ou o modo de teste do provedor) antes de abrir ao público.
+
+⚠️ Ainda **não validado** com o AbacatePay real: o formato do recibo e o aviso de **falha de cartão** (a documentação não tem
+esse evento, Q-052-5). O cancelamento de cartão vale só dentro do LeadForge; cancele também no painel do AbacatePay. **Não** use
+`PAYMENT_PROVIDER=stripe` (é só um esqueleto).
+
+### 9.8 O despertador (tick) e o plano da Vercel
+
+1. Crie `CRON_SECRET` (9.3). O `vercel.json` já agenda `/api/cron/tick` **a cada minuto** e a Vercel manda o segredo sozinha.
+2. ⚠️ A cada minuto **exige plano pago** da Vercel (Pro). No plano grátis (Hobby) só roda 1 vez por dia: mensagens, criativos,
+   cancelamentos e busca ficam atrasados. Alternativa: um agendador externo chamando
+   `curl -X POST -H "Authorization: Bearer $CRON_SECRET" https://SEU-ENDERECO/api/cron/tick` a cada minuto.
+
+### 9.9 Opcionais (deixe desligado no começo)
+
+- **WhatsApp (Evolution):** precisa de um servidor próprio (Fase 5). Deixe para depois.
+- **Busca de clientes (Google Places):** `LEAD_SEARCH_ENABLED=true` e a chave nas Integrações (Fase 8). Ponha teto de gasto no Google.
+- **LLM dos agentes:** chave do Claude ou provedor grátis no painel (Fase 6).
+- **Nunca em produção:** `ALLOW_SEED_SENDS`, `ALLOW_PRIVATE_SMTP_HOSTS`, `MOCK_WEBHOOK_SECRET`, `PAYMENT_PROVIDER=mock`.
+
+### 9.10 Depois do deploy: o roteiro de conferência (15 minutos)
+
+Faça com um e-mail seu de verdade. Marque ✅.
+
+1. **A casa abriu?** Abra `https://SEU-ENDERECO/login`. ✅ Aparece a tela de login com cadeadinho (https).
+2. **Entrar como admin** com `ADMIN_EMAIL`/`ADMIN_PASSWORD`. ✅ Entra sem erro.
+3. **Cadastro novo:** crie uma conta com outro e-mail seu. ✅ Chegam os e-mails (boas-vindas, confirmar e-mail, início do teste).
+   Os links começam com o endereço de produção, não com `localhost`.
+4. **Confirmar o e-mail:** clique no link. ✅ A faixa "confirme seu e-mail" some.
+5. **Esqueci a senha:** peça a redefinição. ✅ Chega o e-mail e o link funciona.
+6. **Convite:** convide uma terceira pessoa para a organização. ✅ Chega o convite e ela entra.
+7. **Isolamento:** entre com duas contas em organizações diferentes. ✅ Uma **não vê** os leads, campanhas e criativos da outra.
+8. **Cobrança:** faça o pagamento de teste (9.7). ✅ Chega "Assinatura confirmada" e o recibo, **1 vez cada**.
+9. **Cancelar:** Configurações > Assinatura > Cancelar. ✅ Chega o aviso e a data final (seção 2.5).
+10. **O despertador toca?** Nos Logs da Vercel, filtre por `/api/cron/tick`. ✅ Aparece uma chamada por minuto, resposta 200. (503 =
+    falta `CRON_SECRET`.)
+11. **Limite de tentativas:** erre a senha várias vezes. ✅ O login bloqueia (com `REDIS_URL`, o bloqueio sobrevive a novo deploy).
+12. **Sem brinquedo:** no painel do admin, a lista não tem "Organização de Seed" nem leads "Contato 1...20". ✅
+
+Se algum item falhar, veja "Se deu ruim, olhe aqui" no fim deste guia. Antes de abrir ao público ainda faltam, por sua conta:
+**parecer jurídico** dos prazos de guarda de dados (D-054-4), **termos de uso e política de privacidade**, e **teste à mão**
+dos blocos H a N do `docs/ROTEIRO_DE_TESTES.md`.
+
 ## Testes (o professor corrigindo a prova)
 
 ### Conferir o código
