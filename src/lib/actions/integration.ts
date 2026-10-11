@@ -28,7 +28,7 @@ export async function saveIntegration(input: unknown): Promise<ActionResult<Inte
   return safeAction(async () => {
     const { user: actor, orgId } = await requireActiveProviderOrg();
     const db = scopedPrisma(orgId);
-    const saveWait = consumeSaveQuota(actor.id);
+    const saveWait = await consumeSaveQuota(actor.id);
     if (saveWait > 0) return formError(`Muitas alterações seguidas. Tente novamente em ${saveWait}s.`);
     const parsed = saveIntegrationSchema.safeParse(input);
     if (!parsed.success) return failure(zodErrors(parsed.error));
@@ -141,7 +141,7 @@ export async function testIntegration(input: unknown): Promise<ActionResult<Conn
     if (!id.success) return failure(zodErrors(id.error));
     const row = await prisma.integrationSecret.findFirst({ where: { id: id.data, orgId }, select: { id: true, integration: true, baseUrl: true, allowPrivateHost: true, encryptedValue: true } });
     if (!row) return formError(NOT_FOUND);
-    const wait = consumeTestQuota(actor.id, row.id);
+    const wait = await consumeTestQuota(actor.id, row.id);
     if (wait > 0) return formError(`Muitos testes seguidos. Tente novamente em ${wait}s.`);
     const kind = row.integration as IntegrationKindName;
     let result: ConnectionTestResult;

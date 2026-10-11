@@ -23,9 +23,9 @@ describe("newResetToken/hashResetToken (SPEC-038)", () => {
 });
 
 describe("clearForgotPasswordRateLimit", () => {
-  it("zera os dois limitadores (e-mail e IP)", () => {
-    forgotByEmailLimiter.hit("email:x@y.com");
-    forgotByIpLimiter.hit("ip:1.2.3.4");
+  it("zera os dois limitadores (e-mail e IP)", async () => {
+    await forgotByEmailLimiter.hit("email:x@y.com");
+    await forgotByIpLimiter.hit("ip:1.2.3.4");
     expect(forgotByEmailLimiter.size).toBeGreaterThan(0);
     expect(forgotByIpLimiter.size).toBeGreaterThan(0);
     clearForgotPasswordRateLimit();

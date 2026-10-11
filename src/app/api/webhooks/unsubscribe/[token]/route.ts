@@ -16,15 +16,15 @@ function page(title: string, msg: string, form?: string): string {
 const html = (status: number, title: string, msg: string, form?: string, extra: Record<string, string> = {}) =>
   new Response(page(title, msg, form), { status, headers: { ...HEAD, ...extra } });
 
-function guard(req: Request, token: string): Response | null {
-  const retry = rateLimitRetrySeconds(getClientIp(req.headers), token);
+async function guard(req: Request, token: string): Promise<Response | null> {
+  const retry = await rateLimitRetrySeconds(getClientIp(req.headers), token);
   return retry === null ? null : tooManyRequests(retry);
 }
 const invalid = () => html(400, "Link inválido", "Este link de descadastro é inválido ou expirou.");
 
 export async function GET(req: Request, ctx: { params: Promise<{ token: string }> }): Promise<Response> {
   const { token } = await ctx.params;
-  const limited = guard(req, token);
+  const limited = await guard(req, token);
   if (limited) return limited;
   if (!verifyUnsubscribeToken(token)) return invalid();
   return html(
@@ -37,7 +37,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ token: string }
 
 export async function POST(req: Request, ctx: { params: Promise<{ token: string }> }): Promise<Response> {
   const { token } = await ctx.params;
-  const limited = guard(req, token);
+  const limited = await guard(req, token);
   if (limited) return limited;
   const leadId = verifyUnsubscribeToken(token);
   if (!leadId) return invalid();

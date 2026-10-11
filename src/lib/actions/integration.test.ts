@@ -100,7 +100,7 @@ describe("permissão: só admin", () => {
   });
 });
 
-describe("salvar / resolver / cache / fallback", () => {
+describe("salvar / resolver / cache / fallback", async () => {
   it("salva cifrado, sem eco; edição vazia mantém; troca vale sem reiniciar; remover volta ao env", async () => {
     await signInAsSeedAdmin();
     _setCacheTtl(60_000);
@@ -163,7 +163,7 @@ describe("salvar / resolver / cache / fallback", () => {
   });
 });
 
-describe("SSRF ao salvar e ao conectar", () => {
+describe("SSRF ao salvar e ao conectar", async () => {
   it("metadados sempre bloqueados, mesmo com allowPrivateHost", async () => {
     await signInAsSeedAdmin();
     for (const url of ["http://169.254.169.254", "http://[fd00:ec2::254]", "http://metadata.google.internal"]) {
@@ -210,7 +210,7 @@ describe("SSRF ao salvar e ao conectar", () => {
   });
 });
 
-describe("testIntegration", () => {
+describe("testIntegration", async () => {
   async function setup() {
     await signInAsSeedAdmin();
     invalidateIntegrationCache();
@@ -285,7 +285,7 @@ describe("testIntegration", () => {
     _resetTestQuota();
     // 8 testes na integração via "usuários" distintos direto na cota; o 9º é barrado mesmo com usuário novo
     const { consumeTestQuota } = await import("@/lib/integrations/test-connection");
-    for (let i = 0; i < 8; i++) expect(consumeTestQuota(`outro-${i}`, id)).toBe(0);
+    for (let i = 0; i < 8; i++) expect(await consumeTestQuota(`outro-${i}`, id)).toBe(0);
     const r = await testIntegration(id);
     expect(r.ok === false && r.errors?._form?.[0]).toMatch(/Muitos testes/);
     _resetTestQuota();
@@ -312,7 +312,7 @@ describe("testIntegration", () => {
   });
 });
 
-describe("SPEC-036: llm com URL base (OpenAI-compatível)", () => {
+describe("SPEC-036: llm com URL base (OpenAI-compatível)", async () => {
   const llmRow = () => prisma.integrationSecret.findFirstOrThrow({ where: { integration: "llm" } });
   it("sem URL a chave é obrigatória; com URL aceita sem chave; SECRET_MIN mantido", async () => {
     await signInAsSeedAdmin();
@@ -387,7 +387,7 @@ describe("SPEC-036: llm com URL base (OpenAI-compatível)", () => {
   });
 });
 
-describe("remoção", () => {
+describe("remoção", async () => {
   it("bloqueia com instâncias WhatsApp dependentes (com contagem) e exige confirm", async () => {
     await signInAsSeedAdmin();
     await saveIntegration({ integration: "evolution", value: KEY_A, baseUrl: base, allowPrivateHost: true });
@@ -405,7 +405,7 @@ describe("remoção", () => {
   });
 });
 
-describe("remoção transacional", () => {
+describe("remoção transacional", async () => {
   it("dependente criado durante a remoção: contagem e delete na mesma transação; id inexistente -> não encontrada", async () => {
     await signInAsSeedAdmin();
     await saveIntegration({ integration: "evolution", value: KEY_A, baseUrl: base, allowPrivateHost: true });
@@ -422,7 +422,7 @@ describe("remoção transacional", () => {
   });
 });
 
-describe("vazamento e auditoria", () => {
+describe("vazamento e auditoria", async () => {
   it("nenhum valor em logs, auditoria ou retornos; auditoria registra ações", async () => {
     await signInAsSeedAdmin();
     await prisma.integrationSecret.deleteMany();

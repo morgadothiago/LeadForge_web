@@ -20,23 +20,24 @@ export function _setTestDeadline(ms: number | null): void {
   deadlineMs = ms ?? 15_000;
 }
 
-const userLimiter = new SlidingLimiter(5, 60_000);
-const integrationLimiter = new SlidingLimiter(8, 60_000);
-const saveLimiter = new SlidingLimiter(10, 60_000);
+const userLimiter = new SlidingLimiter(5, 60_000, 1000, "conn-test-user");
+const integrationLimiter = new SlidingLimiter(8, 60_000, 1000, "conn-test-integration");
+const saveLimiter = new SlidingLimiter(10, 60_000, 1000, "conn-save");
 
 /**
  * Limites em memória (por processo): máx. 5 testes/min por usuário E 8/min por integração (vários admins não somam).
  * Devolve segundos até liberar (0 = liberado; registra a tentativa).
  */
-export function consumeTestQuota(userId: string, integrationId?: string, now = Date.now()): number {
-  const w = Math.max(userLimiter.peek(userId, now), integrationId ? integrationLimiter.peek(`i:${integrationId}`, now) : 0);
+export async function consumeTestQuota(userId: string, integrationId?: string, now = Date.now()): Promise<number> {
+  const [wu, wi] = await Promise.all([userLimiter.peek(userId, now), integrationId ? integrationLimiter.peek(`i:${integrationId}`, now) : 0]);
+  const w = Math.max(wu, wi);
   if (w > 0) return w;
-  userLimiter.hit(userId, now);
-  if (integrationId) integrationLimiter.hit(`i:${integrationId}`, now);
+  await userLimiter.hit(userId, now);
+  if (integrationId) await integrationLimiter.hit(`i:${integrationId}`, now);
   return 0;
 }
 /** saveIntegration resolve DNS: máx. 10 salvamentos/min por usuário. */
-export function consumeSaveQuota(userId: string, now = Date.now()): number {
+export function consumeSaveQuota(userId: string, now = Date.now()): Promise<number> {
   return saveLimiter.hit(userId, now);
 }
 export function _resetTestQuota(): void {

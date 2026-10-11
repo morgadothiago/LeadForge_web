@@ -1,3 +1,4 @@
+import { redisHit } from "@/lib/rate-limit/redis";
 import { prisma } from "@/lib/prisma";
 import { tooManyRequests } from "@/lib/http";
 import { safeErrorForLog } from "@/lib/errors";
@@ -46,6 +47,22 @@ export const _resetMeetingWebhookRateLimit = (): void => {
   invalidBucket = { count: 0, resetAt: 0 };
   validBucket = { count: 0, resetAt: 0 };
 };
+
+/** SPEC-059: Redis (compartilhado) quando disponível; senão o bucket em memória acima. */
+async function hitInvalid(): Promise<number | null> {
+  const w = await redisHit("meetings", "invalid", INVALID.max, INVALID.windowMs);
+  if (w !== undefined) return w;
+  const r = hit(invalidBucket, INVALID);
+  invalidBucket = r.b;
+  return r.wait;
+}
+async function hitValid(): Promise<number | null> {
+  const w = await redisHit("meetings", "valid", VALID.max, VALID.windowMs);
+  if (w !== undefined) return w;
+  const r = hit(validBucket, VALID);
+  validBucket = r.b;
+  return r.wait;
+}
 function hit(b: Bucket, cfg: { windowMs: number; max: number }): { b: Bucket; wait: number | null } {
   const now = Date.now();
   if (b.resetAt <= now) b = { count: 0, resetAt: now + cfg.windowMs };
@@ -62,13 +79,11 @@ export async function handleMeetingWebhook(req: Request, deps: MeetingWebhookDep
 
   const token = bearerToken(req);
   if (!token || !secretsMatch(token, secret)) {
-    const r = hit(invalidBucket, INVALID);
-    invalidBucket = r.b;
-    return r.wait !== null ? tooManyRequests(r.wait) : unauthorized();
+    const w = await hitInvalid();
+    return w !== null ? tooManyRequests(w) : unauthorized();
   }
-  const v = hit(validBucket, VALID);
-  validBucket = v.b;
-  if (v.wait !== null) return tooManyRequests(v.wait);
+  const vw = await hitValid();
+  if (vw !== null) return tooManyRequests(vw);
 
   try {
     const raw = await readBodyLimited(req, MAX_BODY);

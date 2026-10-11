@@ -1,3 +1,4 @@
+import { redisHit } from "@/lib/rate-limit/redis";
 import { createHash } from "node:crypto";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
@@ -34,6 +35,22 @@ export const _resetIngestRateLimit = (): void => {
   invalidBucket = { count: 0, resetAt: 0 };
   validBucket = { count: 0, resetAt: 0 };
 };
+
+/** SPEC-059: Redis (compartilhado) quando disponível; senão o bucket em memória acima. */
+async function hitInvalid(): Promise<number | null> {
+  const w = await redisHit("ingest", "invalid", INVALID.max, INVALID.windowMs);
+  if (w !== undefined) return w;
+  const r = hit(invalidBucket, INVALID);
+  invalidBucket = r.b;
+  return r.wait;
+}
+async function hitValid(): Promise<number | null> {
+  const w = await redisHit("ingest", "valid", VALID.max, VALID.windowMs);
+  if (w !== undefined) return w;
+  const r = hit(validBucket, VALID);
+  validBucket = r.b;
+  return r.wait;
+}
 function hit(b: Bucket, cfg: { windowMs: number; max: number }, now = Date.now()): { b: Bucket; wait: number | null } {
   if (b.resetAt <= now) b = { count: 0, resetAt: now + cfg.windowMs };
   b.count++;
@@ -152,13 +169,11 @@ export async function handleIngest(req: Request, deps: IngestDeps = {}): Promise
 
   const token = bearerToken(req);
   if (!token || !secretsMatch(token, secret)) {
-    const r = hit(invalidBucket, INVALID);
-    invalidBucket = r.b;
-    return r.wait !== null ? tooManyRequests(r.wait) : unauthorized();
+    const w = await hitInvalid();
+    return w !== null ? tooManyRequests(w) : unauthorized();
   }
-  const v = hit(validBucket, VALID);
-  validBucket = v.b;
-  if (v.wait !== null) return tooManyRequests(v.wait);
+  const vw = await hitValid();
+  if (vw !== null) return tooManyRequests(vw);
 
   const idemKey = req.headers.get("idempotency-key");
   if (idemKey !== null && !KEY_RE.test(idemKey)) return err(400, "invalid_idempotency_key", "Idempotency-Key inválida: use 1 a 128 caracteres (letras, números, . _ : -).");

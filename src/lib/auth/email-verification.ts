@@ -27,8 +27,8 @@ export function hashVerificationToken(token: string): string {
 
 const WINDOW_MS = 60 * 60_000;
 /** D-055-8: rate limit do reenvio por usuario E por IP (chaves independentes). */
-export const resendByUserLimiter = new SlidingLimiter(5, WINDOW_MS);
-export const resendByIpLimiter = new SlidingLimiter(20, WINDOW_MS);
+export const resendByUserLimiter = new SlidingLimiter(5, WINDOW_MS, 1000, "resend-user");
+export const resendByIpLimiter = new SlidingLimiter(20, WINDOW_MS, 1000, "resend-ip");
 /** Testes: zera os limitadores do reenvio. */
 export function clearResendRateLimit(): void {
   resendByUserLimiter.clear();

@@ -17,17 +17,17 @@ import { DELETION_CONFIRM_TTL_MS, DELETION_WINDOW_DAYS, DELETION_WINDOW_MS, hash
  */
 
 // Rate limits (em memoria, como os demais fluxos; D-049-14 segue valendo para multi-instancia).
-const passwordAttemptLimiter = new SlidingLimiter(5, 15 * 60_000); // por usuario: tentativas de senha no pedido
-const requestLimiter = new SlidingLimiter(3, 60 * 60_000); // por usuario: pedidos criados por hora
-const publicLimiter = new SlidingLimiter(20, 60 * 60_000); // por IP: preview/confirmar/cancelar por token
-const credentialCancelByEmailLimiter = new SlidingLimiter(5, 15 * 60_000);
-const credentialCancelByIpLimiter = new SlidingLimiter(20, 15 * 60_000);
+const passwordAttemptLimiter = new SlidingLimiter(5, 15 * 60_000, 1000, "acctdel-password"); // por usuario: tentativas de senha no pedido
+const requestLimiter = new SlidingLimiter(3, 60 * 60_000, 1000, "acctdel-request"); // por usuario: pedidos criados por hora
+const publicLimiter = new SlidingLimiter(20, 60 * 60_000, 1000, "acctdel-public"); // por IP: preview/confirmar/cancelar por token
+const credentialCancelByEmailLimiter = new SlidingLimiter(5, 15 * 60_000, 1000, "acctdel-cancel-email");
+const credentialCancelByIpLimiter = new SlidingLimiter(20, 15 * 60_000, 1000, "acctdel-cancel-ip");
 
 export function clearAccountDeletionRateLimit(): void {
   for (const l of [passwordAttemptLimiter, requestLimiter, publicLimiter, credentialCancelByEmailLimiter, credentialCancelByIpLimiter]) l.clear();
 }
-export const publicTokenHit = (ip: string): number => publicLimiter.hit(`ip:${ip}`);
-export const credentialCancelHit = (email: string, ip: string): number => Math.max(credentialCancelByEmailLimiter.hit(`email:${email}`), credentialCancelByIpLimiter.hit(`ip:${ip}`));
+export const publicTokenHit = (ip: string): Promise<number> => publicLimiter.hit(`ip:${ip}`);
+export const credentialCancelHit = async (email: string, ip: string): Promise<number> => Math.max(...(await Promise.all([credentialCancelByEmailLimiter.hit(`email:${email}`), credentialCancelByIpLimiter.hit(`ip:${ip}`)])));
 
 export const TOKEN_INVALID_MESSAGE = "Link inválido, expirado ou já utilizado.";
 
@@ -88,7 +88,7 @@ export type RequestResult =
   | { kind: "not_found" };
 
 export async function requestDeletion(userId: string, password: string, now: Date = new Date()): Promise<RequestResult> {
-  if (passwordAttemptLimiter.hit(userId) > 0) return { kind: "rate_limited" };
+  if (await passwordAttemptLimiter.hit(userId) > 0) return { kind: "rate_limited" };
   const user = await prisma.user.findUnique({ where: { id: userId }, select: { id: true, email: true, passwordHash: true } });
   if (!user) return { kind: "not_found" };
   // Reautenticacao: tempo constante (verify sempre roda). Sem senha definida => bloqueio `no_password` logo abaixo.
@@ -98,7 +98,7 @@ export async function requestDeletion(userId: string, password: string, now: Dat
   const blockers = await findDeletionBlockers(prisma, userId);
   if (blockers.length) return { kind: "blocked", blockers };
   if (!ok) return { kind: "bad_password" };
-  if (requestLimiter.hit(userId) > 0) return { kind: "rate_limited" };
+  if (await requestLimiter.hit(userId) > 0) return { kind: "rate_limited" };
 
   const open = await openRequest(userId, now);
   if (open?.confirmedAt && open.scheduledFor) return { kind: "already_scheduled", scheduledFor: open.scheduledFor };

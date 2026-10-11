@@ -49,7 +49,7 @@ export async function login(input: LoginInput): Promise<ActionResult<{ redirectT
     const { email, password, next } = parsed.data;
     const key = loginKey(email, getClientIpKey(await headers()));
     const ek = emailKey(email);
-    if (isRateLimited(key, ek)) return formError("Muitas tentativas. Aguarde alguns minutos e tente novamente.");
+    if (await isRateLimited(key, ek)) return formError("Muitas tentativas. Aguarde alguns minutos e tente novamente.");
 
     const user = await prisma.user.findUnique({
       where: { email },
@@ -59,14 +59,14 @@ export async function login(input: LoginInput): Promise<ActionResult<{ redirectT
     // Tempo constante: sempre executa um verify (contra hash dummy se não há usuário/senha).
     const ok = await verifyPassword(user?.passwordHash ?? (await getDummyHash()), password);
     if (!user || !user.passwordHash || !ok) {
-      recordFailure(key, ek);
+      await recordFailure(key, ek);
       return formError(INVALID);
     }
     // SPEC-054a (D-054-2): exclusao de conta confirmada e ainda na janela de 30 dias => conta bloqueada (sem sessao). So depois de
     // validar a senha (nao revela estado a quem nao a conhece). O frontend oferece "Cancelar exclusao" (`cancelAccountDeletionWithPassword`).
     const pending = await getPendingDeletion(user.id);
     if (pending) {
-      resetFailures(key, ek);
+      await resetFailures(key, ek);
       return {
         ok: false,
         errors: {
@@ -80,10 +80,10 @@ export async function login(input: LoginInput): Promise<ActionResult<{ redirectT
     const platformRole = user.role === "platform_admin" ? "platform_admin" : "provider";
     const orgId = user.memberships.find((m) => m.orgId === user.lastOrgId)?.orgId ?? user.memberships[0]?.orgId ?? null;
     if (platformRole === "provider" && !orgId) {
-      recordFailure(key, ek);
+      await recordFailure(key, ek);
       return formError("Conta sem organização associada. Contate o suporte.");
     }
-    resetFailures(key, ek);
+    await resetFailures(key, ek);
     if (orgId && orgId !== user.lastOrgId) await prisma.user.update({ where: { id: user.id }, data: { lastOrgId: orgId } });
     await createSession(user.id, orgId, platformRole);
     return success({ redirectTo: safeNext(next, homeRouteFor(platformRole)) });
@@ -115,7 +115,7 @@ export async function forgotPassword(input: unknown): Promise<ActionResult<{ mes
     const { email } = parsed.data;
     const ip = getClientIpKey(await headers());
 
-    if (forgotByEmailLimiter.hit(`email:${email}`) > 0 || forgotByIpLimiter.hit(`ip:${ip}`) > 0) {
+    if (await forgotByEmailLimiter.hit(`email:${email}`) > 0 || await forgotByIpLimiter.hit(`ip:${ip}`) > 0) {
       return formError("Muitas tentativas. Aguarde alguns minutos e tente novamente.");
     }
 
@@ -230,7 +230,7 @@ export async function resendVerificationEmail(): Promise<ActionResult<{ sent: bo
         return { ok: false, errors: { _form: [`Aguarde ${wait}s para reenviar o e-mail de confirmação.`], code: ["cooldown"], retryAfterSeconds: [String(wait)] } };
       }
     }
-    const limited = Math.max(resendByUserLimiter.hit(`user:${user.id}`), resendByIpLimiter.hit(`ip:${ip}`));
+    const limited = Math.max(await resendByUserLimiter.hit(`user:${user.id}`), await resendByIpLimiter.hit(`ip:${ip}`));
     if (limited > 0) {
       return { ok: false, errors: { _form: ["Muitas tentativas. Aguarde antes de pedir um novo e-mail."], code: ["rate_limited"], retryAfterSeconds: [String(limited)] } };
     }

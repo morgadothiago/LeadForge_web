@@ -36,7 +36,7 @@ export async function mobileAction(
 ): Promise<Response> {
   const a = await requireMobile(req);
   if (a instanceof Response) return a;
-  const wait = hitActionLimit(a.deviceId);
+  const wait = await hitActionLimit(a.deviceId);
   if (wait) return tooMany(wait);
   const key = req.headers.get("idempotency-key");
   if (key !== null && !IDEMPOTENCY_RE.test(key)) return invalidInput("Idempotency-Key inválida.");
@@ -99,14 +99,14 @@ export async function setKillSwitch(a: MobileAuth, killSwitch: boolean, password
   if (!user || user.role !== "provider" || !orgId) return bad(403, "forbidden", "Sem permissão.");
   // Parar os agentes (killSwitch=true) nunca tem atrito. Deixa-los rodar (killSwitch=false) exige senha atual (reautenticacao).
   if (!killSwitch) {
-    const wait = reauthBlockedSeconds(a.deviceId);
+    const wait = await reauthBlockedSeconds(a.deviceId);
     if (wait) return bad(429, "rate_limited", "Muitas tentativas de senha. Aguarde e tente novamente.");
     if (!password) return bad(403, "reauth_required", "Confirme sua senha para ligar os agentes.");
     if (!(await verifyPassword(user.passwordHash ?? "", password))) {
-      recordReauthFailure(a.deviceId);
+      await recordReauthFailure(a.deviceId);
       return bad(403, "reauth_required", "Senha incorreta.");
     }
-    clearReauthFailures(a.deviceId);
+    await clearReauthFailures(a.deviceId);
   }
   const s = await prisma.agentSettings.upsert({
     where: { orgId },

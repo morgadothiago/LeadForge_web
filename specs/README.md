@@ -60,6 +60,7 @@ Fullstack = executa dev-backend primeiro, depois dev-frontend.
 | 056 | E-mails de organizacao para owners (entrou/saiu/removido/papel) | dev-backend | 9 (E-mails transacionais) | APPROVED (2026-10-10) | 049,052 |
 | 057 | Sidebar do tenant agrupada em secoes com titulo (estilo Cloudflare) | frontend | 10 (UX/Navegacao) | IMPLEMENTED (2026-10-10) | 032,049b,051b |
 | 058 | "Buscar agora": busca de leads sob demanda na campanha (papel, concorrencia, teto manual, UX, custo) | fullstack (058a backend / 058b frontend) | 10 (UX) | IMPLEMENTED 058a+058b (2026-10-10; validacao em navegador e E2E real PENDENTES) | 015,030,033,018 |
+| 059 | Rate limit persistente (Redis) com fallback em memoria (D-049-14) | backend | 11 | IMPLEMENTED (2026-10-11; Redis real validado) | 049,014,018,026,055 |
 
 Ordem (sessao 2): 009,010,016 feitos -> 011 -> 012 -> 017 -> 013 -> 014 -> 015. Ordem sessao 1: 000 -> 001 -> 002 -> 003 -> 004 -> 005 -> 006 -> 007 -> 008 | 009 -> 010 -> 011 -> 012 -> 013 -> 014 -> 015.
 Nota: 004 (dashboard) fica antes de 005-008 por ordem do PROMPT; com poucos dados usa seed.

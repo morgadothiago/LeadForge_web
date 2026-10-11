@@ -26,7 +26,7 @@ import { failure, formError, safeAction, success, zodErrors, type ActionResult }
  */
 
 const baseUrl = (): string => (process.env.APP_BASE_URL || process.env.AUTH_URL || "http://localhost:3000").replace(/\/+$/, "");
-const signupLimiter = new SlidingLimiter(5, 10 * 60_000);
+const signupLimiter = new SlidingLimiter(5, 10 * 60_000, 1000, "billing-signup");
 
 /** Só o `owner` (Membership.orgRole) da org gerencia a assinatura — `member` não inicia checkout nem abre o portal. */
 async function requireOwner(): Promise<{ orgId: string; userId: string }> {
@@ -64,7 +64,7 @@ export async function createPortalSession(): Promise<ActionResult<{ url: string 
   });
 }
 
-const cancelLimiter = new SlidingLimiter(5, 10 * 60_000);
+const cancelLimiter = new SlidingLimiter(5, 10 * 60_000, 1000, "billing-cancel");
 
 /** Estado devolvido ao frontend (053b): `cancelAtPeriodEnd` + `currentPeriodEnd` (fim do acesso) + `status`. */
 export interface SubscriptionChangeResult {
@@ -85,7 +85,7 @@ export interface SubscriptionChangeResult {
 export async function cancelSubscription(): Promise<ActionResult<SubscriptionChangeResult>> {
   return safeAction(async () => {
     const { orgId } = await requireOwner();
-    if (cancelLimiter.hit(orgId) > 0) return formError("Muitas tentativas. Aguarde alguns minutos e tente novamente.");
+    if (await cancelLimiter.hit(orgId) > 0) return formError("Muitas tentativas. Aguarde alguns minutos e tente novamente.");
     const sub = await prisma.subscription.findUnique({
       where: { orgId },
       select: { status: true, cadence: true, currentPeriodEnd: true, cancelAtPeriodEnd: true, externalCustomerId: true, externalSubscriptionId: true, plan: { select: { key: true } } },
@@ -126,7 +126,7 @@ export async function cancelSubscription(): Promise<ActionResult<SubscriptionCha
 export async function reactivateSubscription(): Promise<ActionResult<SubscriptionChangeResult>> {
   return safeAction(async () => {
     const { orgId } = await requireOwner();
-    if (cancelLimiter.hit(orgId) > 0) return formError("Muitas tentativas. Aguarde alguns minutos e tente novamente.");
+    if (await cancelLimiter.hit(orgId) > 0) return formError("Muitas tentativas. Aguarde alguns minutos e tente novamente.");
     const sub = await prisma.subscription.findUnique({
       where: { orgId },
       select: { status: true, cadence: true, currentPeriodEnd: true, cancelAtPeriodEnd: true, externalCustomerId: true, externalSubscriptionId: true, plan: { select: { key: true } } },
@@ -190,7 +190,7 @@ async function uniqueSlug(base: string): Promise<string> {
 export async function signUpAndStartCheckout(input: unknown): Promise<ActionResult<{ redirectTo: string }>> {
   return safeAction(async () => {
     const ip = getClientIpKey(await headers());
-    const wait = signupLimiter.hit(ip);
+    const wait = await signupLimiter.hit(ip);
     if (wait > 0) return formError(`Muitas tentativas. Tente novamente em ${wait}s.`);
 
     const parsed = signupSchema.safeParse(input);

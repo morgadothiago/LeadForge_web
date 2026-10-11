@@ -118,12 +118,12 @@ export async function handleWhatsAppWebhook(request: Request, token: string, opt
   const now = opts.now ?? new Date();
   try {
     if (!TOKEN_RE.test(token)) {
-      const wait = invalidAttemptRetry(now.getTime());
+      const wait = await invalidAttemptRetry(now.getTime());
       return wait === null ? unauthorized() : tooManyRequests(wait);
     }
     const instance = await prisma.whatsAppInstance.findUnique({ where: { webhookToken: token } });
     if (!instance) {
-      const wait = invalidAttemptRetry(now.getTime());
+      const wait = await invalidAttemptRetry(now.getTime());
       return wait === null ? unauthorized() : tooManyRequests(wait);
     }
     const provider = opts.provider ?? getWhatsAppProvider(instance.orgId, instance.provider);
@@ -137,7 +137,7 @@ export async function handleWhatsAppWebhook(request: Request, token: string, opt
     request = new Request(request.url, { method: request.method, headers: request.headers, body: bytes.byteLength ? (bytes as unknown as BodyInit) : undefined });
     if (!(await provider.verifyWebhook(request, { webhookToken: instance.webhookToken, apiKey }, token))) return unauthorized();
 
-    const wait = validTrafficRetry(token, now.getTime());
+    const wait = await validTrafficRetry(token, now.getTime());
     if (wait !== null) return tooManyRequests(wait);
 
     let event: WebhookEvent | null;

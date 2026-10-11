@@ -86,8 +86,8 @@ async function clientIp(): Promise<string> {
 /** Rate limit de entrada (convite/código): por usuário E por IP. Retorna true se bloqueado. */
 async function joinLimited(userKey: string): Promise<boolean> {
   const ip = await clientIp();
-  const a = joinByUserLimiter.hit(userKey);
-  const b = joinByIpLimiter.hit(`ip:${ip}`);
+  const a = await joinByUserLimiter.hit(userKey);
+  const b = await joinByIpLimiter.hit(`ip:${ip}`);
   return a > 0 || b > 0;
 }
 
@@ -138,7 +138,7 @@ export async function switchActiveOrganization(input: unknown): Promise<ActionRe
 export async function createOrganization(input: unknown): Promise<ActionResult<{ orgId: string; redirectTo: string }>> {
   return safeAction(async () => {
     const { user } = await requireProviderOrg();
-    if (createOrgLimiter.hit(`user:${user.id}`) > 0) return formError(TOO_MANY);
+    if (await createOrgLimiter.hit(`user:${user.id}`) > 0) return formError(TOO_MANY);
     const parsed = createOrganizationSchema.safeParse(input);
     if (!parsed.success) return failure(zodErrors(parsed.error));
     const { name, planKey } = parsed.data;
@@ -243,7 +243,7 @@ export async function inviteMember(input: unknown): Promise<ActionResult<{ invit
     const parsed = inviteMemberSchema.safeParse(input);
     if (!parsed.success) return failure(zodErrors(parsed.error));
     const { email, orgRole } = parsed.data;
-    if (inviteByActorLimiter.hit(`${orgId}:${user.id}`) > 0 || inviteByTargetLimiter.hit(`${orgId}:${email}`) > 0) return formError(TOO_MANY);
+    if (await inviteByActorLimiter.hit(`${orgId}:${user.id}`) > 0 || await inviteByTargetLimiter.hit(`${orgId}:${email}`) > 0) return formError(TOO_MANY);
 
     const already = await prisma.membership.findFirst({ where: { orgId, user: { email } }, select: { id: true } });
     if (already) return failure({ email: ["Este e-mail já participa da organização."] });
@@ -449,7 +449,7 @@ export async function leaveOrganization(): Promise<ActionResult<{ orgId: string;
  */
 export async function previewInvite(input: unknown): Promise<ActionResult<{ valid: false } | { valid: true; orgName: string; email: string; orgRole: OrgRoleName; userExists: boolean }>> {
   return safeAction(async () => {
-    if (joinByIpLimiter.hit(`ip:${await clientIp()}`) > 0) return formError(TOO_MANY);
+    if (await joinByIpLimiter.hit(`ip:${await clientIp()}`) > 0) return formError(TOO_MANY);
     const parsed = acceptInviteSchema.safeParse(input);
     if (!parsed.success) return failure(zodErrors(parsed.error));
     const inv = await prisma.orgInvite.findUnique({
@@ -470,7 +470,7 @@ export async function previewInvite(input: unknown): Promise<ActionResult<{ vali
 export async function signUpAndJoin(input: unknown): Promise<ActionResult<{ orgId: string; redirectTo: string }>> {
   return safeAction(async () => {
     const ip = await clientIp();
-    if (signupJoinLimiter.hit(`ip:${ip}`) > 0) return formError(TOO_MANY);
+    if (await signupJoinLimiter.hit(`ip:${ip}`) > 0) return formError(TOO_MANY);
     const parsed = signupJoinSchema.safeParse(input);
     if (!parsed.success) return failure(zodErrors(parsed.error));
     const { name, password, token, code } = parsed.data;
@@ -488,7 +488,7 @@ export async function signUpAndJoin(input: unknown): Promise<ActionResult<{ orgI
       if (await prisma.user.findUnique({ where: { email }, select: { id: true } })) return formError("Este e-mail já possui cadastro. Entre na sua conta e aceite o convite.");
     } else {
       email = emailInput!;
-      if (joinByIpLimiter.hit(`ip:${ip}`) > 0) return formError(TOO_MANY);
+      if (await joinByIpLimiter.hit(`ip:${ip}`) > 0) return formError(TOO_MANY);
     }
 
     const passwordHash = await hashPassword(password);

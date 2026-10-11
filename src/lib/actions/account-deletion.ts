@@ -91,7 +91,7 @@ export async function previewAccountDeletionToken(
   input: unknown,
 ): Promise<ActionResult<{ valid: false } | { valid: true; kind: "confirm"; expiresAt: Date } | { valid: true; kind: "cancel"; scheduledFor: Date }>> {
   return safeAction(async () => {
-    if (publicTokenHit(await ip()) > 0) return coded("rate_limited", TOO_MANY);
+    if ((await publicTokenHit(await ip())) > 0) return coded("rate_limited", TOO_MANY);
     const parsed = accountDeletionTokenSchema.safeParse(input);
     if (!parsed.success) return failure(zodErrors(parsed.error));
     return success(await previewDeletionToken(parsed.data.token));
@@ -104,7 +104,7 @@ export async function previewAccountDeletionToken(
  */
 export async function confirmAccountDeletion(input: unknown): Promise<ActionResult<{ scheduledFor: Date; windowDays: number }>> {
   return safeAction(async () => {
-    if (publicTokenHit(await ip()) > 0) return coded("rate_limited", TOO_MANY);
+    if ((await publicTokenHit(await ip())) > 0) return coded("rate_limited", TOO_MANY);
     const parsed = accountDeletionTokenSchema.safeParse(input);
     if (!parsed.success) return failure(zodErrors(parsed.error));
     const r = await confirmDeletion(parsed.data.token);
@@ -119,7 +119,7 @@ export async function confirmAccountDeletion(input: unknown): Promise<ActionResu
 /** PUBLICA (link de cancelamento do e-mail #13): cancela a exclusao agendada e reativa a conta. */
 export async function cancelAccountDeletionByToken(input: unknown): Promise<ActionResult<{ cancelled: true }>> {
   return safeAction(async () => {
-    if (publicTokenHit(await ip()) > 0) return coded("rate_limited", TOO_MANY);
+    if ((await publicTokenHit(await ip())) > 0) return coded("rate_limited", TOO_MANY);
     const parsed = accountDeletionTokenSchema.safeParse(input);
     if (!parsed.success) return failure(zodErrors(parsed.error));
     const r = await cancelDeletionByToken(parsed.data.token);
@@ -135,7 +135,7 @@ export async function cancelAccountDeletionWithPassword(input: unknown): Promise
   return safeAction(async () => {
     const parsed = cancelAccountDeletionWithPasswordSchema.safeParse(input);
     if (!parsed.success) return failure(zodErrors(parsed.error));
-    if (credentialCancelHit(parsed.data.email, await ip()) > 0) return coded("rate_limited", TOO_MANY);
+    if ((await credentialCancelHit(parsed.data.email, await ip())) > 0) return coded("rate_limited", TOO_MANY);
     const r = await cancelDeletionWithPassword(parsed.data.email, parsed.data.password);
     if (r.kind === "ok") return success({ cancelled: true as const });
     if (r.kind === "not_pending") return coded("not_pending", "Não há exclusão agendada para esta conta.");
