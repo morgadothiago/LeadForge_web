@@ -283,6 +283,25 @@ Antes: `npx prisma migrate deploy` (aditiva, 3 colunas em `SearchRun`) e reinici
 | N8 | Tenant B tenta a mesma campanha por URL | 404/negado (isolamento, bloqueante) | [x] | outro tenant abre a URL da campanha e não vê o nome nem os dados (sem vazamento) (Claude, navegador automatizado) |
 | N9 | Conferir log e tela | Nenhuma chave de API aparece | [ ] | |
 
+## O. Formulários de Configurações e Admin (SPEC-045, react-hook-form). Sem migration; só interface
+
+Mudou só o jeito de validar e mostrar erro nos formulários; as regras são as mesmas. Teste em desktop e em 390px.
+
+| # | O que fazer | O que deve acontecer | OK? | Observado |
+|---|---|---|---|---|
+| O1 | `/configuracoes/email` > **Nova conta**, salvar vazio | Erros em cada campo obrigatório, foco no primeiro; nada é enviado | [ ] | |
+| O2 | Trocar o provedor (Gmail para Outlook) | Host e porta mudam sozinhos; salvar conta válida mostra "Conta adicionada." | [ ] | |
+| O3 | Criar duas contas com o mesmo e-mail | Erro "Já existe uma conta cadastrada com este e-mail." no campo e aviso (toast) | [ ] | |
+| O4 | Editar a conta e deixar a senha em branco | Salva mantendo a senha atual | [ ] | |
+| O5 | `/configuracoes/integracoes` > Configurar sem chave | "Informe a chave."; com chave curta, "A chave deve ter ao menos 12 caracteres." | [ ] | |
+| O6 | Evolution/LLM com URL inválida | "URL inválida. Ex.: https://evolution.exemplo.com"; LLM sem URL e com chave segue válido (Claude) | [ ] | |
+| O7 | Salvar integração com sucesso e reabrir o diálogo | Campo da chave vem vazio (a chave nunca reaparece) | [ ] | |
+| O8 | `/configuracoes/supressao` > Adicionar sem preencher | "Informe o e-mail." (ou "Informe o telefone."); trocar o tipo limpa o campo e os erros | [ ] | |
+| O9 | Adicionar telefone com máscara, depois remover um item sem motivo e sem marcar a confirmação | Máscara (11) 91234-5678 funciona; remoção mostra "Descreva o motivo (mínimo 5 caracteres)." e "Marque a confirmação para remover." | [ ] | |
+| O10 | `/configuracoes/whatsapp` > Nova instância com teto 0 ou 41 | Mensagens de limite (1 a 40); número inválido mostra erro no campo | [ ] | |
+| O11 | Admin da plataforma: detalhe da organização > Suspender | Botão do diálogo só habilita com motivo de 3+ caracteres; suspende e Reativar volta ao normal | [ ] | |
+| O12 | Tab/Enter em todos os diálogos acima | Foco vai ao primeiro campo com erro; Enter envia; leitor de tela lê o erro do campo | [ ] | |
+
 ## Se algo falhar, me mande
 
 1. O passo (ex.: `B5`), o e-mail logado e a URL.

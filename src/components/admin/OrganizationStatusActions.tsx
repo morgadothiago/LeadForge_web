@@ -2,14 +2,24 @@
 import * as React from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { useForm } from "react-hook-form";
+import { z } from "zod";
 import type { OrgStatus } from "@prisma/client";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/campaigns/ConfirmDialog";
 import { getFormError } from "@/components/campaigns/form-utils";
+import { applyServerErrors } from "@/components/org/org-format";
 import { reactivateOrganization, suspendOrganization } from "@/lib/actions/admin/organizations";
+import { suspendOrganizationSchema } from "@/lib/schemas/admin";
 
 const REASON_MIN = 3;
 const REASON_MAX = 500;
+
+/** Estado do formulário RHF (SPEC-045): `reason` coincide com o path do `suspendOrganizationSchema`; `orgId` vem da prop. */
+interface SuspendFormState {
+  reason: string;
+}
 
 /**
  * SPEC-032 — suspender/reativar uma Organization. Motivo obrigatório ao suspender (validação client-
@@ -20,36 +30,41 @@ export function OrganizationStatusActions({ orgId, orgName, status }: { orgId: s
   const router = useRouter();
   const [pending, startTransition] = React.useTransition();
   const [open, setOpen] = React.useState(false);
-  const [reason, setReason] = React.useState("");
-  const [error, setError] = React.useState<string>();
+  const {
+    register,
+    handleSubmit,
+    watch,
+    reset,
+    setError,
+    setFocus,
+    formState: { errors },
+  } = useForm<SuspendFormState, unknown, z.output<typeof suspendOrganizationSchema>>({
+    resolver: zodResolver(
+      z.preprocess((v: SuspendFormState) => ({ orgId, reason: v.reason }), suspendOrganizationSchema),
+    ),
+    defaultValues: { reason: "" },
+  });
+  const reason = watch("reason");
   const reasonTooShort = reason.trim().length > 0 && reason.trim().length < REASON_MIN;
   const reasonInvalid = reason.trim().length < REASON_MIN;
 
   const close = () => {
     setOpen(false);
-    setReason("");
-    setError(undefined);
+    reset({ reason: "" });
   };
 
-  const onSuspend = () => {
-    if (reasonInvalid) {
-      setError(`Informe um motivo com ao menos ${REASON_MIN} caracteres.`);
-      return;
-    }
-    setError(undefined);
+  const onSuspend = handleSubmit((values) => {
     startTransition(async () => {
-      const r = await suspendOrganization({ orgId, reason: reason.trim() });
+      const r = await suspendOrganization({ orgId, reason: values.reason });
       if (r.ok) {
         toast.success(`${orgName} foi suspensa.`);
         close();
         router.refresh();
       } else {
-        const msg = getFormError(r.errors);
-        setError(msg);
-        toast.error(msg);
+        toast.error(applyServerErrors(r.errors, setError, setFocus, ["reason"]));
       }
     });
-  };
+  });
 
   const onReactivate = () => {
     startTransition(async () => {
@@ -77,9 +92,9 @@ export function OrganizationStatusActions({ orgId, orgName, status }: { orgId: s
           confirmLabel="Suspender"
           destructive
           pending={pending}
-          error={error}
+          error={errors.root?.message ?? errors.reason?.message}
           confirmDisabled={reasonInvalid}
-          onConfirm={onSuspend}
+          onConfirm={() => void onSuspend()}
         >
           <div className="grid gap-1.5">
             <label htmlFor="suspend-reason" className="text-sm font-medium">
@@ -90,11 +105,10 @@ export function OrganizationStatusActions({ orgId, orgName, status }: { orgId: s
               id="suspend-reason"
               rows={3}
               maxLength={REASON_MAX}
-              value={reason}
-              onChange={(e) => setReason(e.target.value)}
+              {...register("reason")}
               required
               aria-required="true"
-              aria-invalid={reasonTooShort || undefined}
+              aria-invalid={reasonTooShort || Boolean(errors.reason) || undefined}
               aria-describedby="suspend-reason-count"
               placeholder="Ex.: inadimplência confirmada, abuso de uso, pedido do cliente..."
               className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm outline-none focus:border-primary focus:ring-[3px] focus:ring-primary/20 aria-invalid:border-destructive"
