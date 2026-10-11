@@ -5,7 +5,7 @@ import { hitActionLimit, ACTION_MAX, _clearActionLimit, recordReauthFailure, rea
 import { hitRefreshLimit, _clearRefreshLimit } from "@/lib/mobile/refresh-limit";
 import { _resetWebhookRateLimit, invalidAttemptRetry } from "@/lib/whatsapp/webhook-rate-limit";
 import { _resetUnsubscribeRateLimit, rateLimitRetrySeconds, RATE_MAX } from "@/lib/channels/unsubscribe-rate-limit";
-import { BREAKER_MS, rlKey, _resetRedisClient, _setRedisClient, redisHit } from "./redis";
+import { BREAKER_MS, rlKey, _resetRedisClient, _setRedisClient, redisHit, tryRedis } from "./redis";
 import { FakeRedis } from "./fake-redis";
 
 let fake: FakeRedis;
@@ -158,5 +158,21 @@ describe("fallback e fail-open", () => {
     const k = loginKey("c@x.com", "3.3.3.3");
     for (let i = 0; i < LOGIN_MAX_FAILURES; i++) await recordFailure(k, undefined, 1000);
     expect(await isRateLimited(k, undefined, 1000)).toBe(true);
+  });
+});
+
+describe("conexao ainda subindo (achado E2E, SPEC-059)", () => {
+  it("status connecting/wait: usa memoria SEM abrir o circuito; ao ficar ready usa o Redis na hora", async () => {
+    const f = new FakeRedis();
+    const spy = vi.spyOn(f, "eval");
+    f.status = "connecting";
+    _setRedisClient(f);
+    const t0 = Date.now();
+    expect(await tryRedis(async (r) => r.eval("return 1", 0))).toBeUndefined();
+    expect(Date.now() - t0).toBeLessThan(500); // sem promessa de conexao pendente, nao espera
+    expect(spy).not.toHaveBeenCalled();
+    f.status = "ready";
+    await tryRedis(async (r) => r.eval("return 1", 0));
+    expect(spy).toHaveBeenCalledTimes(1); // sem BREAKER_MS de espera
   });
 });

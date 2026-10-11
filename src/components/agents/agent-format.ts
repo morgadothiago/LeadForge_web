@@ -39,8 +39,8 @@ export const isEdited = (body: string, original: string): boolean => body.trim()
 export const canApprove = (body: string, pending: boolean, locked = false): boolean => !pending && !locked && body.trim().length > 0;
 export const canReject = (reason: string, pending: boolean, locked = false): boolean => !pending && !locked && reason.trim().length > 0;
 export const canBulk = (selected: number, pending: boolean): boolean => !pending && selected > 0;
-export const bulkSummary = (r: { sent: number; blocked: number; skipped?: number }): string =>
-  `${r.sent} enviado(s), ${r.blocked} bloqueado(s) pela política de envio${r.skipped ? `, ${r.skipped} já tratado(s)` : ""}.`;
+export const bulkSummary = (r: { sent: number; blocked: number; skipped?: number; unverified?: boolean }): string =>
+  `${r.sent} enviado(s), ${r.blocked} bloqueado(s) pela política de envio${r.skipped ? `, ${r.skipped} já tratado(s)` : ""}.${r.unverified ? " Confirme seu e-mail para poder enviar mensagens (veja o aviso no topo da tela)." : ""}`;
 export const needsAutoConfirm = (role: string, autonomy: string): boolean => role === "closer" && autonomy !== "draft";
 export const canConfirmAuto = (c1: boolean, c2: boolean, disclosureEnabled: boolean, pending: boolean): boolean => !pending && c1 && c2 && disclosureEnabled;
 /** Desligar o aviso de IA num Closer autônomo faz o backend voltar a autonomia para rascunho. */

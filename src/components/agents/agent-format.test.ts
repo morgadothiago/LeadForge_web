@@ -39,6 +39,8 @@ describe("agent-format", () => {
     expect([...toggleId(s, "a")]).toEqual(["b"]);
     expect(bulkSummary({ sent: 2, blocked: 1, skipped: 1 })).toContain("1 já tratado");
     expect(bulkSummary({ sent: 2, blocked: 0 })).not.toContain("tratado");
+    expect(bulkSummary({ sent: 0, blocked: 2, unverified: true })).toContain("Confirme seu e-mail");
+    expect(bulkSummary({ sent: 0, blocked: 2 })).not.toContain("Confirme seu e-mail");
   });
   it("autonomia do Closer e aviso de IA", () => {
     expect(needsAutoConfirm("closer", "auto")).toBe(true);

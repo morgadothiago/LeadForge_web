@@ -5,6 +5,7 @@ import { FIXED_WINDOW_LUA, LOGIN_BUMP_LUA, SLIDING_LUA, type RedisLike } from ".
  * sincrona dentro de uma unica chamada (como o Redis, que serializa EVAL) — o teste de integracao real valida o Lua.
  */
 export class FakeRedis implements RedisLike {
+  status?: string;
   strings = new Map<string, number>();
   hashes = new Map<string, Record<string, string>>();
   zsets = new Map<string, { score: number; member: string }[]>();

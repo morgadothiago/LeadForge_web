@@ -11,6 +11,8 @@ const LOG_EVERY_MS = 30_000;
 
 /** Subconjunto de comandos usado (permite fake em testes). */
 export interface RedisLike {
+  /** ioredis: "wait" | "connecting" | "connect" | "ready" | "reconnecting" | "end". Ausente em fakes de teste. */
+  status?: string;
   eval(script: string, numKeys: number, ...args: (string | number)[]): Promise<unknown>;
   hmget(key: string, ...fields: string[]): Promise<(string | null)[]>;
   get(key: string): Promise<string | null>;
@@ -23,6 +25,8 @@ const g = globalThis as unknown as { __lfRlRedis?: RedisLike | null };
 let client: RedisLike | null | undefined = g.__lfRlRedis; // undefined = ainda nao resolvido
 let breakerUntil = 0;
 let lastLog = 0;
+let connecting: Promise<unknown> | undefined; // primeira conexao (lazyConnect): a 1a chamada espera um pouco por ela
+const CONNECT_WAIT_MS = 800;
 
 function build(): RedisLike | null {
   const url = process.env.REDIS_URL;
@@ -36,7 +40,7 @@ function build(): RedisLike | null {
     retryStrategy: (n) => Math.min(n * 200, 2000),
   });
   r.on("error", () => undefined); // erros chegam via rejeicao dos comandos (tratados em tryRedis)
-  r.connect().catch(() => undefined); // primeira chamada; falha => comandos rejeitam (offline queue off) e o breaker assume
+  connecting = r.connect().catch(() => undefined); // falha => status nao fica ready; tryRedis cai para a memoria
   return r as unknown as RedisLike;
 }
 
@@ -70,6 +74,12 @@ export function _resetRedisClient(): void {
 export async function tryRedis<T>(fn: (r: RedisLike) => Promise<T>, now = Date.now()): Promise<T | undefined> {
   const r = getRedis();
   if (!r || now < breakerUntil) return undefined;
+  // Conexao ainda subindo (1a chamada apos o boot): espera um pouco por ela; se nao ficar pronta, usa a memoria SEM abrir
+  // o circuito. Sem isso, os primeiros requisicoes ignorariam o Redis (bloqueio persistido nao valeria logo apos reiniciar).
+  if (r.status === "wait" || r.status === "connecting" || r.status === "connect") {
+    if (connecting) await Promise.race([connecting, new Promise((res) => setTimeout(res, CONNECT_WAIT_MS))]);
+    if ((r.status as string | undefined) !== "ready") return undefined;
+  }
   try {
     return await fn(r);
   } catch (e) {

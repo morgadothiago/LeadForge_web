@@ -343,6 +343,10 @@ volta a anotar no ar. Sem `REDIS_URL` nenhum aviso aparece (é o jeito antigo). 
 ficam embaralhados (hash), nunca em texto claro. Em produção com mais de uma cópia do app, defina `REDIS_URL`, senão cada cópia
 conta separado. A lista de testes está no bloco M do `docs/ROTEIRO_DE_TESTES.md`.
 
+⚠️ Se você instalou um Redis no seu Mac (Homebrew), ele pode ficar com a porta 6379 no lugar da caixinha do Docker. Tudo
+continua funcionando (o porteiro anota nesse Redis), só não vai aparecer em `docker exec leadforge-redis-1 redis-cli`. Para ver
+quem está na porta: `lsof -nP -iTCP:6379 -sTCP:LISTEN`.
+
 ## Fase 3: e-mail (escolha UMA opção)
 
 ### 3.A Sem enviar nada de verdade (✅ JÁ CONFIGURADO neste ambiente)

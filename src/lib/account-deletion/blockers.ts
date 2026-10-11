@@ -52,7 +52,7 @@ export async function findDeletionBlockers(db: Db, userId: string): Promise<Dele
       const sub = m.org.subscription;
       if (!sub) {
         out.push({ code: "org_without_subscription", message: BLOCKER_MESSAGES.org_without_subscription(m.org.name), orgId: m.orgId, orgName: m.org.name });
-      } else if ( (ACTIVE_SUB_STATUSES as readonly string[]).includes(sub.status) && !sub.cancelAtPeriodEnd) {
+      } else if ((ACTIVE_SUB_STATUSES as readonly string[]).includes(sub.status) && !sub.cancelAtPeriodEnd) {
         out.push({ code: "active_subscription", message: BLOCKER_MESSAGES.active_subscription(m.org.name), orgId: m.orgId, orgName: m.org.name });
       }
     } else if (m.orgRole === "owner") {

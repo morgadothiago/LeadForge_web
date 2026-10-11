@@ -10,7 +10,7 @@ git log --oneline -10 && git status --short   # árvore limpa = nada sobrando
 git log main..HEAD --oneline                  # o que esta branch tem a mais que a main
 npx tsc --noEmit                              # deve estar limpo
 npx prisma migrate status                     # dev: 1 pendente (20261016120000) + 5 "não encontradas localmente" (drift, ver seção 3b)
-ls prisma/migrations                          # 43 migrations; a última é 20261016120000_search_run_cursor_060
+ls prisma/migrations                          # 44 entradas (43 migrations + migration_lock); a última é 20261016120000_search_run_cursor_060
 ```
 
 Ambiente local: Postgres/Redis/Mailpit no Docker (`colima start` se `docker ps` falhar), `npm run dev` e **`npm run dev:tick`
@@ -44,13 +44,11 @@ Nesta branch, em ordem do mais antigo para o mais novo:
     o Redis cair, volta à memória do processo com aviso no log (`[rate-limit]`). Chaves hasheadas. `ioredis` instalado. Sem migration.
   - **060**: o botão da busca vira "Buscar mais resultados" (usa `nextPageToken`; quando acaba, passa para variações da busca). Cada
     clique faz 1 a 2 chamadas pagas e respeita o teto diário da 058. **Migration nova, escrita à mão, NÃO aplicada no dev.**
-- **Última verificação** (SPEC-060, banco `leadforge_060b_test`): `tsc` limpo, eslint 0 erros, vitest **163 arquivos / 2053 testes**
-  verdes. Nada disso foi validado em navegador real nem com chaves reais (só SSR, mocks e testes).
-- **Migrations a aplicar no banco de dev** (conferido com `npx prisma migrate status` em 2026-10-11: "43 migrations found", última
-  em comum `20261015120000_email_verification`, **só 1 pendente**):
-  - `20261015120000_email_verification` (SPEC-055): **já aplicada** no dev.
-  - `20261016120000_search_run_cursor_060` (SPEC-060, aditiva, 3 colunas em `SearchRun`): **FALTA aplicar.** Rode
-    `npx prisma migrate deploy` (**nunca `migrate dev`**) e depois pare e ligue o `npm run dev` de novo.
+- **Última verificação** (2026-10-11): `tsc` limpo, eslint 0 erros, vitest completo verde em banco `leadforge_*_test` novo. Depois dela
+  rodou o E2E em navegador real (seção 6).
+- **Migrations**: o banco de dev está com todas aplicadas, inclusive `20261015120000_email_verification` e
+  `20261016120000_search_run_cursor_060` (aplicadas em 2026-10-11, via `migrate deploy`). Depois de qualquer `migrate deploy`, pare e ligue o
+  `npm run dev`. Sobram só as 5 migrations `20260928*` que o repo não tem (drift, seção 3b).
 - As SPECs 036 e 059 não têm migration.
 
 ## 3. Decisões que SÓ VOCÊ pode tomar
@@ -117,9 +115,8 @@ importa uma feature sem SPEC e expande dados pessoais (LGPD/SPEC-054). Só faz s
 
 ## 4. O que só funciona com você (chaves, contas, navegador)
 
-- **Aplicar a migration da 060** (`npx prisma migrate deploy`), reiniciar o `npm run dev` e validar no navegador os blocos J, K,
-  L, M e N do `docs/ROTEIRO_DE_TESTES.md`, os itens novos de H e I e os blocos D, E, F e G. Falta também o seu olhar em dark mode e
-  teclado/leitor de tela. Nenhum item novo foi marcado como passou.
+- **Validar à mão** o que ficou `[ ]` nos blocos D, E, F, G, H a N do `docs/ROTEIRO_DE_TESTES.md` (o que o Claude já passou está `[x]` com
+  "Claude, navegador automatizado"). Falta também o seu olhar em dark mode das páginas públicas, teclado e leitor de tela.
 - **LLM grátis (036)**: validar de verdade com **Ollama** (local) e **Gemini** (chave do AI Studio); só foi testado com mocks.
 - **Redis (059)**: para ligar, `REDIS_URL=redis://localhost:6379` no `.env` e reiniciar; conferir o aviso `[rate-limit]` ao parar o Redis.
 - **Google Places / Maps**: criar chave (Fase 8 do PRIMEIROS_PASSOS), `LEAD_SEARCH_ENABLED=true`, cadastrar em
@@ -156,14 +153,27 @@ importa uma feature sem SPEC e expande dados pessoais (LGPD/SPEC-054). Só faz s
 - **Remetente dos e-mails** em dev sai de `seu-email@gmail.com` (placeholder do `.env`): configure `ACS_FROM_*`/`RESEND_FROM_*`/`SMTP_FROM` reais.
 - **Mailpit poluído** pelos testes automatizados (centenas de `zz-*@test.local`): pesquise pelo destinatário.
 - **Formulário de nova campanha** não foi exercitado na interface: teste à mão.
+- **Cadastro com e-mail que já existe** (J11): nenhum e-mail sai para o existente, mas a resposta **não é igual** à de um e-mail novo (novo
+  vai ao `/dashboard`; existente fica em `/signup` com "Não foi possível concluir o cadastro..."): dá para descobrir que o e-mail existe.
+  Decida se aceita (é o comportamento desde a SPEC-049) ou se vira resposta idêntica (exigiria fluxo "confirme pelo e-mail" para todos).
+
+**E2E em navegador real, 2026-10-11 (Claude, Brave + Playwright)** nas telas das SPECs 053 a 060. Passou e está marcado `[x]` no ROTEIRO:
+H1-H7, I3-I9, I11-I12 (parcial), J1-J4, J8-J10, J14, J16 (parcial), K1, K3-K5, K10-K11, L1, L3, L4, L6, L8, M2, M3, M5, N1 (só a interface), N8.
+Bugs achados e corrigidos: (1) rate limit em Redis: a 1ª chamada depois de subir o app ignorava o Redis (conexão ainda abrindo) e o
+bloqueio salvo não valia logo após reiniciar; (2) "Aprovar em lote" sem e-mail verificado só dizia "bloqueado"; (3) o botão "Testar
+conexão" aparecia para o Claude sem URL; (4) o roteiro dizia que o botão de cancelar fica desabilitado (na verdade valida e mostra erro).
+**Não testado** (precisa de chave/serviço real ou de preparo que não fiz): chamadas reais ao Google Places (N2-N7), Ollama/Gemini/Groq reais
+(L2, L5, L9), SMTP caído (J15, K9), convite com mesmo e-mail (J13), aprovar/enviar sem verificar (J5-J7, só testes automáticos), K2, K6-K8,
+H8-H12, I10, app móvel (I5), M1/M4/M6, dark mode e teclado das páginas públicas, leitor de tela.
+**Atenção local:** se você tem um Redis instalado no Mac (Homebrew), ele pode ocupar `localhost:6379` no lugar do container
+`leadforge-redis-1`; confira com `lsof -nP -iTCP:6379 -sTCP:LISTEN`.
 
 Contas de teste no banco de dev: `claude.a*@testes-claude.local` (senha de teste `SenhaForte-12345`, **só dev**). Dados de teste: orgs
 "Empresa A ...", "Segunda Org Teste", criativos e o lead "Lead Secreto do Tenant A". Podem ser apagados.
 
 ## 7. Próximo trabalho
 
-1. Aplicar a migration `20261016120000_search_run_cursor_060` no dev (`npx prisma migrate deploy`), reiniciar o `npm run dev` e
-   validar no navegador (blocos J a N do roteiro).
+1. Validar à mão o que ficou `[ ]` nos blocos H a N do roteiro (lista na seção 6).
 2. Decidir o drift `20260928*` (seção 3b).
 3. Abrir o PR da branch `docs/retomar-merge-feito` para a `main` (SPECs 053-056, 036, 059, 060); o merge é seu.
 4. Com chaves reais: validar LLM grátis (Ollama/Gemini), Redis e a busca Places paginada.
