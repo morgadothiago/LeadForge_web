@@ -313,6 +313,10 @@ function SimulateDialog({ agent, onClose }: { agent: AgentView; onClose: () => v
             {res.message && <p className="whitespace-pre-wrap rounded bg-muted p-2">{res.message}</p>}
             {res.violations.length > 0 ? <p className="text-destructive">Guardrails violados: {res.violations.join(", ")} (seria bloqueada)</p> : <p className="text-success">Nenhum guardrail violado.</p>}
             <p className="text-xs text-muted-foreground">{res.tokensIn} tokens de entrada, {res.tokensOut} de saída · custo {formatMicroUsd(res.costMicros)}</p>
+            <p className="text-xs text-muted-foreground">
+              Provedor: {res.provider.kind === "openai_compat" ? "OpenAI-compatível" : res.provider.kind === "claude" ? "Claude (Anthropic)" : "não configurado"}
+              {res.provider.host ? ` (${res.provider.host})` : ""} · modelo {res.provider.model}
+            </p>
           </div>
         )}
       </DialogContent>

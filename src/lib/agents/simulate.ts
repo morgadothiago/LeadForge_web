@@ -4,11 +4,11 @@ import { budgetState, costMicros } from "./budget";
 import { monthlySpend } from "./run-agent";
 import { applyDisclosure, askedIfBot, checkGuardrails, validateOutputShape } from "./guardrails";
 import { buildSystemPrompt, buildUserPrompt, packKnowledge } from "./prompt";
-import { getLlmProvider, type LlmProvider } from "./provider";
+import { describeLlmProvider, getLlmProvider, isPrivateLlmHost, type LlmProvider, type LlmProviderInfo } from "./provider";
 import { stripCallLink } from "./guardrails";
 import { escalationRulesSchema, type AgentOutput } from "./types";
 
-export interface SimulationResult { output: AgentOutput; message: string; violations: string[]; costMicros: number; tokensIn: number; tokensOut: number }
+export interface SimulationResult { output: AgentOutput; message: string; violations: string[]; costMicros: number; tokensIn: number; tokensOut: number; provider: LlmProviderInfo }
 
 /** Dry-run: mesmo prompt e guardrails, sem persistir AgentRun/Draft, sem enviar e sem tocar no lead. Mostra custo. */
 export async function simulateAgent(input: { agentId: string; leadId?: string; inboundText?: string }, provider?: LlmProvider): Promise<SimulationResult> {
@@ -42,7 +42,7 @@ export async function simulateAgent(input: { agentId: string; leadId?: string; i
   // Canal real: o do passo de sequencia que usa este agente (senao whatsapp se houver telefone/sem lead, senao email).
   const step = await prisma.sequenceStep.findFirst({ where: { agentId: agent.id }, orderBy: { order: "asc" }, select: { channel: true } });
   const channel: "email" | "whatsapp" = step?.channel === "email" || step?.channel === "whatsapp" ? step.channel : lead && !lead.phone && lead.email ? "email" : "whatsapp";
-  const cost = costMicros(agent.model, res.tokensIn, res.tokensOut);
+  const cost = costMicros(agent.model, res.tokensIn, res.tokensOut, { freeHost: !provider && (await isPrivateLlmHost(agent.orgId)) });
   // Custo entra no orcamento: AgentRun exige lead (FK); ancora no lead informado ou em qualquer lead existente. Sem lead algum, nao registra (limitacao).
   const anchor = lead ?? (await prisma.lead.findFirst({ select: { id: true, campaign: { select: { id: true } } } }));
   if (anchor) {
@@ -54,5 +54,11 @@ export async function simulateAgent(input: { agentId: string; leadId?: string; i
   const violations = o.action === "send"
     ? [...validateOutputShape(o, channel), ...checkGuardrails({ message: guardedMessage, channel, citedKnowledgeIds: o.citedKnowledgeIds, knowledge, allowLinks: agent.allowedTools.includes("link"), rules: escalationRulesSchema.parse(agent.escalationRules ?? undefined), leadAskedIfBot: asked, disclosureText: agent.disclosureEnabled ? agent.disclosureText : null })]
     : [];
-  return { output: o, message, violations, costMicros: cost, tokensIn: res.tokensIn, tokensOut: res.tokensOut };
+  let providerInfo: LlmProviderInfo = { kind: "none", host: null, model: agent.model };
+  try {
+    providerInfo = await describeLlmProvider(agent.orgId, agent.model);
+  } catch {
+    // Exibição apenas: falha aqui não pode perder o resultado da simulação (já gasta e registrada).
+  }
+  return { output: o, message, violations, costMicros: cost, tokensIn: res.tokensIn, tokensOut: res.tokensOut, provider: providerInfo };
 }

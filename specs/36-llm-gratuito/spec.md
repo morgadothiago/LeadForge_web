@@ -1,5 +1,5 @@
 # SPEC-036 — LLM gratuito (provedor OpenAI-compatible: Ollama, Gemini, Groq)
-- status: APPROVED (usuario, 2026-09-27) | domain: fullstack | depende de: SPEC-018 (chaves no painel), SPEC-019 (agentes e interface `LlmProvider`), SPEC-030 (multi-tenant)
+- status: IMPLEMENTED (2026-10-10; aprovada pelo usuario em 2026-09-27) | domain: fullstack | depende de: SPEC-018 (chaves no painel), SPEC-019 (agentes e interface `LlmProvider`), SPEC-030 (multi-tenant)
 
 ## Objetivo
 Tornar os agentes de IA testáveis de graça. Hoje o código só tem `ClaudeProvider` (Anthropic, pago, sem tier grátis) — em produção o caminho grátis é "agentes desligados" (`docs/GUIA.md` 4.5). Esta SPEC adiciona um provedor **OpenAI-compatible** configurável por Organization que cobre, com a MESMA classe: **Ollama local** (`http://localhost:11434/v1`, custo zero, dado não sai do computador), **Gemini free tier** (endpoint OpenAI-compatível `https://generativelanguage.googleapis.com/v1beta/openai`), **Groq/OpenRouter free tier** e qualquer outro compatível. `ClaudeProvider` continua sendo o fallback de quem já usa hoje.
@@ -98,3 +98,10 @@ export async function getLlmProvider(orgId: string): Promise<LlmProvider> {
 - Ollama sem modelo baixado ou fora do ar => erro claro em PT-BR ("Provedor local indisponível…"), caindo em handoff, nunca envio.
 - Custo 0 não pode desligar a noção de volume: limite diário/mensal de execuções continua valendo.
 - Rate limit do free tier (Gemini/Groq) => 429 com backoff já coberto pela SPEC-016; mensagem no painel sugerindo Ollama para volume.
+
+## Implementation Notes (2026-10-10)
+- Arquivos: `src/lib/agents/provider.ts` (OpenAICompatProvider, createOpenAICompatClient, getLlmProvider por baseUrl com url-guard + conexao fixada no IP, describeLlmProvider, isPrivateLlmHost), `budget.ts` (modelos free/local = 0, `freeHost`), `run-agent.ts`/`simulate.ts` (custo + `provider` no resultado), `integrations/test-connection.ts` (GET /models para llm com URL), `integrations/types.ts` (TESTABLE.llm), `actions/integration.ts` (chave opcional com URL; trocar host sem nova chave limpa a chave antiga; testIntegration llm), `crypto/secret-box.ts` (aceita segredo vazio), UI: `IntegrationFormDialog.tsx` (URL opcional, chave opcional, instancia propria, aviso LGPD) e `AgentsPanel.tsx` (provedor/modelo no Simular). Testes: `agents/openai-compat.test.ts` (novo), `actions/integration.test.ts` (+4).
+- Sem migration (chave vazia = payload cifrado de string vazia). Sem env vars novas.
+- Decisoes: validacao "chave exigida sem URL" fica na action (schema continua com `value` opcional para nao quebrar edicao); custo 0 por regex de modelo e por `allowPrivateHost`+baseUrl; desconhecido = FALLBACK. Limpar a URL (voltar ao Claude) exige remover e recriar a integracao llm.
+- Testes: tsc limpo; eslint 0 erros (20 warnings preexistentes); vitest completo no banco `leadforge_036_test`: 160 arquivos / 2021 testes VERIFIED.
+- Criterios: todos PASS por teste automatizado, exceto validacao real (Ollama/Gemini) = PENDENTE (usuario) e QA = pendente.

@@ -8,7 +8,7 @@ import { inboundHandoff, type HandoffReason } from "./handoff";
 import { decideDelivery } from "./autonomy";
 import { budgetState, costMicros, monthStart } from "./budget";
 import { buildSystemPrompt, buildUserPrompt, packKnowledge, type LeadContext } from "./prompt";
-import { getLlmProvider, type LlmProvider } from "./provider";
+import { getLlmProvider, isPrivateLlmHost, type LlmProvider } from "./provider";
 import { advanceAfterAgentStep } from "./advance";
 import { markHandoff } from "./lead-state";
 import { dispatchDraft } from "./drafts";
@@ -147,7 +147,7 @@ export async function runAgentTask(input: RunAgentInput): Promise<RunOutcome> {
     return handoff("provider_error");
   }
   const { output } = result;
-  const cost = costMicros(agent.model, result.tokensIn, result.tokensOut);
+  const cost = costMicros(agent.model, result.tokensIn, result.tokensOut, { freeHost: !input.provider && (await isPrivateLlmHost(agent.orgId)) });
   const usage = { model: agent.model, tokensIn: result.tokensIn, tokensOut: result.tokensOut, costMicros: cost, latencyMs: result.latencyMs, result: output as unknown as Prisma.InputJsonValue };
 
   if (output.action === "handoff") {

@@ -11,5 +11,5 @@ export const INTEGRATION_LABEL: Record<IntegrationKindName, string> = {
 
 /** Integrações que exigem endereço (URL) e por isso passam pela checagem SSRF. */
 export const REQUIRES_BASE_URL: Record<IntegrationKindName, boolean> = { evolution: true, n8n: true, llm: false, places: false };
-/** Integrações com cliente real para "Testar conexão" (as demais: teste indisponível). */
-export const TESTABLE: Record<IntegrationKindName, boolean> = { evolution: true, n8n: false, llm: false, places: false };
+/** Integrações com cliente real para "Testar conexão" (as demais: teste indisponível). `llm`: só com URL base (OpenAI-compatível, SPEC-036); Claude sem URL => indisponível. `llm` não exige URL (REQUIRES_BASE_URL false), mas com URL o url-guard roda. */
+export const TESTABLE: Record<IntegrationKindName, boolean> = { evolution: true, n8n: false, llm: true, places: false };

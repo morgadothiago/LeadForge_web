@@ -37,7 +37,7 @@ Fullstack = executa dev-backend primeiro, depois dev-frontend.
 | 033 | Billing/assinatura: backend (planos, checkout, webhook, gating) | dev-backend | 6 (SaaS) | IMPLEMENTED (2026-09-26; 2 rodadas dev-backend + 2 rodadas QA, ultima APPROVED) | 030 |
 | 034 | Billing/assinatura: frontend (pricing, checkout, signup self-service, gestao do plano) | dev-frontend | 6 (SaaS) | IMPLEMENTED (2026-09-26; dev-frontend + QA APPROVED) | 033 |
 | 035 | Landing page publica ("/") | dev-frontend | 6 (SaaS) | IMPLEMENTED (2026-09-26; 2 rodadas dev-frontend + 4 rodadas QA, ultima APPROVED) | 002,027,034 (pricing/signup) |
-| 036 | LLM gratuito (provedor OpenAI-compatible: Ollama, Gemini, Groq) | fullstack | 7 (LLM gratis) | APPROVED (usuario, 2026-09-27) — Decision Record D-36-1..6 fechadas (2026-09-27); implementacao pendente | 018,019,030 |
+| 036 | LLM gratuito (provedor OpenAI-compatible: Ollama, Gemini, Groq) | fullstack | 7 (LLM gratis) | IMPLEMENTED (2026-10-10; backend + UI minima; validacao real Ollama/Gemini PENDENTE; QA pendente) | 018,019,030 |
 | 037 | Dark/Light mode + identidade visual unificada (landing+app+login) | dev-frontend | 6 (SaaS) | IMPLEMENTED (2026-09-26; 2 rodadas dev-frontend + 2 rodadas QA, ultima APPROVED) | 002,035 |
 | 038 | Recuperacao de senha ("esqueci minha senha") | fullstack | 6 (SaaS) | IMPLEMENTED (2026-09-26; 2 rodadas backend + 1 frontend + 2 rodadas QA, ultima APPROVED) | 009,010,037 |
 | 039 | Bloqueio manual de inadimplencia + lembretes de cobranca por e-mail | dev-backend | 6 (SaaS) | IMPLEMENTED (2026-09-27; 2 rodadas dev-backend + 2 rodadas QA, ultima APPROVED) | 030,031,032,033,038 |

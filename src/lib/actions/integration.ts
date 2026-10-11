@@ -35,14 +35,8 @@ export async function saveIntegration(input: unknown): Promise<ActionResult<Inte
     const { integration, name, value } = parsed.data;
     const where = { orgId_integration_name: { orgId, integration, name } };
     const existing = await db.integrationSecret.findUnique({ where });
-    if (!existing && !value) return failure({ value: ["Informe a chave."] });
-    if (value) {
-      try {
-        getEncryptionKey();
-      } catch {
-        return formError("ENCRYPTION_KEY não configurada/inválida no ambiente do servidor. Configure-a antes de cadastrar chaves.");
-      }
-    }
+    // SPEC-036 (D-36-6): chave obrigatória na criação, exceto `llm` com URL base (Ollama não usa chave).
+    if (!existing && !value && !(integration === "llm" && parsed.data.baseUrl)) return failure({ value: ["Informe a chave."] });
     const allowPrivateHost = parsed.data.allowPrivateHost ?? existing?.allowPrivateHost ?? false;
     let baseUrl: string | null = existing?.baseUrl ?? null;
     if (parsed.data.baseUrl) {
@@ -61,6 +55,15 @@ export async function saveIntegration(input: unknown): Promise<ActionResult<Inte
         throw e;
       }
     }
+    // Trocar o host do LLM sem informar nova chave NÃO reaproveita a chave antiga (evita enviar a chave do Claude/outro provedor ao novo host).
+    const clearKey = integration === "llm" && !!existing && !value && !!baseUrl && existing.baseUrl !== baseUrl;
+    if (value || !existing || clearKey) {
+      try {
+        getEncryptionKey();
+      } catch {
+        return formError("ENCRYPTION_KEY não configurada/inválida no ambiente do servidor. Configure-a antes de cadastrar chaves.");
+      }
+    }
     const hostMasked = hostOf(baseUrl);
     const row = await withSerializableRetry(() =>
       prisma.$transaction(async (tx) => {
@@ -69,7 +72,7 @@ export async function saveIntegration(input: unknown): Promise<ActionResult<Inte
           throw new AppError({ code: "conflict", userMessage: "A integração foi alterada por outra sessão. Recarregue e tente novamente." });
         }
         const urlChanged = !cur || cur.baseUrl !== baseUrl || cur.allowPrivateHost !== allowPrivateHost;
-        const secret = value ? { encryptedValue: encrypt(value), hint: secretHint(value), lastTestedAt: null, lastTestOk: null, lastTestError: null } : {};
+        const secret = clearKey ? { encryptedValue: encrypt(""), hint: "", lastTestedAt: null, lastTestOk: null, lastTestError: null } : value ? { encryptedValue: encrypt(value), hint: secretHint(value), lastTestedAt: null, lastTestOk: null, lastTestError: null } : {};
         const saved = cur
           ? await tx.integrationSecret.update({
               where: { id: cur.id },
@@ -77,11 +80,11 @@ export async function saveIntegration(input: unknown): Promise<ActionResult<Inte
               select: SELECT_ITEM,
             })
           : await tx.integrationSecret.create({
-              data: { orgId, integration, name, encryptedValue: encrypt(value as string), hint: secretHint(value as string), baseUrl, allowPrivateHost, updatedById: actor.id },
+              data: { orgId, integration, name, encryptedValue: encrypt(value ?? ""), hint: secretHint(value ?? ""), baseUrl, allowPrivateHost, updatedById: actor.id },
               select: SELECT_ITEM,
             });
         const audit = [
-          ...(!cur ? [{ action: "create" as const }] : value ? [{ action: "rotate" as const }] : []),
+          ...(!cur ? [{ action: "create" as const }] : value || clearKey ? [{ action: "rotate" as const }] : []),
           ...(cur && urlChanged ? [{ action: "update_url" as const }] : []),
         ];
         for (const a of audit) {
@@ -142,7 +145,7 @@ export async function testIntegration(input: unknown): Promise<ActionResult<Conn
     if (wait > 0) return formError(`Muitos testes seguidos. Tente novamente em ${wait}s.`);
     const kind = row.integration as IntegrationKindName;
     let result: ConnectionTestResult;
-    if (kind === "evolution") {
+    if (kind === "evolution" || (kind === "llm" && row.baseUrl)) {
       invalidateIntegrationCache(orgId, kind, "default");
       result = await runConnectionTest(orgId, kind, { privateTarget: row.allowPrivateHost });
     } else {

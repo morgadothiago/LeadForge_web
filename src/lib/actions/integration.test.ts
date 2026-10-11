@@ -312,6 +312,81 @@ describe("testIntegration", () => {
   });
 });
 
+describe("SPEC-036: llm com URL base (OpenAI-compatível)", () => {
+  const llmRow = () => prisma.integrationSecret.findFirstOrThrow({ where: { integration: "llm" } });
+  it("sem URL a chave é obrigatória; com URL aceita sem chave; SECRET_MIN mantido", async () => {
+    await signInAsSeedAdmin();
+    await prisma.integrationSecret.deleteMany();
+    const noKey = await saveIntegration({ integration: "llm" });
+    expect(!noKey.ok && noKey.errors?.value).toBeTruthy();
+    const short = await saveIntegration({ integration: "llm", value: "curta" });
+    expect(short.ok).toBe(false);
+    const r = await saveIntegration({ integration: "llm", baseUrl: base, allowPrivateHost: true });
+    expect(r.ok).toBe(true);
+    const cfg = await getIntegrationConfig(SEED_IDS.org, "llm");
+    expect(cfg.reveal()).toBe("");
+    expect(cfg.baseUrl).toBe(base);
+  });
+  it("url-guard no salvo: localhost só com allowPrivateHost; metadados sempre bloqueados", async () => {
+    await signInAsSeedAdmin();
+    await prisma.integrationSecret.deleteMany();
+    const priv = await saveIntegration({ integration: "llm", baseUrl: "http://localhost:11434/v1" });
+    expect(priv.ok).toBe(false);
+    const meta = await saveIntegration({ integration: "llm", baseUrl: "http://169.254.169.254/v1", allowPrivateHost: true });
+    expect(meta.ok).toBe(false);
+    const ok = await saveIntegration({ integration: "llm", baseUrl: "http://localhost:11434/v1", allowPrivateHost: true });
+    expect(ok.ok).toBe(true);
+  });
+  it("trocar o host sem nova chave limpa a chave antiga (não vaza a chave do Claude ao novo host)", async () => {
+    await signInAsSeedAdmin();
+    await prisma.integrationSecret.deleteMany();
+    await saveIntegration({ integration: "llm", value: KEY_A });
+    expect((await getIntegrationConfig(SEED_IDS.org, "llm")).reveal()).toBe(KEY_A);
+    invalidateIntegrationCache();
+    const r = await saveIntegration({ integration: "llm", baseUrl: base, allowPrivateHost: true });
+    expect(r.ok).toBe(true);
+    invalidateIntegrationCache();
+    expect((await getIntegrationConfig(SEED_IDS.org, "llm")).reveal()).toBe("");
+  });
+  it("editar llm existente sem value/troca de host não exige ENCRYPTION_KEY; criar/trocar host exige", async () => {
+    await signInAsSeedAdmin();
+    await prisma.integrationSecret.deleteMany();
+    await saveIntegration({ integration: "llm", value: KEY_A });
+    const prev = process.env.ENCRYPTION_KEY;
+    delete process.env.ENCRYPTION_KEY;
+    try {
+      invalidateIntegrationCache();
+      expect((await saveIntegration({ integration: "llm" })).ok).toBe(true);
+      const swap = await saveIntegration({ integration: "llm", baseUrl: base, allowPrivateHost: true });
+      expect(swap.ok).toBe(false);
+      const created = await saveIntegration({ integration: "llm", name: "outra", value: KEY_A });
+      expect(created.ok).toBe(false);
+    } finally {
+      process.env.ENCRYPTION_KEY = prev;
+    }
+  });
+  it("Testar conexão: GET /models com URL (ok/401, chave só como Bearer); Claude sem URL => indisponível", async () => {
+    await signInAsSeedAdmin();
+    await prisma.integrationSecret.deleteMany();
+    logs.length = 0;
+    await saveIntegration({ integration: "llm", value: KEY_B, baseUrl: base, allowPrivateHost: true });
+    const ok = await testIntegration((await llmRow()).id);
+    expect(ok.ok && ok.data.available && ok.data.ok).toBe(true);
+    mode = "401";
+    _resetTestQuota();
+    const bad = await testIntegration((await llmRow()).id);
+    expect(bad.ok && bad.data.available && !bad.data.ok).toBe(true);
+    expect(dump(bad) + logs.join("\n")).not.toContain(KEY_B);
+    mode = "ok";
+    await prisma.integrationSecret.deleteMany();
+    invalidateIntegrationCache();
+    await saveIntegration({ integration: "llm", value: KEY_A });
+    _resetTestQuota();
+    const claude = await testIntegration((await llmRow()).id);
+    expect(claude.ok && claude.data.available).toBe(false);
+  });
+});
+
 describe("remoção", () => {
   it("bloqueia com instâncias WhatsApp dependentes (com contagem) e exige confirm", async () => {
     await signInAsSeedAdmin();
