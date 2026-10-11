@@ -55,10 +55,11 @@ conversa com elas por você e organiza tudo num quadro. Assim você não se perd
 - Ausentes de propósito: `LEAD_SEARCH_ENABLED` (a busca de leads está desligada), `CREATIVE_*` e `STORAGE_*`.
 - 📬 **O e-mail já vai para o Mailpit:** `SMTP_HOST=localhost`, `SMTP_PORT=1025`, `ALLOW_PRIVATE_SMTP_HOSTS=true`. A caixa
   fica em http://localhost:8025. Nada sai para a internet.
-- 🗄️ **Migrations (gavetas):** são 40 no projeto. A última é `20261013120000_billing_reminder_kinds_052b` (SPEC-052b:
-  ela ensina ao sistema 4 tipos novos de aviso de cobrança, no enum `BillingReminderKind`, que é uma lista de opções).
-  - ⚠️ Essa gaveta **ainda não foi aplicada no banco de dev**. Rode `npx prisma migrate deploy`.
-  - Antes dela, `npx prisma migrate status` dizia "Database schema is up to date" (conferido em 2026-10-10).
+- 🗄️ **Migrations (gavetas):** são 42 no projeto. A última é `20261015120000_email_verification` (SPEC-055: guarda se cada
+  pessoa já confirmou o e-mail e cria a tabela dos links de confirmação).
+  - ⚠️ No banco de dev, tudo até `20261014120000_account_deletion_request` (SPEC-054) já está aplicado (conferido com
+    `npx prisma migrate status` em 2026-10-10). **Falta só a `20261015120000_email_verification`.** Rode `npx prisma migrate deploy`
+    e depois pare e ligue o `npm run dev` de novo.
   - Em outro computador ou banco novo, aplique tudo com `npx prisma migrate deploy` (passo 1.3).
 - 🐳 **Caixinhas no ar:** `leadforge-postgres-1`, `leadforge-redis-1` e `mailpit`. O `evolution` e o `n8n` não.
 - 💳 `PAYMENT_PROVIDER` não está definido. Tudo bem: o padrão `mock` (de mentirinha) já basta.
@@ -97,7 +98,9 @@ npx prisma migrate deploy
 - **O que você deve ver na tela:** "Applying migration ..." para cada gaveta nova e, no fim, "All migrations have been
   successfully applied". Se não há nada novo: "No pending migrations to apply".
 - Sem as migrations de criativos e de `EmailDispatchLog` (o caderno de e-mails enviados), `/criativos` e os e-mails de
-  cobrança dão erro de "tabela inexistente".
+  cobrança dão erro de "tabela inexistente". Sem a `20261014120000_account_deletion_request`, a exclusão de conta (2.6) não
+  funciona. Sem a `20261015120000_email_verification`, o cadastro e a confirmação de e-mail (2.7) dão erro.
+- As migrations novas só **acrescentam** gavetas (não jogam nada fora), então `migrate deploy` é seguro.
 - ⚠️ **Depois de aplicar, pare o `npm run dev` e ligue de novo.** O app antigo guarda uma cópia velha do mapa das gavetas
   (o Prisma Client) e falha em silêncio.
 - Como conferir: `npx prisma migrate status` não lista nenhuma migration pendente.
@@ -207,10 +210,14 @@ Agora dá para cancelar o plano sozinho, sem falar com ninguém. É como cancela
 2. Clique nele. Abre uma janelinha que diz até quando você ainda pode usar, que os seus dados ficam guardados por 90 dias
    e que não há devolução de dinheiro. Marque a caixinha "Entendi" e confirme.
 3. Você continua usando tudo até o último dia pago. Chega um e-mail com o pedido e a data final.
-4. Mudou de ideia antes do fim? Clique em **Manter assinatura**. Chega um e-mail confirmando.
+   (Só vale "até o último dia" quando há plano pago ativo com período ainda em dia. Em trial, sem período, período já vencido
+   ou pagamento incompleto, o cancelamento vale **na hora**, e o aviso da janelinha diz isso.)
+4. Mudou de ideia antes do fim? Clique em **Manter assinatura**. Chega um e-mail confirmando. Só esse botão desfaz o
+   cancelamento: um aviso vindo de fora (do provedor de pagamento) não desfaz sozinho um cancelamento já agendado.
 5. Passado o último dia, a conta fica pausada e chega um e-mail dizendo que o cancelamento valeu. Para voltar, clique em
    **Reassinar**. Os dados ficam guardados por 90 dias; depois disso são apagados.
 6. Se você ainda está no teste grátis (trial), cancelar vale **na hora**.
+7. A janelinha de cancelar não fecha enquanto o pedido está sendo enviado (Esc, clique fora e "Voltar" ficam travados).
 
 ✅ O que você deve ver: um e-mail por ação (mesmo clicando duas vezes) no Mailpit, http://localhost:8025. Quem não é dono não
 vê os botões. Para ver o "último dia" chegar, deixe `npm run dev:tick` aberto em outro terminal. A lista completa de testes
@@ -228,10 +235,15 @@ A gente é cuidadoso: pergunta duas vezes e espera 30 dias, caso você se arrepe
 2. Leia a caixa "Excluir minha conta". Ela mostra 3 listas:
    - o que é **apagado** (brinquedos jogados no lixo);
    - o que é **anonimizado** (um desenho em que o seu nome é apagado e vira "Usuário removido");
-   - o que **fica guardado por lei** (o caderninho de pagamentos que a lei manda guardar).
+   - o que **fica guardado depois da exclusão** (o caderninho de pagamentos e outros registros). Além dos pagamentos e
+     dos registros de acesso, a lista agora mostra também: a sua linha de usuário (já anonimizada), o registro do pedido de
+     exclusão (só um código e um "carimbo" do e-mail, nunca apagado), e as reuniões e os criativos que você criou (eles
+     continuam, mas apontam só para o "Usuário removido").
 3. Se aparecer "Ainda não é possível excluir sua conta", ainda tem gente dentro da casinha ou conta pendente:
    - você é o único dono de uma organização com outras pessoas: passe a chave de dono para outra pessoa antes;
-   - a sua organização ainda paga assinatura: cancele a assinatura antes (veja 2.5).
+   - a sua organização ainda paga assinatura: cancele a assinatura antes (veja 2.5);
+   - você é o único membro de uma organização que **não tem assinatura nenhuma**: a tela pede para falar com o suporte (senão a
+     organização ficaria ativa sem dono). Isso vale no pedido, na confirmação e no dia da desmontagem (que fica adiada).
 4. Sem aviso? Digite a **senha** (para provar que é você) e clique em **Excluir minha conta**.
 5. Aparece "Confira seu e-mail". Abra o e-mail e clique no link.
 6. A página pergunta "Confirmar a exclusão da conta?". Só abrir o link ainda não apaga nada. Clique em **Confirmar exclusão da conta**.
@@ -248,6 +260,67 @@ depois de cancelar aparece "Exclusão cancelada" e você entra sem perder nada.
 ⚠️ Para testar de verdade você precisa do banco arrumado (`npx prisma migrate deploy`, veja 1.3) e do `npm run dev`
 reiniciado. O despertador (`npm run dev:tick`) é quem faz a "desmontagem" no dia marcado. Os prazos de guarda (5 anos para
 pagamentos, 6 meses para registros de acesso) ainda precisam ser conferidos por um advogado antes de ir para o ar.
+
+### 2.7 Confirmar o e-mail (SPEC-055)
+
+Pense no e-mail como o endereço da sua casinha. Antes de deixar você mandar cartinhas para os outros, o LeadForge quer ter
+certeza de que o endereço é seu: manda uma cartinha para lá e você diz "recebi".
+
+⚠️ Antes de testar: aplique a migration nova (`npx prisma migrate deploy`, veja 1.3) e pare e ligue o `npm run dev` de novo.
+
+1. Abra o Mailpit (http://localhost:8025) numa aba. É a caixa de correio de mentirinha.
+2. Crie uma conta nova em `/signup` (veja 2.2) com um e-mail inventado, por exemplo `crianca1@teste.local`.
+3. No Mailpit chegam **dois e-mails** para esse endereço:
+   - **Boas-vindas** (só um oi);
+   - **Confirme seu e-mail**, com um botão/link que vai para `/verificar-email`.
+4. Antes de clicar, entre no app. Lá em cima aparece uma **faixa** (banner) dizendo para confirmar o e-mail. Ela não tem
+   "X" para fechar: só some quando você confirma.
+5. Na faixa, clique em **Reenviar e-mail**. Chega outro e-mail. Se clicar de novo logo em seguida, aparece uma contagem
+   regressiva (espera de 60 segundos) e, se abusar (mais de 5 por hora), uma mensagem de limite.
+6. Tente **enviar uma mensagem** (por exemplo, aprovar um rascunho na fila). Enquanto o e-mail não foi confirmado, o envio é
+   recusado com um aviso dizendo que é preciso confirmar o e-mail. Você **entra e usa o app normalmente**; só não consegue
+   mandar mensagens para os seus leads. As mensagens automáticas das sequências ficam esperando (nada se perde) e tentam de
+   novo mais tarde.
+7. Clique no link do e-mail "Confirme seu e-mail". A página mostra que deu certo e tem o botão **Ir para o app**. A faixa some e
+   os envios voltam a funcionar.
+8. Clique no mesmo link outra vez: aparece uma mensagem de erro ("link inválido ou expirado"), porque cada link vale uma vez só
+   e dura 24 horas.
+9. **Senha alterada:** em `/esqueci-senha` peça a troca da senha, use o link do e-mail e defina uma senha nova. Chega mais um
+   e-mail avisando "sua senha foi alterada", com a orientação "não foi você? fale com a gente".
+
+✅ O que você deve ver: 2 e-mails no cadastro (boas-vindas e confirmação), a faixa com **Reenviar e-mail**, o aviso ao tentar
+enviar sem confirmar, **Ir para o app** depois de confirmar e o e-mail de senha alterada. Quem já existia antes desta
+atualização foi marcado como confirmado (não vê faixa). Cadastro com e-mail que já existe responde igual ao de um e-mail novo e
+não manda e-mail de boas-vindas (para ninguém descobrir quem tem conta). Quem entra por convite com o **mesmo** e-mail
+convidado já nasce confirmado; quem entra por código de entrada, não. A lista de testes está no bloco J do
+`docs/ROTEIRO_DE_TESTES.md`.
+
+⚠️ Coisas para saber: a aprovação de vários rascunhos de uma vez só mostra "bloqueado" (não diz que o motivo é o e-mail não
+confirmado). Os limites de reenvio ficam na memória do app e zeram quando ele reinicia. Ainda não existe tela para trocar a
+senha ou o e-mail já logado (só o reset por e-mail).
+
+### 2.8 Avisos para os donos da empresa (SPEC-056)
+
+Imagine a sua empresa como um clubinho com um porteiro. Toda vez que alguém **entra**, **sai**, é **tirado** ou **troca de
+cargo**, o porteiro avisa os donos (owners) por e-mail, para ninguém ser pego de surpresa. Esta parte não tem migration nova.
+
+1. Tenha uma organização com pelo menos 2 donos (owners) e o Mailpit aberto (http://localhost:8025).
+2. **Entrar:** com um convidado, aceite o convite (ou entre pelo código de entrada). Cada dono recebe 1 e-mail "alguém entrou".
+3. **Sair:** como membro, saia da organização. Os donos recebem 1 e-mail "alguém saiu".
+4. **Ser removido:** como dono, remova um membro em Configurações > Equipe. Os outros donos recebem 1 e-mail. O membro
+   removido **não** recebe e-mail desta SPEC.
+5. **Mudar de papel:** como dono, mude o papel de um membro (por exemplo, member para owner). Os donos recebem 1 e-mail. Se
+   você "mudar" para o mesmo papel que ele já tem, não sai e-mail.
+6. **Quem fez a ação não recebe:** se você, dono, removeu alguém, o aviso vai para os **outros** donos, não para você. Quem
+   entrou ou saiu também não recebe o próprio aviso.
+7. **Limite:** só as **entradas** têm teto: 10 e-mails por hora por organização (para o código de entrada não virar spam).
+   Da 11ª entrada na mesma hora em diante, o e-mail não sai, mas a entrada continua registrada no histórico da organização.
+
+✅ O que você deve ver: no Mailpit, 1 e-mail por evento e por dono (sem duplicar se você clicar duas vezes), nenhum para quem
+fez a ação, nenhum quando a ação é recusada ou não muda nada. Se o envio falhar, a ação em si (entrar, sair, remover) continua
+valendo: o e-mail sai só depois que a mudança foi gravada. A lista de testes está no bloco K do `docs/ROTEIRO_DE_TESTES.md`.
+
+⚠️ Se o provedor de e-mail falhar na hora do envio, aquele aviso se perde (não há nova tentativa).
 
 ## Fase 3: e-mail (escolha UMA opção)
 

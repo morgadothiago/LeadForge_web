@@ -149,6 +149,10 @@ e uma campanha **ativa** com ICP (ex.: "dentistas" em "Curitiba"). Defina teto d
 | H6 | Logar como **member** | Não vê botões de cancelar/manter; chamar a action direto é recusado | [ ] | |
 | H7 | Mais de 5 tentativas em 10 min | Mensagem de limite | [ ] | |
 | H8 | Org B tenta cancelar a assinatura da org A | Impossível (a org vem da sessão); sem vazamento | [ ] | |
+| H9 | Cancelamento **agendado x imediato**: plano pago ativo com período em dia (agendado, org segue usável) e, em outra org, período vencido ou sem período ou pagamento incompleto | Só ativo/past_due com período vigente agenda; trial, sem período, vencido e incomplete cancelam **na hora**; o modal mostra o mesmo modo que a action aplica | [ ] | |
+| H10 | Com cancelamento agendado, simular evento externo do provedor com `cancelAtPeriodEnd:false` (webhook mock, eventId novo, período ainda vigente) | Cancelamento continua agendado e **não** sai e-mail de reativação; só o botão **Manter assinatura** desfaz | [ ] | |
+| H11 | Clicar **Manter assinatura** sem haver cancelamento (ex.: em outra aba já desfeito) | Toast avisa que não havia cancelamento; com cancelamento real o toast diz "reativada" | [ ] | |
+| H12 | Abrir o modal de cancelar e, com o envio em andamento, apertar Esc / clicar fora / "Voltar" | Modal não fecha enquanto envia | [ ] | |
 
 ## I. Exclusão de conta (SPEC-054a backend + 054b telas). Precisa da migration `20261014120000_account_deletion_request` aplicada no dev
 
@@ -165,6 +169,51 @@ Tela em **Configurações > Conta**; os e-mails aparecem no Mailpit. Antes: `npx
 | I8 | Pelo link "cancelar" do e-mail "solicitação recebida" (`/conta/excluir/cancelar/<token>`): abrir e clicar em Cancelar a exclusão | Página "Exclusão cancelada"; conta volta a entrar normalmente; chega o e-mail "exclusão cancelada" | [ ] | |
 | I9 | Em celular (~375px) e no tema escuro: Configurações > Conta e as páginas do link | Sem rolagem horizontal, listas legíveis, botões grandes, contraste ok | [ ] | |
 | I7 | Vencida a janela, rodar o tick (`npm run tick`) | Usuário anonimizado, vínculos/e-mails conectados/dispositivos apagados, campanhas mantidas; e-mail "conta excluída" 1 vez (rodar o tick de novo não repete) | [ ] | |
+
+| I10 | Único membro de uma org **sem assinatura nenhuma** pede a exclusão (e tenta confirmar o link, e rodar o tick) | Bloqueado com mensagem para falar com o suporte (`org_without_subscription`) no pedido, na confirmação e na purga (adiada); a org não fica ativa sem owner | [ ] | |
+| I11 | Em Configurações > Conta (e no e-mail "conta excluída"), conferir a lista "Retido após a exclusão" | Lista também: usuário anonimizado, registro do pedido de exclusão (userId + hash do e-mail), reuniões e criativos criados pelo usuário, além de cobrança e logs; o título **não** diz "por obrigação legal" | [ ] | |
+| I12 | Depois da purga, conferir no banco de dev: `User` anonimizado, `AccountDeletionRequest` presente, `Meeting.createdById` e `Creative.createdBy` intactos | Bate com a lista do I11 | [ ] | |
+
+## J. Verificação de e-mail e segurança de cadastro (SPEC-055). Precisa da migration `20261015120000_email_verification` aplicada no dev
+
+Os e-mails aparecem no Mailpit (http://localhost:8025). Antes: `npx prisma migrate deploy` (aditiva, com backfill) e reiniciar o `npm run dev`.
+
+| # | O que fazer | O que deve acontecer | OK? | Observado |
+|---|---|---|---|---|
+| J1 | `/signup` com e-mail novo | Chegam 2 e-mails para ele: boas-vindas (1 só) e "Confirme seu e-mail" com link `/verificar-email?token=...`; o "início do trial" continua separado | [ ] | |
+| J2 | Entrar com a conta recém-criada (sem confirmar) | Entra e navega normalmente; faixa no topo pedindo para confirmar, **sem botão de fechar** | [ ] | |
+| J3 | Na faixa, clicar **Reenviar e-mail** | Chega novo e-mail; clicar de novo em seguida mostra contagem regressiva (cooldown 60s) | [ ] | |
+| J4 | Reenviar mais de 5 vezes em 1 hora (esperando o cooldown) | Mensagem de limite com tempo de espera; limite por usuário (5/h) e por IP (20/h) | [ ] | |
+| J5 | Sem confirmar, aprovar um rascunho / enviar mensagem manual (DraftQueue) | Recusado com a mensagem "confirme seu e-mail"; o rascunho **não** é consumido; nada sai | [ ] | |
+| J6 | Sem confirmar, deixar uma sequência/agente tentar enviar (`npm run dev:tick`) | Envio adiado (`email_not_verified`), sem reservar nem queimar tentativas; após confirmar, o tick seguinte envia | [ ] | |
+| J7 | Aprovar vários rascunhos em lote sem ter confirmado | Mostra só "bloqueado" (limitação conhecida: não cita o motivo) | [ ] | |
+| J8 | Abrir o link do e-mail (deslogado e logado) | Página "e-mail confirmado" com **Ir para o app**; faixa some; envios voltam | [ ] | |
+| J9 | Abrir o mesmo link de novo; abrir um link adulterado; abrir `/verificar-email` sem token | Mensagem genérica de erro com **Ir para o login**; sem token não chama nada | [ ] | |
+| J10 | Link com mais de 24h (recuar `expiresAt` no banco de dev) | Erro genérico (expirado) | [ ] | |
+| J11 | `/signup` com e-mail que **já existe** | Mesma resposta de um e-mail novo; nenhum e-mail de boas-vindas/confirmação para o existente | [ ] | |
+| J12 | `/esqueci-senha` e definir senha nova pelo link | Chega "senha alterada" (1 só, mesmo reenviando o link usado); texto com orientação "não foi você?" | [ ] | |
+| J13 | Entrar por convite usando **o mesmo e-mail** convidado; e por código de entrada (`joinCode`) | Convite com e-mail idêntico já nasce confirmado (sem faixa); código de entrada nasce não confirmado | [ ] | |
+| J14 | Usuário que já existia antes da migration (e admin/seed) | Marcado como confirmado, sem faixa e sem bloqueio de envio | [ ] | |
+| J15 | Derrubar o SMTP/provedor e fazer signup ou reset | O cadastro/reset não quebra (só o e-mail se perde) | [ ] | |
+| J16 | Celular (~375px) e tema escuro: faixa e página `/verificar-email` | Sem rolagem horizontal, contraste ok, botões acessíveis por teclado, `role=status/alert` | [ ] | |
+
+## K. Avisos aos owners da organização (SPEC-056). Sem migration nova
+
+Precisa de uma org com pelo menos 2 owners e Mailpit aberto. Quem pratica a ação e o membro afetado não recebem.
+
+| # | O que fazer | O que deve acontecer | OK? | Observado |
+|---|---|---|---|---|
+| K1 | Convidado aceita o convite (`acceptInvite`) | Cada owner recebe 1 e-mail "novo membro" | [ ] | |
+| K2 | Entrar pelo código de entrada (`joinByCode`) e cadastro por convite (`signUpAndJoin`) | Cada owner recebe 1 e-mail de entrada por evento | [ ] | |
+| K3 | Membro sai da organização | Owners recebem 1 e-mail de saída (o que saiu não recebe) | [ ] | |
+| K4 | Owner A remove um membro | Os **outros** owners recebem 1 e-mail; A (ator) e o removido não recebem | [ ] | |
+| K5 | Owner muda o papel de um membro (member para owner e vice-versa) | Os outros owners recebem 1 e-mail com papel anterior e novo; o membro afetado e o ator não recebem | [ ] | |
+| K6 | "Mudar" o papel para o que o membro já tem; ação recusada (ex.: tentar remover o último owner) | Nenhum e-mail | [ ] | |
+| K7 | Clicar duas vezes / repetir a mesma ação | Sem e-mail duplicado (dedupe por evento) | [ ] | |
+| K8 | Mais de 10 entradas na mesma hora na mesma org | Só as 10 primeiras geram e-mail; as demais ficam só na auditoria (`member_joined`); outra org não é afetada | [ ] | |
+| K9 | Derrubar o provedor de e-mail e executar uma ação | A ação (entrar/sair/remover) continua válida; o aviso se perde (sem retry) | [ ] | |
+| K10 | Conferir o texto dos e-mails | PT-BR, link absoluto, sem dado sensível além do necessário | [ ] | |
+| K11 | Org B: ações na org B | Só owners da B são avisados; nenhum aviso vaza para owners da A | [ ] | |
 
 ## Se algo falhar, me mande
 
