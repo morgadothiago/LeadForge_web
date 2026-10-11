@@ -4,6 +4,26 @@
 Escrito em 2026-10-10. Rotas e usuários abaixo foram lidos do repo e do banco de dev; **os resultados esperados
 são o que a SPEC prevê, não algo que eu tenha executado no navegador.**
 
+## Os 10 testes de maior risco (faça estes primeiro)
+
+Ordem: do que **perde mais** se falhar (dinheiro, dados de outro cliente, cliente sem e-mail) para o que perde menos. Cada um aponta
+para a linha do roteiro abaixo. Marque `[x]` lá quando passar.
+
+| # | Teste | Por que é arriscado | Linhas |
+|---|---|---|---|
+| 1 | **Pagamento real no AbacatePay** (PIX de valor baixo) e o webhook chegando | Dinheiro. Recibo, formato do evento e "assinatura confirmada" só foram testados com o provedor de mentirinha. Veja PRIMEIROS_PASSOS 9.7 | E (refazer com provedor real), 9.10 item 8 |
+| 2 | **E-mail real** (Resend ou ACS) num Gmail seu: cadastro, confirmar e-mail, esqueci a senha, convite | Sem e-mail ninguém entra nem paga. Confira se cai na caixa de entrada e se os links apontam para o endereço de produção | B9, J12, 9.10 itens 3 a 6 |
+| 3 | **Isolamento entre clientes**: tenant B abre por URL a campanha e a assinatura do tenant A | Vazamento de dados de cliente é o pior erro possível | G7, H8 |
+| 4 | **Busca real no Google Places**: 1 busca manual, depois conferir o custo no Google Cloud | Gasta dinheiro de verdade; o SKU cobrado ainda não foi confirmado. Ponha teto de gasto antes | G1 a G3, G8, N4 |
+| 5 | **Cadastro limpo**: janela anônima, `/signup` com e-mail novo, checkout, dashboard | É a porta de entrada de todo cliente | B1, B2, B4 |
+| 6 | **Suspender uma org**: admin suspende, o tenant tenta usar o app, depois reativa | Se falhar, cliente inadimplente continua usando (ou cliente em dia fica bloqueado) | A4, B10 |
+| 7 | **E-mail não confirmado não envia mensagem**: aprovar rascunho e deixar o tick tentar | Proteção contra spam e contra cadastro falso; o envio deve ser adiado, não perdido | J5, J6 |
+| 8 | **Cancelar a assinatura**: agendado (acesso até o fim) x imediato, e evento externo não desfazer | Mexe em cobrança e em acesso | H9, H10 |
+| 9 | **LLM real** (Gemini ou Groq grátis, ou Claude): Testar conexão e Simular | Os agentes dependem disso; só foi testado com chave falsa | L5, L9 |
+| 10 | **Teclado e escuro**: Tab pelo menu e modais, Esc fecha, dark mode nas telas novas | Acessibilidade; nenhuma tela nova foi vista em dark mode por pessoa | F3 |
+
+Decisão pendente de produto que aparece nos testes: **J11** (cadastro com e-mail que já existe revela que ele existe).
+
 ## 0. Preparação (uma vez)
 
 - [ ] **0.1** Infra no ar: `colima start` e `docker compose up -d postgres redis` (ver PRIMEIROS_PASSOS fase 1).
