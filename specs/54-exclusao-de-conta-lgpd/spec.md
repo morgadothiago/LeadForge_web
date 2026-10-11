@@ -118,3 +118,7 @@ Permitir que o usuario peca a exclusao da propria conta (direito de eliminacao, 
 | Estado "exclusão agendada para DD/MM" + Cancelar exclusão | PASS | "scheduled: ..." |
 | Página pública confirmar/cancelar via token (rotas liberadas no proxy) | PASS | `proxy.test.ts`; `loadDeletionLandingState`; SSR dos estados |
 | Login com `account_deletion_pending` | PASS (código) / NOT VERIFIED (interação) | fluxo implementado em `LoginForm`; teste SSR só cobre o estado inicial |
+
+## Correcoes pos-QA
+- **054-1**: usuario unico membro de org SEM `Subscription` agora e bloqueado (novo codigo `org_without_subscription`, mensagem pedindo contato com o suporte) no pedido, na confirmacao e na purga (adiada), igual aos demais bloqueios (`blockers.ts`, `purge.ts`). Antes a org ficaria ativa e sem owner.
+- **054-3**: `retention.ts` (fonte unica; e-mail #14 e tela Configuracoes > Conta) passa a listar tambem como RETIDOS, conforme o que a purga realmente faz: (a) linha do `User` mantida anonimizada, (b) `AccountDeletionRequest` (userId + hash do e-mail; nunca apagado, so `logsPurgedAt` e marcado), (c) `Meeting.createdById` e (d) `Creative.createdBy` (sem FK; a purga nao os altera, apontam so para o usuario anonimizado). O titulo da secao passou de "Retido por obrigacao legal" para "Retido apos a exclusao" (nem todos os itens sao obrigacao legal; a base juridica segue pendente de validacao, D-054-4). Teste cruzando texto x banco apos a purga em `account-deletion.test.ts`.

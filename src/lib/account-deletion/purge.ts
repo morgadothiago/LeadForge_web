@@ -66,7 +66,7 @@ async function anonymize(reqId: string, now: Date): Promise<Outcome> {
         if (claim.count === 0) throw new Skipped();
         const user = await tx.user.findUnique({ where: { id: userId }, select: { email: true } });
         if (!user) throw new Skipped();
-        const orgBlockers = (await findDeletionBlockers(tx, userId)).filter((b) => b.code === "active_subscription" || b.code === "last_owner_with_members");
+        const orgBlockers = (await findDeletionBlockers(tx, userId)).filter((b) => b.code === "active_subscription" || b.code === "org_without_subscription" || b.code === "last_owner_with_members");
         if (orgBlockers.length) throw new Blocked();
         const email = user.email;
         const emailLower = email.toLowerCase();

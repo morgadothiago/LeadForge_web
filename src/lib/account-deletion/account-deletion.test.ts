@@ -20,7 +20,7 @@ import {
 } from "@/lib/actions/account-deletion";
 import { clearAccountDeletionRateLimit } from "./service";
 import { executeAccountDeletion, purgeRetainedUserLogs, runAccountDeletionJob, _clearBlockedLog } from "./purge";
-import { ANONYMIZED_NAME, DELETION_WINDOW_DAYS, DELETION_WINDOW_MS, anonymizedEmail, hashDeletionToken } from "./constants";
+import { ANONYMIZED_NAME, DELETION_WINDOW_DAYS, DELETION_WINDOW_MS, anonymizedEmail, hashDeletionToken, hashEmail } from "./constants";
 import { ANONYMIZED_ITEMS, DELETED_ITEMS, RETAINED_ITEMS } from "./retention";
 import { accountDeletedTemplate } from "@/lib/channels/email/templates/account-deleted";
 import { purgeCanceledOrgs } from "@/lib/billing/purge";
@@ -68,9 +68,11 @@ afterEach(async () => {
   await prisma.user.deleteMany({ where: { id: { in: ids } } });
 });
 
-async function mkOrg(tag: string): Promise<TestOrg> {
+async function mkOrg(tag: string, withSub = true): Promise<TestOrg> {
   const o = await createTestOrg(`${tag}${++seq}`);
   created.orgs.push(o);
+  // Pos-QA 054-1: org de membro unico SEM assinatura bloqueia a exclusao; por padrao as orgs de teste tem assinatura ja cancelada.
+  if (withSub) await prisma.subscription.create({ data: { orgId: o.orgId, planId: await planId(), status: "canceled", canceledAt: new Date() } });
   return o;
 }
 /** Usuario com senha (opcional) e membership. */
@@ -89,6 +91,7 @@ async function givePassword(org: TestOrg): Promise<{ id: string; email: string }
 }
 const planId = async () => (await prisma.plan.findUniqueOrThrow({ where: { key: "starter" }, select: { id: true } })).id;
 async function mkSub(orgId: string, over: Record<string, unknown> = {}) {
+  await prisma.subscription.deleteMany({ where: { orgId } });
   return prisma.subscription.create({ data: { orgId, planId: await planId(), status: "canceled", canceledAt: new Date(), ...over } as never });
 }
 
@@ -348,6 +351,42 @@ describe("regras de organizacao (D-054-3)", () => {
     expect((await requestAccountDeletion({ password: PASS })).ok).toBe(true);
   });
 
+  it("unico membro de org SEM assinatura BLOQUEIA no pedido, na confirmacao e na purga (nunca org sem owner)", async () => {
+    const org = await mkOrg("ns", false);
+    const u = await givePassword(org);
+    await asUser(u, org);
+    const r = await requestAccountDeletion({ password: PASS });
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.errors.code).toEqual(["blocked"]);
+      expect(r.errors.blockers).toContain("org_without_subscription");
+      expect(r.errors._form[0]).toMatch(/não tem assinatura registrada/);
+    }
+    const st = await getAccountDeletionState();
+    expect(st.ok && st.data.canRequest).toBe(false);
+    expect(await prisma.accountDeletionRequest.count({ where: { userId: u.id } })).toBe(0);
+
+    // pedido feito enquanto havia assinatura cancelada; a assinatura some antes da confirmacao
+    const sub = await mkSub(org.orgId);
+    const req = await requestAccountDeletion({ password: PASS });
+    expect(req.ok).toBe(true);
+    await prisma.subscription.delete({ where: { id: sub.id } });
+    const conf = await confirmAccountDeletion({ token: confirmToken() });
+    expect(conf.ok).toBe(false);
+    expect((await prisma.accountDeletionRequest.findFirstOrThrow({ where: { userId: u.id } })).confirmedAt).toBeNull();
+
+    // confirmado com assinatura; some durante a janela => purga adiada
+    await mkSub(org.orgId);
+    const req2 = await requestAndConfirm(u, org);
+    await prisma.subscription.deleteMany({ where: { orgId: org.orgId } });
+    const res = await runAccountDeletionJob(new Date(Date.now() + 31 * DAY));
+    expect(res.blocked).toBe(1);
+    expect(res.executed).toBe(0);
+    expect(mailsOf("account_deleted")).toHaveLength(0);
+    expect((await prisma.accountDeletionRequest.findUniqueOrThrow({ where: { id: req2.id } })).executedAt).toBeNull();
+    expect((await prisma.user.findUniqueOrThrow({ where: { id: u.id } })).email).toBe(u.email);
+  });
+
   it("platform_admin nao pode excluir por este fluxo", async () => {
     const org = await mkOrg("pa");
     const u = await givePassword(org);
@@ -413,6 +452,9 @@ describe("purga (execucao)", () => {
     const free = await prisma.storedFile.create({ data: { orgId: org1.orgId, category: "attachment", blobKey: `orgs/${org1.orgId}/attachment/${randomUUID()}-a.txt`, originalName: "Contrato do Fulano.txt", mimeType: "text/plain", sizeBytes: 1, uploadedByUserId: u.id } });
     const used = await prisma.storedFile.create({ data: { orgId: org1.orgId, category: "creative", blobKey: `orgs/${org1.orgId}/creative/${randomUUID()}-v.mp4`, originalName: "v.mp4", mimeType: "video/mp4", sizeBytes: 1, uploadedByUserId: u.id } });
     const cr = await prisma.creative.create({ data: { orgId: org1.orgId, title: "t", script: "s", language: "pt-BR", avatarRef: "a", voiceRef: "v", aspectRatio: "9:16", createdBy: u.id, videoFileId: used.id } });
+    const mLead = await prisma.lead.create({ data: { campaignId: camp.id, name: "Lead X" } });
+    const opp = await prisma.opportunity.create({ data: { leadId: mLead.id, campaignId: camp.id } });
+    const meeting = await prisma.meeting.create({ data: { opportunityId: opp.id, leadId: mLead.id, campaignId: camp.id, startsAt: new Date(Date.now() + DAY), endsAt: new Date(Date.now() + DAY + 1800_000), createdById: u.id } });
     await prisma.emailDispatchLog.create({ data: { scenario: "trial_started", dedupeKey: `t:${randomUUID()}`, userId: u.id } });
     const intLog = await prisma.integrationAuditLog.create({ data: { orgId: org1.orgId, userId: u.id, integration: "evolution" as never, action: "create" as never } });
 
@@ -438,6 +480,18 @@ describe("purga (execucao)", () => {
     const c = await prisma.campaign.findUniqueOrThrow({ where: { id: camp.id } });
     expect(c.userId).toBe(u.id);
     expect((await prisma.creative.findUniqueOrThrow({ where: { id: cr.id } })).createdBy).toBe(u.id);
+    // Pos-QA 054-3: os 4 itens RETIDOS de fato permanecem (e o texto os descreve): linha do User anonimizada, pedido (userId+emailHash),
+    // Meeting.createdById e Creative.createdBy (ambos apontam so para o usuario anonimizado).
+    expect((await prisma.meeting.findUniqueOrThrow({ where: { id: meeting.id } })).createdById).toBe(u.id);
+    const keptReq = await prisma.accountDeletionRequest.findUniqueOrThrow({ where: { id: req.id } });
+    expect(keptReq).toMatchObject({ userId: u.id, emailHash: hashEmail(u.email) });
+    expect(JSON.stringify(keptReq)).not.toContain(u.email);
+    expect(user.email).not.toContain("zz-del");
+    const retained = RETAINED_ITEMS.join(" | ");
+    expect(retained).toMatch(/linha do seu usuário.*anonimizada/);
+    expect(retained).toMatch(/pedido de exclusão.*hash/);
+    expect(retained).toMatch(/autor das reuniões/);
+    expect(retained).toMatch(/autor dos criativos/);
     // apagados
     expect(await prisma.emailAccount.count({ where: { userId: u.id } })).toBe(0);
     expect(await prisma.passwordResetToken.count({ where: { userId: u.id } })).toBe(0);
@@ -551,7 +605,7 @@ describe("purga (execucao)", () => {
     }
     expect(t.text).toMatch(/5 anos/);
     expect(t.text).toMatch(/6 meses/);
-    for (const h of ["Apagado", "Anonimizado", "Retido por obrigação legal"]) expect(t.text).toContain(h);
+    for (const h of ["Apagado", "Anonimizado", "Retido após a exclusão"]) expect(t.text).toContain(h);
   });
 });
 

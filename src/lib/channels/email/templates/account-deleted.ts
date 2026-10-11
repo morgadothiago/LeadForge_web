@@ -14,7 +14,7 @@ export function accountDeletedTemplate(): EmailTemplate {
   const sections: Array<[string, readonly string[]]> = [
     ["Apagado", DELETED_ITEMS],
     ["Anonimizado", ANONYMIZED_ITEMS],
-    ["Retido por obrigação legal", RETAINED_ITEMS],
+    ["Retido após a exclusão", RETAINED_ITEMS],
   ];
   const bodyHtml = `
     <p>${escapeHtml(intro)}</p>

@@ -2,7 +2,7 @@ import "dotenv/config";
 import { randomUUID } from "node:crypto";
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AxiosAdapter } from "axios";
-import type { Prisma } from "@prisma/client";
+import type { Prisma, SubscriptionStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { createTestOrg, purgeTestOrg, type TestOrg } from "@/lib/test-utils/org-fixture";
 import { signInAs, signOut } from "@/lib/auth/test-helpers";
@@ -16,6 +16,7 @@ import { computeOrgStatus, syncOrgStatuses, CANCEL_RETENTION_MS } from "@/lib/bi
 import { processBillingEvent } from "@/lib/billing/process-event";
 import { cancelRequestedTemplate } from "@/lib/channels/email/templates/cancel-requested";
 import { subscriptionCanceledTemplate } from "@/lib/channels/email/templates/subscription-canceled";
+import { cancelModeFor } from "@/lib/billing/cancel-mode";
 import { cancelSubscription, reactivateSubscription } from "./billing";
 
 /** SPEC-053a — cancelar/reativar pela app. `sendSystemEmail` mockado; provider injetavel por teste. */
@@ -158,6 +159,63 @@ describe("cancelSubscription (SPEC-053a)", () => {
   });
 });
 
+describe("regra unica de cancelamento imediato (action x cancelModeFor, pos-QA 053-2)", () => {
+  const F = () => new Date(Date.now() + 10 * DAY);
+  const P = () => new Date(Date.now() - 2 * DAY);
+  const cases: Array<[string, SubscriptionStatus, () => Date | null, "scheduled" | "immediate"]> = [
+    ["active vigente", "active", F, "scheduled"],
+    ["past_due vigente", "past_due", F, "scheduled"],
+    ["trialing", "trialing", F, "immediate"],
+    ["active sem periodo", "active", () => null, "immediate"],
+    ["active vencido", "active", P, "immediate"],
+    ["past_due vencido", "past_due", P, "immediate"],
+    ["incomplete", "incomplete", F, "immediate"],
+  ];
+  for (const [name, status, end, expected] of cases) {
+    it(`${name}: action devolve ${expected} e coincide com cancelModeFor`, async () => {
+      const periodEnd = end();
+      await mkSub({ status, currentPeriodEnd: periodEnd, pastDueSince: status === "past_due" ? new Date() : null });
+      await signInOwner();
+      expect(cancelModeFor({ status, currentPeriodEnd: periodEnd }, new Date())).toBe(expected);
+      const r = await cancelSubscription();
+      expect(r.ok && r.data.outcome).toBe(expected);
+      expect((await getSub()).cancelAtPeriodEnd).toBe(expected === "scheduled");
+    });
+  }
+});
+
+describe("evento externo x cancelamento agendado (pos-QA 053-1, #12)", () => {
+  const ext = (over: Partial<Parameters<typeof processBillingEvent>[0]> = {}) => ({
+    eventId: `ext-${randomUUID()}`, type: "subscription.updated" as const, orgId: org.orgId, planKey: "starter", cadence: "monthly" as const, status: "active" as const,
+    currentPeriodEnd: new Date(Date.now() + 10 * DAY), cancelAtPeriodEnd: false, externalCustomerId: "cus_x", externalSubscriptionId: "sub_x", ...over,
+  });
+  it("evento do provedor com cancelAtPeriodEnd:false NAO desfaz o agendamento nem envia #12; so reactivateSubscription desfaz", async () => {
+    await mkSub();
+    await signInOwner();
+    await cancelSubscription();
+    vi.mocked(sendSystemEmail).mockClear();
+    expect(await processBillingEvent(ext({ currentPeriodEnd: (await getSub()).currentPeriodEnd }), new Date())).toBe("processed");
+    expect((await getSub()).cancelAtPeriodEnd).toBe(true);
+    expect(scenarios()).not.toContain("subscription_reactivated");
+    const r = await reactivateSubscription();
+    expect(r.ok && r.data.outcome).toBe("reactivated");
+    expect((await getSub()).cancelAtPeriodEnd).toBe(false);
+    expect(scenarios()).toEqual(["subscription_reactivated"]);
+  });
+  it("evento canceled efetiva normalmente (zera o agendamento)", async () => {
+    await mkSub({ cancelAtPeriodEnd: true });
+    await processBillingEvent(ext({ status: "canceled", type: "subscription.canceled" }), new Date());
+    const s = await getSub();
+    expect(s.status).toBe("canceled");
+    expect(s.cancelAtPeriodEnd).toBe(false);
+  });
+  it("agendamento com periodo ja vencido (nova contratacao) nao e preservado", async () => {
+    await mkSub({ cancelAtPeriodEnd: true, currentPeriodEnd: new Date(Date.now() - DAY) });
+    await processBillingEvent(ext(), new Date());
+    expect((await getSub()).cancelAtPeriodEnd).toBe(false);
+  });
+});
+
 describe("reactivateSubscription (SPEC-053a)", () => {
   it("antes do fim: limpa cancelAtPeriodEnd, e-mail #12 uma vez; repetir e idempotente", async () => {
     await mkSub();
@@ -165,7 +223,7 @@ describe("reactivateSubscription (SPEC-053a)", () => {
     await cancelSubscription();
     vi.mocked(sendSystemEmail).mockClear();
     const r = await reactivateSubscription();
-    expect(r.ok && r.data).toMatchObject({ cancelAtPeriodEnd: false, status: "active" });
+    expect(r.ok && r.data).toMatchObject({ cancelAtPeriodEnd: false, status: "active", outcome: "reactivated" });
     expect((await getSub()).cancelAtPeriodEnd).toBe(false);
     expect(scenarios()).toEqual(["subscription_reactivated"]);
     const r2 = await reactivateSubscription();

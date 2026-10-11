@@ -8,11 +8,13 @@ type Db = PrismaClient | Prisma.TransactionClient;
  * - `active_subscription`: o usuario e o UNICO membro da org e ha assinatura nao cancelada (trial/ativa/em atraso sem
  *   `cancelAtPeriodEnd`): cancelar primeiro (SPEC-053). Org com assinatura ja cancelada/agendada segue o fluxo 053/033
  *   (efetivacao -> 90 dias de retencao -> expurgo) sem reimplementar nada aqui.
+ * - `org_without_subscription`: o usuario e o UNICO membro da org e ela NAO tem Subscription: nao ha fluxo 053/033 que a
+ *   encerre; excluir deixaria a org ativa e sem owner (nunca org sem owner). Contatar o suporte.
  * - `last_owner_with_members`: unico owner de org com outros membros: promover outro owner antes (SPEC-049; nunca org sem owner).
  * - `platform_admin`: admin da plataforma nao se exclui por este fluxo.
  * - `no_password`: sem senha definida nao ha como reautenticar.
  */
-export type DeletionBlockerCode = "active_subscription" | "last_owner_with_members" | "platform_admin" | "no_password";
+export type DeletionBlockerCode = "active_subscription" | "org_without_subscription" | "last_owner_with_members" | "platform_admin" | "no_password";
 
 export interface DeletionBlocker {
   code: DeletionBlockerCode;
@@ -25,6 +27,7 @@ const ACTIVE_SUB_STATUSES = ["trialing", "active", "past_due"] as const;
 
 export const BLOCKER_MESSAGES = {
   active_subscription: (org: string) => `A organização "${org}" tem uma assinatura ativa e você é o único membro. Cancele a assinatura em Configurações > Assinatura antes de excluir sua conta.`,
+  org_without_subscription: (org: string) => `A organização "${org}" não tem assinatura registrada e você é o único membro; excluir sua conta deixaria a organização sem responsável. Contate o suporte antes de excluir sua conta.`,
   last_owner_with_members: (org: string) => `Você é o único proprietário da organização "${org}", que tem outros membros. Promova outro membro a proprietário (ou remova os demais) antes de excluir sua conta.`,
   platform_admin: "Contas de administrador da plataforma não podem ser excluídas por aqui. Contate o suporte.",
   no_password: "Sua conta não tem senha definida. Redefina a senha (\"Esqueci minha senha\") antes de excluir a conta.",
@@ -47,7 +50,9 @@ export async function findDeletionBlockers(db: Db, userId: string): Promise<Dele
     const others = await db.membership.count({ where: { orgId: m.orgId, userId: { not: userId } } });
     if (others === 0) {
       const sub = m.org.subscription;
-      if (sub && (ACTIVE_SUB_STATUSES as readonly string[]).includes(sub.status) && !sub.cancelAtPeriodEnd) {
+      if (!sub) {
+        out.push({ code: "org_without_subscription", message: BLOCKER_MESSAGES.org_without_subscription(m.org.name), orgId: m.orgId, orgName: m.org.name });
+      } else if ( (ACTIVE_SUB_STATUSES as readonly string[]).includes(sub.status) && !sub.cancelAtPeriodEnd) {
         out.push({ code: "active_subscription", message: BLOCKER_MESSAGES.active_subscription(m.org.name), orgId: m.orgId, orgName: m.org.name });
       }
     } else if (m.orgRole === "owner") {

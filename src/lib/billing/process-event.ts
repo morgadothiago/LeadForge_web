@@ -41,7 +41,7 @@ export async function processBillingEvent(event: ParsedBillingEvent, now: Date):
   if (!plan) return "plan_not_found";
 
   try {
-    const { canceledAt, prior, trialEndsAt: appliedTrialEndsAt, pastDueSince: appliedPastDueSince } = await withSerializableRetry(
+    const { canceledAt, prior, trialEndsAt: appliedTrialEndsAt, pastDueSince: appliedPastDueSince, cancelAtPeriodEnd: appliedCancelAtPeriodEnd } = await withSerializableRetry(
       () =>
         prisma.$transaction(
           async (tx) => {
@@ -61,12 +61,17 @@ export async function processBillingEvent(event: ParsedBillingEvent, now: Date):
             const canceledAt = event.status === "canceled" ? (existing?.canceledAt ?? now) : null;
             const trialEndsAt = event.status === "trialing" ? (existing?.trialEndsAt ?? new Date(now.getTime() + TRIAL_DAYS * 24 * 3600_000)) : (existing?.trialEndsAt ?? null);
 
+            // SPEC-053 (#12): so a action de reativar desfaz um cancelamento agendado; evento externo com
+            // `cancelAtPeriodEnd:false` (ex.: AbacatePay sempre manda false) o preserva. `canceled` efetiva e zera.
+            // Periodo ja vencido (job ainda nao efetivou) = nova contratacao legitima: nao preserva.
+            const scheduledStillValid = existing?.cancelAtPeriodEnd === true && existing.status !== "canceled" && !!existing.currentPeriodEnd && existing.currentPeriodEnd.getTime() > now.getTime();
+            const cancelAtPeriodEnd = event.status !== "canceled" && scheduledStillValid && !event.explicitReactivation ? true : event.cancelAtPeriodEnd;
             const data = {
               planId: plan.id,
               status: event.status,
               cadence: event.cadence,
               currentPeriodEnd: event.currentPeriodEnd,
-              cancelAtPeriodEnd: event.cancelAtPeriodEnd,
+              cancelAtPeriodEnd,
               externalCustomerId: event.externalCustomerId,
               externalSubscriptionId: event.externalSubscriptionId,
               pastDueSince,
@@ -75,10 +80,10 @@ export async function processBillingEvent(event: ParsedBillingEvent, now: Date):
             };
             await tx.subscription.upsert({ where: { orgId: event.orgId }, create: { orgId: event.orgId, ...data }, update: data });
 
-            const orgStatus = computeOrgStatus({ status: event.status, pastDueSince, cancelAtPeriodEnd: event.cancelAtPeriodEnd, currentPeriodEnd: event.currentPeriodEnd }, now);
+            const orgStatus = computeOrgStatus({ status: event.status, pastDueSince, cancelAtPeriodEnd, currentPeriodEnd: event.currentPeriodEnd }, now);
             await tx.organization.update({ where: { id: event.orgId }, data: { status: orgStatus } });
 
-            return { canceledAt, prior, trialEndsAt, pastDueSince };
+            return { canceledAt, prior, trialEndsAt, pastDueSince, cancelAtPeriodEnd };
           },
           { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
         ),
@@ -150,7 +155,7 @@ export async function processBillingEvent(event: ParsedBillingEvent, now: Date):
       }
       // SPEC-053a (#10): cancelamento agendado (false -> true) com acesso mantido ate `currentPeriodEnd`.
       // Chave `cancel_requested:<orgId>:<cancelRequestedAt>` (= `now` do evento, ja unico por eventId).
-      if (event.status !== "canceled" && event.cancelAtPeriodEnd && !prior?.cancelAtPeriodEnd && event.currentPeriodEnd) {
+      if (event.status !== "canceled" && appliedCancelAtPeriodEnd && !prior?.cancelAtPeriodEnd && event.currentPeriodEnd) {
         const { subject, html, text } = cancelRequestedTemplate({
           planName: plan.name,
           accessUntil: event.currentPeriodEnd,
@@ -160,7 +165,7 @@ export async function processBillingEvent(event: ParsedBillingEvent, now: Date):
         await notifyOrgOwners({ orgId: event.orgId, subject, html, text, scenario: "cancel_requested", dedupeKey: `cancel_requested:${event.orgId}:${now.toISOString()}` });
       }
       // SPEC-053a (#12): cancelamento agendado desfeito antes do fim do periodo (true -> false, sem ter efetivado).
-      if (event.status !== "canceled" && event.status !== "incomplete" && !event.cancelAtPeriodEnd && prior?.cancelAtPeriodEnd && prior.status !== "canceled") {
+      if (event.status !== "canceled" && event.status !== "incomplete" && !appliedCancelAtPeriodEnd && prior?.cancelAtPeriodEnd && prior.status !== "canceled") {
         const { subject, html, text } = subscriptionReactivatedTemplate({ planName: plan.name, nextBillingDate: event.currentPeriodEnd, link: absoluteAppUrl("/dashboard") });
         await notifyOrgOwners({ orgId: event.orgId, subject, html, text, scenario: "subscription_reactivated", dedupeKey: `reactivated:${event.orgId}:${now.toISOString()}` });
       }

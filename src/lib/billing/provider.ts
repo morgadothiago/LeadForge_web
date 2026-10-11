@@ -58,6 +58,8 @@ export interface ParsedBillingEvent {
   status: "trialing" | "active" | "past_due" | "canceled" | "incomplete";
   currentPeriodEnd: Date | null;
   cancelAtPeriodEnd: boolean;
+  /** SPEC-053 (#12): SO a action `reactivateSubscription` seta isto. Evento externo com `cancelAtPeriodEnd:false` NAO desfaz cancelamento agendado. */
+  explicitReactivation?: boolean;
   externalCustomerId: string | null;
   externalSubscriptionId: string | null;
   /** SPEC-052a — dados de pagamento OPCIONAIS (preenchidos quando o provedor informa; recibo cai no preco do `Plan` se `amountCents` ausente, D-052-3). */

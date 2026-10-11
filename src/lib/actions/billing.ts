@@ -12,6 +12,7 @@ import { SlidingLimiter } from "@/lib/integrations/rate-limit";
 import { getPaymentProvider } from "@/lib/billing/provider-factory";
 import { processBillingEvent } from "@/lib/billing/process-event";
 import { TRIAL_DAYS } from "@/lib/billing/status-map";
+import { cancelModeFor } from "@/lib/billing/cancel-mode";
 import { sendTrialStartedEmail } from "@/lib/billing/trial-email";
 import { checkoutSchema, signupSchema } from "@/lib/schemas/billing";
 import { failure, formError, safeAction, success, zodErrors, type ActionResult } from "./result";
@@ -69,8 +70,8 @@ export interface SubscriptionChangeResult {
   status: SubscriptionStatus;
   cancelAtPeriodEnd: boolean;
   currentPeriodEnd: Date | null;
-  /** `scheduled` = cancelamento agendado p/ fim do periodo; `immediate` = efetivado agora (trial/sem periodo pago); `already` = nada a fazer (idempotente). */
-  outcome: "scheduled" | "immediate" | "already";
+  /** `scheduled` = cancelamento agendado p/ fim do periodo; `immediate` = efetivado agora (trial/sem periodo pago); `already` = nada a fazer (idempotente); `reactivated` = cancelamento agendado desfeito. */
+  outcome: "scheduled" | "immediate" | "already" | "reactivated";
 }
 
 /**
@@ -93,7 +94,7 @@ export async function cancelSubscription(): Promise<ActionResult<SubscriptionCha
       return success({ status: sub.status, cancelAtPeriodEnd: sub.cancelAtPeriodEnd, currentPeriodEnd: sub.currentPeriodEnd, outcome: "already" });
     }
     const now = new Date();
-    const atPeriodEnd = (sub.status === "active" || sub.status === "past_due") && !!sub.currentPeriodEnd && sub.currentPeriodEnd.getTime() > now.getTime();
+    const atPeriodEnd = cancelModeFor(sub, now) === "scheduled";
     await getPaymentProvider().cancelSubscription({ orgId, atPeriodEnd });
     const result = await processBillingEvent(
       {
@@ -148,13 +149,14 @@ export async function reactivateSubscription(): Promise<ActionResult<Subscriptio
         status: sub.status,
         currentPeriodEnd: sub.currentPeriodEnd,
         cancelAtPeriodEnd: false,
+        explicitReactivation: true,
         externalCustomerId: sub.externalCustomerId,
         externalSubscriptionId: sub.externalSubscriptionId,
       },
       now,
     );
     if (result === "org_not_found" || result === "plan_not_found") return formError("Não foi possível reativar a assinatura.");
-    return success({ status: sub.status, cancelAtPeriodEnd: false, currentPeriodEnd: sub.currentPeriodEnd, outcome: "scheduled" });
+    return success({ status: sub.status, cancelAtPeriodEnd: false, currentPeriodEnd: sub.currentPeriodEnd, outcome: "reactivated" });
   });
 }
 

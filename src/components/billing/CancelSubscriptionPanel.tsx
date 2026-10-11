@@ -10,6 +10,7 @@ import { Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, Di
 import { formatDate } from "@/components/leads/lead-format";
 import { applyServerErrors } from "@/components/org/org-format";
 import { cancelSubscription, reactivateSubscription } from "@/lib/actions/billing";
+import { cancelModeFor } from "@/lib/billing/cancel-mode";
 import { cancelConfirmSchema, type CancelConfirmInput } from "@/lib/schemas/billing";
 import type { SubscriptionView } from "@/lib/queries/billing";
 import { RETENTION_DAYS, cancelUiState, purgeDateFor } from "./billing-format";
@@ -44,7 +45,7 @@ export function CancelSubscriptionPanel({ subscription, isOwner, now }: { subscr
   if (state === "scheduled") return <ScheduledNotice subscription={subscription} isOwner={isOwner} purge={purge} />;
 
   if (!isOwner) return null;
-  return <CancelDialogTrigger subscription={subscription} purge={purge} />;
+  return <CancelDialogTrigger subscription={subscription} purge={purge} now={now} />;
 }
 
 function ScheduledNotice({ subscription, isOwner, purge }: { subscription: SubscriptionView; isOwner: boolean; purge: Date | null }) {
@@ -58,7 +59,7 @@ function ScheduledNotice({ subscription, isOwner, purge }: { subscription: Subsc
     startTransition(async () => {
       const r = await reactivateSubscription();
       if (r.ok) {
-        toast.success("Assinatura mantida. O cancelamento foi desfeito.");
+        toast.success(r.data.outcome === "reactivated" ? "Assinatura mantida. O cancelamento foi desfeito." : "Não havia cancelamento agendado. Sua assinatura continua ativa.");
         router.refresh();
         return;
       }
@@ -87,20 +88,21 @@ function ScheduledNotice({ subscription, isOwner, purge }: { subscription: Subsc
   );
 }
 
-function CancelDialogTrigger({ subscription, purge }: { subscription: SubscriptionView; purge: Date | null }) {
+function CancelDialogTrigger({ subscription, purge, now }: { subscription: SubscriptionView; purge: Date | null; now?: Date }) {
   const [open, setOpen] = React.useState(false);
+  const [busy, setBusy] = React.useState(false);
   return (
     <>
       <Button variant="ghost" className="text-destructive hover:bg-destructive/10 hover:text-destructive" onClick={() => setOpen(true)}>
         Cancelar assinatura
       </Button>
-      <Dialog open={open} onOpenChange={setOpen}>
+      <Dialog open={open} onOpenChange={(o) => (o || !busy) && setOpen(o)}>
         <DialogContent className="max-h-[90dvh] max-w-md overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Cancelar assinatura?</DialogTitle>
             <DialogDescription>Revise o que acontece antes de confirmar.</DialogDescription>
           </DialogHeader>
-          <CancelForm subscription={subscription} purge={purge} onDone={() => setOpen(false)} />
+          <CancelForm subscription={subscription} purge={purge} now={now} onBusyChange={setBusy} onDone={() => setOpen(false)} />
         </DialogContent>
       </Dialog>
     </>
@@ -110,8 +112,8 @@ function CancelDialogTrigger({ subscription, purge }: { subscription: Subscripti
 const FIELDS = ["confirm"] as const;
 
 /** Consequências exibidas no modal: trial = efeito imediato (D-053-3); pago = acesso até o fim do período (D-053-1); sempre sem reembolso (D-053-2). */
-export function cancelConsequences(subscription: SubscriptionView, purge: Date | null): string[] {
-  const immediate = subscription.status === "trialing" || !subscription.currentPeriodEnd;
+export function cancelConsequences(subscription: SubscriptionView, purge: Date | null, now: Date = new Date()): string[] {
+  const immediate = cancelModeFor(subscription, now) === "immediate";
   const retention = `Seus dados ficam guardados por ${RETENTION_DAYS} dias${purge ? ` (até ${formatDate(purge)})` : ""} e depois são apagados em definitivo. Você pode reassinar nesse período.`;
   return [
     immediate
@@ -122,7 +124,7 @@ export function cancelConsequences(subscription: SubscriptionView, purge: Date |
   ];
 }
 
-function CancelForm({ subscription, purge, onDone }: { subscription: SubscriptionView; purge: Date | null; onDone: () => void }) {
+function CancelForm({ subscription, purge, now, onBusyChange, onDone }: { subscription: SubscriptionView; purge: Date | null; now?: Date; onBusyChange: (busy: boolean) => void; onDone: () => void }) {
   const router = useRouter();
   const [pending, startTransition] = React.useTransition();
   const {
@@ -133,8 +135,13 @@ function CancelForm({ subscription, purge, onDone }: { subscription: Subscriptio
     formState: { errors },
   } = useForm<CancelConfirmInput>({ resolver: zodResolver(cancelConfirmSchema), defaultValues: { confirm: false } });
 
-  const consequences = cancelConsequences(subscription, purge);
-  const immediate = subscription.status === "trialing" || !subscription.currentPeriodEnd;
+  React.useEffect(() => {
+    onBusyChange(pending);
+    return () => onBusyChange(false);
+  }, [pending, onBusyChange]);
+
+  const consequences = cancelConsequences(subscription, purge, now);
+  const immediate = cancelModeFor(subscription, now ?? new Date()) === "immediate";
 
   const onSubmit = handleSubmit(() => {
     startTransition(async () => {
@@ -180,7 +187,7 @@ function CancelForm({ subscription, purge, onDone }: { subscription: Subscriptio
         )}
       </div>
       <DialogFooter>
-        <DialogClose render={<Button type="button" variant="outline" />}>Voltar</DialogClose>
+        <DialogClose render={<Button type="button" variant="outline" disabled={pending} />}>Voltar</DialogClose>
         <Button type="submit" variant="destructive" disabled={pending} aria-busy={pending}>
           {pending && <Loader2 className="animate-spin" aria-hidden="true" />}
           {pending ? "Cancelando..." : "Cancelar assinatura"}

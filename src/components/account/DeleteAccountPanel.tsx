@@ -168,7 +168,7 @@ function Explanation({ windowDays }: { windowDays: number }) {
       <div className="grid gap-4 md:grid-cols-3">
         <ItemList title="Será apagado" items={DELETED_ITEMS} />
         <ItemList title="Será anonimizado" items={ANONYMIZED_ITEMS} />
-        <ItemList title="Fica retido por obrigação legal" items={RETAINED_ITEMS} />
+        <ItemList title="Fica retido após a exclusão" items={RETAINED_ITEMS} />
       </div>
     </div>
   );

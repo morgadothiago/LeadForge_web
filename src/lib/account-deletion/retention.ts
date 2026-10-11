@@ -33,6 +33,10 @@ export const ANONYMIZED_ITEMS: readonly string[] = [
 ];
 
 export const RETAINED_ITEMS: readonly string[] = [
+  "a linha do seu usuário no sistema, mantida só de forma anonimizada (nome \"Usuário removido\", e-mail e senha removidos), para preservar a integridade dos registros que apontam para ela",
+  "o registro do pedido de exclusão (identificador interno do usuário e o hash irreversível do seu e-mail), como comprovante de que a solicitação foi atendida",
+  "o identificador do autor das reuniões que você criou (aponta apenas para o usuário anonimizado)",
+  "o identificador do autor dos criativos que você criou (aponta apenas para o usuário anonimizado)",
   `registros de cobrança e pagamento da organização (assinatura e eventos de pagamento), por ${RETAIN_BILLING_YEARS} anos, por obrigação fiscal/financeira`,
   `registros de auditoria de integrações vinculados à sua conta (sem seu nome/e-mail), por ${RETAIN_ACCESS_LOGS_MONTHS} meses (Marco Civil da Internet, art. 15)`,
 ];

@@ -9,6 +9,7 @@ vi.mock("@/lib/actions/billing", () => ({ cancelSubscription: vi.fn(), reactivat
 
 import { CancelSubscriptionPanel, cancelConsequences } from "./CancelSubscriptionPanel";
 import { cancelUiState, purgeDateFor } from "./billing-format";
+import { cancelModeFor } from "@/lib/billing/cancel-mode";
 import { cancelConfirmSchema } from "@/lib/schemas/billing";
 import type { SubscriptionView } from "@/lib/queries/billing";
 
@@ -67,6 +68,22 @@ describe("cancelConsequences + schema", () => {
   it("trial: efeito imediato", () => {
     const trial = { ...base, status: "trialing" as const };
     expect(cancelConsequences(trial, null)[0]).toContain("vale imediatamente");
+  });
+  it("UI concorda com cancelModeFor (mesma regra da action): trial, sem periodo, vencido, incomplete, past_due vencido", () => {
+    const FUT = new Date("2026-11-01T00:00:00Z");
+    const PAST = new Date("2026-10-01T00:00:00Z");
+    const cases: Array<[SubscriptionView["status"], Date | null, boolean]> = [
+      ["active", FUT, false], ["past_due", FUT, false], ["trialing", FUT, true], ["trialing", null, true], ["active", null, true],
+      ["active", PAST, true], ["past_due", PAST, true], ["incomplete", FUT, true],
+    ];
+    for (const [status, end, immediate] of cases) {
+      const sub = { ...base, status, currentPeriodEnd: end };
+      expect(cancelModeFor(sub, NOW) === "immediate").toBe(immediate);
+      const first = cancelConsequences(sub, null, NOW)[0];
+      expect(first.includes("vale imediatamente")).toBe(immediate);
+      const html = renderToStaticMarkup(<CancelSubscriptionPanel subscription={sub} isOwner now={NOW} />);
+      expect(html).toContain("Cancelar assinatura");
+    }
   });
   it("zod exige a confirmação marcada", () => {
     expect(cancelConfirmSchema.safeParse({ confirm: false }).success).toBe(false);

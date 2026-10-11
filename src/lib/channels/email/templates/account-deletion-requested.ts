@@ -17,7 +17,7 @@ export function accountDeletionRequestedTemplate({ scheduledFor, cancelLink }: A
     `Confirmamos o pedido de exclusão da sua conta LeadForge. A exclusão será executada em ${date}.`,
     "Até lá sua conta fica bloqueada: você foi desconectado e não consegue entrar. Seus dados ainda não foram apagados.",
     `Mudou de ideia? Antes de ${date} é só cancelar a exclusão pelo botão abaixo (ou tentar entrar com e-mail e senha e escolher \"Cancelar exclusão\").`,
-    "Depois dessa data a exclusão é definitiva e enviaremos outro e-mail com o que foi apagado, anonimizado e retido por obrigação legal.",
+    "Depois dessa data a exclusão é definitiva e enviaremos outro e-mail com o que foi apagado, anonimizado e retido.",
   ];
   const bodyHtml = `
     ${lines.map((l) => `<p>${escapeHtml(l)}</p>`).join("\n    ")}
