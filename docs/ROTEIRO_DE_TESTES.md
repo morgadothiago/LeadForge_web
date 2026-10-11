@@ -6,6 +6,8 @@ são o que a SPEC prevê, não algo que eu tenha executado no navegador.**
 
 ## Os 10 testes de maior risco (faça estes primeiro)
 
+Versão com passo a passo: `docs/TESTES_PRIORITARIOS.md`.
+
 Ordem: do que **perde mais** se falhar (dinheiro, dados de outro cliente, cliente sem e-mail) para o que perde menos. Cada um aponta
 para a linha do roteiro abaixo. Marque `[x]` lá quando passar.
 
