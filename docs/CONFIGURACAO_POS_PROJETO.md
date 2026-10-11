@@ -61,7 +61,7 @@ Precisam existir antes do banco funcionar. Gere com `openssl rand -base64 32` (o
 
 ## 3. Acoes operacionais (nada disso roda sozinho)
 - [ ] Subir tudo: `docker compose up -d` (postgres, redis, evolution, n8n). Evolution e n8n ainda NAO foram levantados de ponta a ponta.
-- [ ] **Vercel:** o `vercel.json` já declara o cron `/api/cron/tick` a cada minuto (`* * * * *`). Defina `CRON_SECRET` nas variáveis do projeto (a Vercel envia `Authorization: Bearer $CRON_SECRET` sozinha). Cron por minuto exige plano pago (Hobby só permite 1x/dia: nesse caso use um agendador externo e remova o `crons`). Fora da Vercel, use a linha abaixo.
+- [ ] **Vercel:** o `vercel.json` declara o cron `/api/cron/tick` **1 vez por dia** (`0 6 * * *`): o plano Hobby só aceita isso (um cron mais frequente faz o deploy falhar). Defina `CRON_SECRET` nas variáveis do projeto (a Vercel envia `Authorization: Bearer $CRON_SECRET` sozinha). O tick a cada 5 minutos vem do workflow `.github/workflows/tick.yml` (segredos do GitHub `CRON_SECRET` e `APP_URL`). Com plano Pro, troque o cron para `* * * * *`. Fora da Vercel, use a linha abaixo.
 - [ ] Agendar o scheduler a cada 1-2 min chamando `POST /api/cron/tick` com `Authorization: Bearer $CRON_SECRET` (crontab, n8n ou Vercel Cron). Sem isso, NENHUMA mensagem da sequencia e enviada. Local: `npm run dev:tick` (loop, em outro terminal) ou `npm run tick` (uma rodada).
 - [ ] Inicio da sequencia e EXPLICITO: lead `not_started` nao recebe nada sozinho; use "iniciar sequencia" (lead/campanha) ou `Campaign.autoStart=true`. Leads do seed (`source="seed"`) nunca sao enviados (a campanha de exemplo nasce pausada); `ALLOW_SEED_SENDS=true` so em dev.
 - [ ] Rodar migrations no ambiente novo: `prisma migrate deploy` (nunca `migrate reset` com dados reais)

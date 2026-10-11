@@ -721,10 +721,15 @@ esse evento, Q-052-5). O cancelamento de cartão vale só dentro do LeadForge; c
 
 ### 9.8 O despertador (tick) e o plano da Vercel
 
-1. Crie `CRON_SECRET` (9.3). O `vercel.json` já agenda `/api/cron/tick` **a cada minuto** e a Vercel manda o segredo sozinha.
-2. ⚠️ A cada minuto **exige plano pago** da Vercel (Pro). No plano grátis (Hobby) só roda 1 vez por dia: mensagens, criativos,
-   cancelamentos e busca ficam atrasados. Alternativa: um agendador externo chamando
-   `curl -X POST -H "Authorization: Bearer $CRON_SECRET" https://SEU-ENDERECO/api/cron/tick` a cada minuto.
+1. Crie `CRON_SECRET` (9.3). O `vercel.json` agenda `/api/cron/tick` **1 vez por dia** (o plano grátis, Hobby, só aceita isso; um
+   horário "a cada minuto" faz o **deploy falhar** com "Hobby accounts are limited to daily cron jobs") e a Vercel manda o segredo sozinha.
+2. **O despertador de verdade (grátis): o GitHub.** O arquivo `.github/workflows/tick.yml` chama o tick **a cada 5 minutos**.
+   No GitHub: Settings > Secrets and variables > Actions > New repository secret. Crie dois: `CRON_SECRET` (o **mesmo** valor da
+   Vercel) e `APP_URL` (o endereço do app, ex.: `https://app.seudominio.com`, sem barra no fim). Teste em Actions > "Tick
+   (agendador)" > Run workflow. ✅ Deve ver: o job verde e `HTTP 200`. (`HTTP 503` = falta `CRON_SECRET` na Vercel; `401` = valores diferentes.)
+   Com plano Pro da Vercel você pode trocar para `* * * * *` no `vercel.json` e desligar o workflow.
+3. Sem o workflow, mensagens, criativos, cancelamentos e busca só andam 1 vez por dia. Alternativa ao GitHub: qualquer agendador
+   externo (ex.: cron-job.org) chamando `curl -X POST -H "Authorization: Bearer $CRON_SECRET" https://SEU-ENDERECO/api/cron/tick`.
 
 ### 9.9 Opcionais (deixe desligado no começo)
 
@@ -797,11 +802,14 @@ TEST_DATABASE_URL=postgresql://leadforge:<senha>@localhost:5434/leadforge_clean_
 - **A busca de clientes dá erro depois de atualizar o código.** Falta a migration da 060 ou o `npm run dev` não foi
   reiniciado. Passo 1.3.
 - **Aparece `[rate-limit]` no terminal.** O Redis não respondeu e o limite voltou a ser guardado na memória do app. Veja 2.9.
+- **O deploy na Vercel falha com "Hobby accounts are limited to daily cron jobs".** O cron do `vercel.json` está mais frequente
+  que 1 vez por dia. Use `0 6 * * *` (e o workflow do GitHub para o resto, 9.8) ou o plano Pro.
 - **O app não liga em produção.** Falta `TRUSTED_PROXY_IP_HEADER`. Defina (exemplo: `x-real-ip`). É obrigatória em
   produção (SPEC-049; o `next build` não exige).
 - **Nada roda sozinho em produção (mensagens, busca, criativos).** Falta agendar o despertador (tick) ou falta o
-  `CRON_SECRET` (32+ caracteres; sem ele `/api/cron/tick` responde 503). O `vercel.json` já agenda o tick a cada
-  minuto (exige plano pago na Vercel). Defina o `CRON_SECRET`. Veja `docs/CONFIGURACAO_POS_PROJETO.md`.
+  `CRON_SECRET` (32+ caracteres; sem ele `/api/cron/tick` responde 503). O `vercel.json` só agenda o tick 1 vez
+  por dia (plano Hobby); o despertador a cada 5 minutos é o workflow `.github/workflows/tick.yml` (precisa dos segredos `CRON_SECRET` e
+  `APP_URL` no GitHub, veja 9.8). Defina o `CRON_SECRET`. Veja `docs/CONFIGURACAO_POS_PROJETO.md`.
 - **`/criativos` ou `/api/storage/*` dão 503 em produção.** `CREATIVE_PROVIDER=mock` e/ou o storage não foram
   definidos. Veja as Fases 4 e 7.
 - **O limite de pedidos por IP (rate limit) aparece "desligado" em produção.** Mesma causa de cima
