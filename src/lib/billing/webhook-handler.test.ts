@@ -95,6 +95,12 @@ describe("POST /api/billing/webhook (SPEC-033, PAYMENT_PROVIDER=mock por default
   it("assinatura inválida (provider fake que recusa): 401, corpo não vaza segredo", async () => {
     const fakeProvider: PaymentProvider = {
       name: "stripe",
+      async cancelSubscription() {
+        throw new Error("not used");
+      },
+      async resumeSubscription() {
+        throw new Error("not used");
+      },
       async createCheckoutSession() {
         throw new Error("not used");
       },
@@ -195,6 +201,12 @@ describe("QA fix (SPEC-047, D-047-2) — webhookSecret do AbacatePay chega pelo 
     let seen: string | null | undefined;
     const fake: PaymentProvider = {
       name: "abacatepay",
+      async cancelSubscription() {
+        throw new Error("not used");
+      },
+      async resumeSubscription() {
+        throw new Error("not used");
+      },
       async createCheckoutSession() {
         throw new Error("not used");
       },

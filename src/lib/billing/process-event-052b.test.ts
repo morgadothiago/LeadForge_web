@@ -97,7 +97,7 @@ describe("payment_failed imediato (052b)", () => {
 describe("regua D+3/D+5/D+7 (052b)", () => {
   const seed = (since: Date) => prisma.subscription.create({ data: { orgId: org.orgId, planId: starterId, status: "past_due", cadence: "monthly", pastDueSince: since } });
 
-  it("por dia: D+0 so fallback; D+3, D+5, D+7 um e-mail cada; reexecucao nao duplica", async () => {
+  it("por dia: D+0 so fallback; D+3, D+5, D+6 (ultimo aviso) um e-mail cada; reexecucao nao duplica", async () => {
     await seed(NOW);
     const subjects: string[] = [];
     for (const d of [0, 2, 3, 4, 5, 6, 7]) {
@@ -106,9 +106,8 @@ describe("regua D+3/D+5/D+7 (052b)", () => {
       await sendBillingReminders(new Date(NOW.getTime() + d * DAY)); // retry do tick
       subjects.push(...calls().map((c) => c[1]));
       if (d === 0) expect(calls()).toHaveLength(1);
-      if (d === 2 || d === 4 || d === 6) expect(calls()).toHaveLength(0);
-      if (d === 3 || d === 5) expect(calls()).toHaveLength(1);
-      if (d === 7) expect(calls()).toHaveLength(1);
+      if (d === 2 || d === 4 || d === 7) expect(calls()).toHaveLength(0);
+      if (d === 3 || d === 5 || d === 6) expect(calls()).toHaveLength(1);
     }
     expect(subjects[subjects.length - 1]).toMatch(/Último aviso/);
     const logs = await prisma.billingReminderLog.findMany({ where: { orgId: org.orgId }, select: { kind: true } });
@@ -134,7 +133,7 @@ describe("regua D+3/D+5/D+7 (052b)", () => {
     expect(calls()).toHaveLength(0);
   });
 
-  it("D+7 e o ultimo aviso antes de suspender: o grace de 7d (status-map) segue inalterado", () => {
+  it("ultimo aviso em D+6, 24h antes do fim do grace de 7d (status-map inalterado)", () => {
     expect(PAST_DUE_GRACE_MS).toBe(7 * DAY);
   });
 });

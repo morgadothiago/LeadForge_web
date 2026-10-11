@@ -61,6 +61,8 @@ function IntegrationCard({ summary, onAnnounce }: { summary: IntegrationSummary;
       } else {
         msg = r.data.ok ? `Conexão OK. ${r.data.message}` : r.data.message;
         if (!r.data.ok && r.data.retryAfterSeconds) msg += ` Tente novamente em ${r.data.retryAfterSeconds}s.`;
+        // SPEC-036: provedores gratuitos limitam requisicoes; uma instancia propria (Ollama) nao tem esse limite.
+        if (!r.data.ok && summary.integration === "llm" && /requisições demais/i.test(msg)) msg += " Dica: provedores gratuitos têm limite de uso; uma instância própria (Ollama) não tem.";
         kind = r.data.ok ? "ok" : "err";
       }
       const full = `${summary.label}: ${msg}`;
@@ -139,6 +141,7 @@ function IntegrationCard({ summary, onAnnounce }: { summary: IntegrationSummary;
             : "Nunca testada."}
         </p>
       )}
+      {item && summary.integration === "llm" && !item.baseUrl && <p className="text-xs text-muted-foreground">O teste de conexão só existe para provedores com URL base (OpenAI-compatível). O Claude é validado ao rodar um agente.</p>}
       {!summary.testAvailable && <p className="text-xs text-muted-foreground">O teste real de conexão ainda não está disponível para esta integração.</p>}
       {testNote && (
         <p role="status" className="rounded-md bg-muted px-3 py-2 text-xs">
@@ -151,7 +154,7 @@ function IntegrationCard({ summary, onAnnounce }: { summary: IntegrationSummary;
           {item ? <Pencil /> : <KeyRound />}
           {item ? "Editar / trocar chave" : summary.origin === "env" ? "Salvar no painel" : "Configurar"}
         </Button>
-        {item && (
+        {item && !(summary.integration === "llm" && !item.baseUrl) && (
           <Button size="sm" variant="outline" onClick={test} disabled={testing} aria-busy={testing}>
             {testing ? <Loader2 className="animate-spin" /> : <Plug />}
             {testing ? "Testando…" : "Testar conexão"}

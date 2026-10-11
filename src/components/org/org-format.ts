@@ -130,3 +130,12 @@ export function parseJoinInput(raw: string): JoinInput {
   }
   return { kind: "code", code: v };
 }
+
+/** Mascara o e-mail para exibir a quem so tem o link (ex.: "o***a@empresa.com"): o dominio fica, o usuario some quase todo. */
+export function maskEmail(email: string): string {
+  const at = email.lastIndexOf("@");
+  if (at < 1) return "***";
+  const user = email.slice(0, at);
+  const masked = user.length <= 2 ? `${user[0]}***` : `${user[0]}***${user[user.length - 1]}`;
+  return `${masked}${email.slice(at)}`;
+}

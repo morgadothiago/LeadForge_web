@@ -35,7 +35,7 @@ export interface SearchRunStatus {
 
 // 1a barreira (UX) por usuário, em memória/por processo: 5 buscas / 10 min. NÃO vale entre instâncias serverless;
 // a barreira real é o orçamento persistido no banco + lock advisory por campanha (run.ts `reserve`).
-const limiter = new SlidingLimiter(5, 10 * 60_000);
+const limiter = new SlidingLimiter(5, 10 * 60_000, 1000, "lead-search");
 
 /**
  * SPEC-058a: dispara a busca manual da campanha. SÓ o owner da org (requireOrgOwner); `campaignId` validado na org da sessão antes de
@@ -47,7 +47,7 @@ export async function searchLeads(campaignId: unknown): Promise<ActionResult<Lea
     const id = idSchema.safeParse(campaignId);
     if (!id.success) return formError("Campanha inválida.");
     if (!(await scopedPrisma(orgId).campaign.findUnique({ where: { id: id.data }, select: { id: true } }))) return formError("Campanha não encontrada.");
-    const wait = limiter.hit(actor.id);
+    const wait = await limiter.hit(actor.id);
     if (wait > 0) return formError(`Muitas buscas seguidas. Tente novamente em ${wait}s.`);
     const o = await startLeadSearch(id.data, { trigger: "manual", timeoutMs: MANUAL_TIMEOUT_MS });
     revalidatePath(`/campanhas/${id.data}`);

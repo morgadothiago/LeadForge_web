@@ -48,7 +48,7 @@ Nova area "Criativos" para criar videos de avatar com IA (um avatar fala um rote
 - Q-051-8: Integracao dos criativos com campanhas/sequences/canais entra agora ou em SPEC posterior?
 - Q-051-9: Idiomas/formatos/duracao maxima suportados no MVP?
 - Q-051-10: Dividir em 051a/051b na aprovacao?
-- Q-051-11 (aberta, achado B1 do QA): teto de retries manuais por criativo? Hoje `retryCreative` de falha do PROVEDOR cria nova geracao (cobrada) sem limite de tentativas por criativo; a cota mensal so conta o primeiro envio do mes (D-051-7). Decidir se ha teto (ex.: N retries por criativo) e se retries pos-falha do provedor consomem cota. NAO implementado.
+- Q-051-11 (FECHADA em 2026-10-11 por D-051-19; achado B1 do QA): teto de retries manuais por criativo? Hoje `retryCreative` de falha do PROVEDOR cria nova geracao (cobrada) sem limite de tentativas por criativo; a cota mensal so conta o primeiro envio do mes (D-051-7). Decidir se ha teto (ex.: N retries por criativo) e se retries pos-falha do provedor consomem cota. NAO implementado.
 
 ## Decisoes (resolvem as perguntas em aberto; aprovadas pelo usuario em 2026-10-10)
 - D-051-1 (Q-051-1): provedor real NAO escolhido. Entrega-se a interface `AvatarVideoProvider` + adapter `mock` (padrao; custo zero, catalogo fixo, MP4 placeholder deterministico, nunca rede) e a estrutura pronta para um adapter real futuro (registrar em `factory.ts`). Em producao a feature so liga com `CREATIVE_PROVIDER=mock` explicito (senao erro tipado `config`, app segue de pe).
@@ -140,3 +140,6 @@ Estados do criativo e acoes habilitadas: `draft` (enviar, excluir) -> `queued` (
 - Baixos: (1) foco do `h2` do wizard compara com o passo anterior (ref `prevStep`), imune ao double-effect do StrictMode; (2) `pollState` volta a "ok" no cleanup do efeito de polling (cancelar e tentar de novo não reexibe o banner "gave_up"); (3) em `onUrl`, URL igual à do `src` atual limpa o snapshot `resume` (não há `loadedmetadata`).
 - Testes: renomeado o teste de reenvio para refletir o que prova (draft_error libera a trava e createDraft é chamado de novo); novos: `videoPanelState` (todos os casos), guarda de geração (erro de reprodução durante fetch em voo descarta a resposta obsoleta), resposta ok zera o contador de notFound consecutivo.
 - Verificação: `vitest run src/components src/app src/lib/schemas` PASS; `tsc --noEmit` e eslint ver relatório. Não feitos por instrução: idempotência do rascunho e trava após falha de `router.push`.
+
+## Decisao D-051-19 (2026-10-11)
+D-051-19 (Q-051-11, CONFIRMED por delegacao do usuario: "aceite o default"): mantem-se o comportamento atual como default aceito: SEM teto de retries manuais por criativo; retry de falha do provedor cria nova geracao e a cota mensal continua contando so o primeiro envio do mes (D-051-7). Risco aceito: custo de retries repetidos com provedor real; revisitar (teto N por criativo e/ou consumo de cota) na SPEC do provedor real de avatar, junto de D-051-15. Nenhum codigo alterado.

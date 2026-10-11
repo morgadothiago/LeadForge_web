@@ -62,7 +62,7 @@ describe("senha", () => {
   });
 });
 
-describe("sessão", () => {
+describe("sessão", async () => {
   it("token válido", async () => {
     expect(await verifySessionToken(await signSessionToken("u1", null, "provider"))).toEqual({ userId: "u1", orgId: null, platformRole: "provider", issuedAtMs: expect.any(Number) });
   });
@@ -93,7 +93,7 @@ describe("sessão", () => {
   });
 });
 
-describe("requireUser", () => {
+describe("requireUser", async () => {
   it("sem sessão lança UnauthorizedError", async () => {
     await expect(requireUser()).rejects.toBeInstanceOf(UnauthorizedError);
   });
@@ -119,7 +119,7 @@ describe("requireUser", () => {
   });
 });
 
-describe("login/logout", () => {
+describe("login/logout", async () => {
   it("ok: cria cookie e redireciona a next seguro", async () => {
     const r = await login({ email: ` ${EMAIL.toUpperCase()} `, password: PASS, next: "/leads?x=1" });
     expect(r).toEqual({ ok: true, data: { redirectTo: "/leads?x=1" } });
@@ -170,26 +170,26 @@ describe("login/logout", () => {
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.errors._form?.[0]).toMatch(/Muitas tentativas/);
   });
-  it("limite por e-mail com IPs rotativos confiáveis: teto de 20 e mensagem genérica", () => {
+  it("limite por e-mail com IPs rotativos confiáveis: teto de 20 e mensagem genérica", async () => {
     const now = 1_000_000;
-    for (let i = 0; i < LOGIN_MAX_FAILURES_PER_EMAIL; i++) recordFailure(loginKey("v@x.com", `ip${i}`), emailKey("v@x.com"), now);
-    expect(isRateLimited(loginKey("v@x.com", "novo"), emailKey("v@x.com"), now + 3_600_000 > now + LOGIN_WINDOW_MS ? now + 1 : now)).toBe(true);
-    expect(isRateLimited(loginKey("v@x.com", "novo"), emailKey("v@x.com"), now + LOGIN_WINDOW_MS + 1)).toBe(false);
+    for (let i = 0; i < LOGIN_MAX_FAILURES_PER_EMAIL; i++) await recordFailure(loginKey("v@x.com", `ip${i}`), emailKey("v@x.com"), now);
+    expect(await isRateLimited(loginKey("v@x.com", "novo"), emailKey("v@x.com"), now + 3_600_000 > now + LOGIN_WINDOW_MS ? now + 1 : now)).toBe(true);
+    expect(await isRateLimited(loginKey("v@x.com", "novo"), emailKey("v@x.com"), now + LOGIN_WINDOW_MS + 1)).toBe(false);
   });
-  it("backoff progressivo bloqueia antes do teto", () => {
+  it("backoff progressivo bloqueia antes do teto", async () => {
     const now = 5_000_000;
     const k = loginKey("b@x.com", "ip");
-    for (let i = 0; i < 3; i++) recordFailure(k, undefined, now);
-    expect(isRateLimited(k, undefined, now)).toBe(true); // 3ª falha: atraso 2s
-    expect(isRateLimited(k, undefined, now + 3000)).toBe(false);
+    for (let i = 0; i < 3; i++) await recordFailure(k, undefined, now);
+    expect(await isRateLimited(k, undefined, now)).toBe(true); // 3ª falha: atraso 2s
+    expect(await isRateLimited(k, undefined, now + 3000)).toBe(false);
   });
-  it("store tem teto duro (FIFO) e limpa expiradas", () => {
+  it("store tem teto duro (FIFO) e limpa expiradas", async () => {
     _clearRateLimit();
-    for (let i = 0; i < MAX_ENTRIES + 50; i++) recordFailure(`k${i}|ip`, undefined, 1);
+    for (let i = 0; i < MAX_ENTRIES + 50; i++) await recordFailure(`k${i}|ip`, undefined, 1);
     expect(_storeSize()).toBeLessThanOrEqual(MAX_ENTRIES);
-    expect(isRateLimited("k0|ip", undefined, 2)).toBe(false); // mais antiga evictada
-    expect(isRateLimited(`k${MAX_ENTRIES + 49}|ip`, undefined, 2)).toBe(false); // 1 falha: sob o limite, ainda presente
-    recordFailure("novo|ip", undefined, 1 + LOGIN_WINDOW_MS + 1); // expiradas são varridas
+    expect(await isRateLimited("k0|ip", undefined, 2)).toBe(false); // mais antiga evictada
+    expect(await isRateLimited(`k${MAX_ENTRIES + 49}|ip`, undefined, 2)).toBe(false); // 1 falha: sob o limite, ainda presente
+    await recordFailure("novo|ip", undefined, 1 + LOGIN_WINDOW_MS + 1); // expiradas são varridas
     expect(_storeSize()).toBe(1);
   });
   it("logout remove o cookie", async () => {
@@ -206,7 +206,7 @@ function extractToken(text: string): string {
   return m[1];
 }
 
-describe("forgotPassword / resetPassword (SPEC-038)", () => {
+describe("forgotPassword / resetPassword (SPEC-038)", async () => {
   const PW_EMAIL = "zz-test-auth-pwreset@leadforge.local";
   const PW_PASS = "Senha-Forte-Original-123";
   const NEW_PASS = "Senha-Forte-Nova-456!!";
@@ -357,7 +357,7 @@ describe("forgotPassword / resetPassword (SPEC-038)", () => {
   });
 });
 
-describe("safeNext", () => {
+describe("safeNext", async () => {
   it("aceita só caminhos internos", () => {
     expect(safeNext("/campanhas/1?a=b")).toBe("/campanhas/1?a=b");
     for (const bad of ["//evil.com", "https://evil.com", "/\\evil", "", undefined, 5, "/a\nb", "/%2f%2fevil.com", "/%2F%2Fevil.com", " /x", " //evil.com", "/a\tb", "\t/x", "\n/x", "javascript:alert(1)", "/javascript:alert(1)\n"]) expect(safeNext(bad), String(bad)).toBe("/dashboard");
@@ -377,7 +377,7 @@ describe("seedAdmin", () => {
   });
 });
 
-describe("proxy", () => {
+describe("proxy", async () => {
   const req = (p: string, cookie?: string) =>
     new NextRequest(`http://localhost:3000${p}`, cookie ? { headers: { cookie: `${SESSION_COOKIE}=${cookie}` } } : undefined);
   it("sem sessão redireciona para /login?next=", async () => {
@@ -424,7 +424,7 @@ describe("proxy", () => {
 
 });
 
-describe("todas as Server Actions chamam requireUser (exceto auth.ts)", () => {
+describe("todas as Server Actions chamam requireUser (exceto auth.ts)", async () => {
   const dir = path.resolve(__dirname, "../actions");
   const files = readdirSync(dir).filter((f) => f.endsWith(".ts") && !f.endsWith(".test.ts") && !["auth.ts", "result.ts"].includes(f));
   it.each(files)("%s", (f) => {
@@ -439,7 +439,7 @@ describe("todas as Server Actions chamam requireUser (exceto auth.ts)", () => {
     };
     // SPEC-033: signUpAndStartCheckout (billing.ts) é pública como login/logout (cria a própria sessão) — allowlist pontual, mesmo critério de src/lib/use-server-auth.test.ts.
     // SPEC-049: signUpAndJoin/previewInvite (org.ts) são públicas (signup via convite/código; pré-visualização por token) — mesma allowlist de use-server-auth.test.ts. requireOrgMember/requireOrgOwner (src/lib/org/guards.ts) chamam requireProviderOrg() por dentro.
-    const exported = fns.filter((x) => x.exported && !(f === "billing.ts" && x.name === "signUpAndStartCheckout") && !(f === "org.ts" && ["signUpAndJoin", "previewInvite"].includes(x.name)));
+    const exported = fns.filter((x) => x.exported && !(f === "billing.ts" && x.name === "signUpAndStartCheckout") && !(f === "org.ts" && ["signUpAndJoin", "previewInvite"].includes(x.name)) && !(f === "account-deletion.ts" && ["previewAccountDeletionToken", "confirmAccountDeletion", "cancelAccountDeletionByToken", "cancelAccountDeletionWithPassword"].includes(x.name)));
     expect(exported.length).toBeGreaterThan(0);
     for (const fn of exported) expect(ok(fn), `${f}:${fn.name} não chama requireUser`).toBe(true);
   });

@@ -1,3 +1,4 @@
+import { redisHit } from "@/lib/rate-limit/redis";
 import { prisma } from "@/lib/prisma";
 import { tooManyRequests } from "@/lib/http";
 import { safeErrorForLog } from "@/lib/errors";
@@ -30,6 +31,22 @@ export const _resetGoogleAdsRateLimit = (): void => {
   invalidBucket = freshBucket();
   validBucket = freshBucket();
 };
+
+/** SPEC-059: Redis (compartilhado) quando disponível; senão o bucket em memória acima. */
+async function hitInvalid(): Promise<number | null> {
+  const w = await redisHit("google-ads", "invalid", INVALID.max, INVALID.windowMs);
+  if (w !== undefined) return w;
+  const r = hit(invalidBucket, INVALID);
+  invalidBucket = r.b;
+  return r.wait;
+}
+async function hitValid(): Promise<number | null> {
+  const w = await redisHit("google-ads", "valid", VALID.max, VALID.windowMs);
+  if (w !== undefined) return w;
+  const r = hit(validBucket, VALID);
+  validBucket = r.b;
+  return r.wait;
+}
 
 async function readBodyLimited(req: Request): Promise<string | null> {
   const declared = Number(req.headers.get("content-length"));
@@ -75,9 +92,8 @@ export async function handleGoogleAdsWebhook(req: Request, deps: GoogleAdsDeps =
   const leadId = typeof p.lead_id === "string" ? p.lead_id.trim() : typeof p.lead_id === "number" ? String(p.lead_id) : "";
 
   if (!googleKey || !GOOGLE_KEY_RE.test(googleKey) || !leadId) {
-    const r = hit(invalidBucket, INVALID);
-    invalidBucket = r.b;
-    return r.wait !== null ? tooManyRequests(r.wait) : unauthorized();
+    const w = await hitInvalid();
+    return w !== null ? tooManyRequests(w) : unauthorized();
   }
 
   // Resolução de org/campanha SEMPRE via LeadSourceBinding (D-041-3) — nunca um segredo global.
@@ -87,14 +103,12 @@ export async function handleGoogleAdsWebhook(req: Request, deps: GoogleAdsDeps =
     select: { orgId: true, campaignId: true },
   });
   if (!binding) {
-    const r = hit(invalidBucket, INVALID);
-    invalidBucket = r.b;
-    return r.wait !== null ? tooManyRequests(r.wait) : unauthorized();
+    const w = await hitInvalid();
+    return w !== null ? tooManyRequests(w) : unauthorized();
   }
 
-  const v = hit(validBucket, VALID);
-  validBucket = v.b;
-  if (v.wait !== null) return tooManyRequests(v.wait);
+  const vw = await hitValid();
+  if (vw !== null) return tooManyRequests(vw);
 
   try {
     const contact = extractContact(fieldsFromGoogleUserColumnData(p.user_column_data));

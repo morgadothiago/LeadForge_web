@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { approveDraft, bulkApproveFollowups, rejectDraftAction, takeOverLead } from "@/lib/actions/agent";
 import { getFormError } from "@/components/campaigns/form-utils";
 import { ConfirmDialog } from "@/components/campaigns/ConfirmDialog";
+import { EMAIL_NOT_VERIFIED_MESSAGE, isEmailNotVerified } from "@/components/auth/email-verification-ui";
 import { ROLE_LABELS, bulkSummary, canApprove, canBulk, canReject, isEdited, toggleId } from "./agent-format";
 
 export interface DraftView { id: string; body: string; channel: string; leadName: string; company: string | null; agentName: string; role: keyof typeof ROLE_LABELS; createdAt: string }
@@ -82,7 +83,7 @@ function DraftCard({ d, checked, onToggle, locked, onBusy }: { d: DraftView; che
     });
     async function run() {
       const r = await fn();
-      if (!r.ok) return void toast.error(getFormError(r.errors));
+      if (!r.ok) return void toast.error(isEmailNotVerified(r.errors) ? EMAIL_NOT_VERIFIED_MESSAGE : getFormError(r.errors));
       if (r.data.status === "blocked") toast.warning(`Bloqueado pela política de envio${r.data.reason ? `: ${r.data.reason}` : "."}`); else toast.success(msg);
       router.refresh();
     }

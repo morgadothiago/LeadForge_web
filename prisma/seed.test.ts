@@ -2,7 +2,7 @@ import "dotenv/config";
 import { afterAll, describe, expect, it } from "vitest";
 import { PrismaClient } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
-import { seed } from "./seed";
+import { isProductionEnv, seed } from "./seed";
 
 const prisma = new PrismaClient({
   adapter: new PrismaPg({ connectionString: process.env.DATABASE_URL }),
@@ -56,4 +56,13 @@ describe("seed", () => {
       h.slice(1).forEach((x, i) => expect(x.fromStage).toBe(h[i].toStage));
     }
   }, 30000);
+});
+
+describe("isProductionEnv", () => {
+  it("detecta producao pela Vercel ou NODE_ENV", () => {
+    expect(isProductionEnv({ VERCEL_ENV: "production" } as unknown as NodeJS.ProcessEnv)).toBe(true);
+    expect(isProductionEnv({ NODE_ENV: "production" } as unknown as NodeJS.ProcessEnv)).toBe(true);
+    expect(isProductionEnv({ VERCEL_ENV: "preview", NODE_ENV: "development" } as unknown as NodeJS.ProcessEnv)).toBe(false);
+    expect(isProductionEnv({} as unknown as NodeJS.ProcessEnv)).toBe(false);
+  });
 });

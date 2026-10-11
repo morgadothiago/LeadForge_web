@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { sendEmail } from "@/lib/channels/email";
 import { sendWhatsApp } from "@/lib/channels/whatsapp";
 import { AppError } from "@/lib/errors";
+import { assertUserEmailVerified } from "@/lib/auth/email-verification";
 import { advanceAfterAgentStep } from "./advance";
 import { DRAFT_TTL_MS } from "./types";
 
@@ -20,12 +21,15 @@ export async function dispatchDraft(
   const now = opts.now ?? new Date();
   const draft = await prisma.draft.findUnique({
     where: { id: draftId },
-    include: { agentRun: { select: { stepId: true, agent: { select: { role: true } } } }, lead: { select: { campaign: { select: { orgId: true } } } } },
+    include: { agentRun: { select: { stepId: true, agent: { select: { role: true } } } }, lead: { select: { campaign: { select: { orgId: true, userId: true } } } } },
   });
   // SPEC-030: quando orgId é informado (todo caller externo/autenticado passa), só opera se o draft
   // pertencer a esta org — defesa contra draftId adivinhado de outro tenant. Nunca revela se existe em outra org.
   if (!draft || (opts.orgId && draft.lead.campaign.orgId !== opts.orgId)) throw new AppError({ code: "not_found", userMessage: "Rascunho não encontrado." });
   if (draft.status !== "pending") throw new AppError({ code: "conflict", userMessage: "Este rascunho já foi tratado." });
+  // SPEC-055 (D-055-7): aprovacao/envio MANUAL por usuario nao verificado => erro tipado `email_not_verified` ANTES de consumir o rascunho
+  // (segue pendente). Despacho automatico (reviewer null) cai no adiamento do canal (`deferUnverifiedBeforeReserve`).
+  if (opts.reviewer) await assertUserEmailVerified(draft.lead.campaign.userId);
   // Closer responde a lead que já respondeu: excecao minima a repliedOrEnded nos canais (isCloserTouch); demais regras da SPEC-017 valem.
   const body = (opts.editedBody ?? draft.body).trim();
   const edited = opts.editedBody !== undefined && opts.editedBody.trim() !== draft.body.trim();

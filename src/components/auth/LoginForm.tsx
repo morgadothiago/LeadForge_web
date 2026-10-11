@@ -9,6 +9,8 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { login } from "@/lib/actions/auth";
+import { cancelAccountDeletionWithPassword } from "@/lib/actions/account-deletion";
+import { deletionErrorMessage, formatDeletionDate } from "@/components/account/deletion-format";
 import { loginSchema, type LoginInput } from "@/lib/schemas/auth";
 import { Field } from "@/components/campaigns/Field";
 import { getFormError } from "@/components/campaigns/form-utils";
@@ -22,7 +24,15 @@ export function LoginForm({ next }: { next?: string }) {
   const router = useRouter();
   const [show, setShow] = React.useState(false);
   const [pending, startTransition] = React.useTransition();
+  // SPEC-054b: conta com exclusao agendada (login recusado com `account_deletion_pending`): oferece cancelar a exclusao.
+  const [deletion, setDeletion] = React.useState<{ scheduledFor: string } | null>(null);
+  const [cancelError, setCancelError] = React.useState<string>();
+  const deletionRef = React.useRef<HTMLDivElement>(null);
+  React.useEffect(() => {
+    if (deletion) deletionRef.current?.focus();
+  }, [deletion]);
   const {
+    getValues,
     register,
     handleSubmit,
     setError,
@@ -40,6 +50,12 @@ export function LoginForm({ next }: { next?: string }) {
         router.replace(res.data.redirectTo);
         return;
       }
+      if (res.errors.code?.[0] === "account_deletion_pending") {
+        setCancelError(undefined);
+        setDeletion({ scheduledFor: res.errors.scheduledFor?.[0] ?? "" });
+        return;
+      }
+      setDeletion(null);
       if (res.errors._form) setError("root", { type: "server", message: res.errors._form.join(" ") });
       let firstFieldKey: keyof LoginInput | undefined;
       for (const [key, msgs] of Object.entries(res.errors)) {
@@ -53,8 +69,42 @@ export function LoginForm({ next }: { next?: string }) {
     });
   });
 
+  // Cancela a exclusao com e-mail+senha ja digitados e entra em seguida (a action de cancelar nao abre sessao).
+  const cancelDeletion = () => {
+    setCancelError(undefined);
+    startTransition(async () => {
+      const values = getValues();
+      const c = await cancelAccountDeletionWithPassword({ email: values.email, password: values.password });
+      if (!c.ok) {
+        setCancelError(deletionErrorMessage(c.errors));
+        return;
+      }
+      toast.success("Exclusão cancelada. Entrando na sua conta...");
+      setDeletion(null);
+      const res = await login(values);
+      if (res.ok) {
+        router.replace(res.data.redirectTo);
+        return;
+      }
+      setError("root", { type: "server", message: deletionErrorMessage(res.errors) });
+    });
+  };
+
   return (
     <form onSubmit={onSubmit} noValidate className="space-y-4">
+      {deletion && (
+        <div ref={deletionRef} tabIndex={-1} role="alert" aria-live="assertive" className="space-y-3 rounded-md border border-warning/40 bg-warning/10 p-3 text-sm outline-none">
+          <p className="font-medium">
+            A exclusão desta conta está agendada{deletion.scheduledFor ? <> para {formatDeletionDate(deletion.scheduledFor)}</> : null}.
+          </p>
+          <p className="text-muted-foreground">Até lá a conta fica bloqueada. Se você mudou de ideia, cancele a exclusão e entre normalmente.</p>
+          <Button type="button" variant="outline" size="sm" onClick={cancelDeletion} disabled={pending} aria-busy={pending}>
+            {pending && <Loader2 className="animate-spin" aria-hidden="true" />}
+            Cancelar exclusão e entrar
+          </Button>
+          {cancelError && <p className="text-xs text-destructive">{cancelError}</p>}
+        </div>
+      )}
       {errors.root?.message && (
         <p role="alert" className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
           {errors.root.message}

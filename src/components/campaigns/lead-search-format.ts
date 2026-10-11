@@ -39,3 +39,4 @@ export function resultText(c: Counts): string {
 
 export const DUPLICATES_HINT = "Repetir a busca tende a trazer resultados duplicados: empresas já encontradas não entram de novo.";
 export const BACKGROUND_TEXT = "A busca continua em segundo plano. Atualize a página mais tarde para ver o resultado no histórico.";
+export const NEXT_PAGE_HINT = "Há mais resultados para esta busca: cada nova busca continua de onde a anterior parou e usa 1 a 2 chamadas pagas.";

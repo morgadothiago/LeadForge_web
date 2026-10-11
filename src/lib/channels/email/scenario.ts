@@ -12,7 +12,7 @@
  * Fallback em cascata, sempre que o env específico do cenário não estiver setado (nunca erro fatal):
  * env do cenário -> `RESEND_FROM_EMAIL` (genérico, opcional) -> `SMTP_USER` -> "no-reply@leadforge.local".
  */
-export type EmailScenario = "password_reset" | "courtesy_welcome" | "billing_reminder" | "subscription_success" | "subscription_canceled" | "org_invite" | "trial_started" | "payment_receipt" | "payment_failed" | "payment_recovered" | "renewal_upcoming" | "plan_changed";
+export type EmailScenario = "password_reset" | "courtesy_welcome" | "billing_reminder" | "subscription_success" | "subscription_canceled" | "org_invite" | "trial_started" | "payment_receipt" | "payment_failed" | "payment_recovered" | "renewal_upcoming" | "plan_changed" | "cancel_requested" | "subscription_reactivated" | "account_deletion_confirm" | "account_deletion_requested" | "account_deletion_cancelled" | "account_deleted" | "welcome" | "email_verification" | "password_changed" | "org_member_joined" | "org_member_left" | "org_member_removed" | "org_role_changed";
 
 const SCENARIO_ENV_VAR: Record<EmailScenario, string> = {
   password_reset: "RESEND_FROM_NOREPLY",
@@ -30,6 +30,23 @@ const SCENARIO_ENV_VAR: Record<EmailScenario, string> = {
   payment_recovered: "RESEND_FROM_BILLING",
   renewal_upcoming: "RESEND_FROM_BILLING",
   plan_changed: "RESEND_FROM_BILLING",
+  // SPEC-053a: cancelamento agendado e reativacao saem do remetente billing.
+  cancel_requested: "RESEND_FROM_BILLING",
+  subscription_reactivated: "RESEND_FROM_BILLING",
+  // SPEC-054a: exclusao de conta (LGPD) sai do remetente transacional (noreply).
+  account_deletion_confirm: "RESEND_FROM_NOREPLY",
+  account_deletion_requested: "RESEND_FROM_NOREPLY",
+  account_deletion_cancelled: "RESEND_FROM_NOREPLY",
+  account_deleted: "RESEND_FROM_NOREPLY",
+  // SPEC-055: boas-vindas do cadastro self-service sai do suporte; verificacao e aviso de senha alterada, do noreply.
+  welcome: "RESEND_FROM_SUPPORT",
+  email_verification: "RESEND_FROM_NOREPLY",
+  password_changed: "RESEND_FROM_NOREPLY",
+  // SPEC-056: eventos de equipe da organizacao (para owners) saem do remetente transacional.
+  org_member_joined: "RESEND_FROM_NOREPLY",
+  org_member_left: "RESEND_FROM_NOREPLY",
+  org_member_removed: "RESEND_FROM_NOREPLY",
+  org_role_changed: "RESEND_FROM_NOREPLY",
 };
 
 /** SPEC-048 (D-048-5): remetentes do ACS (precisam ser MailFrom do domínio verificado no ACS). */
@@ -46,6 +63,19 @@ const ACS_SCENARIO_ENV_VAR: Record<EmailScenario, string> = {
   payment_recovered: "ACS_FROM_BILLING",
   renewal_upcoming: "ACS_FROM_BILLING",
   plan_changed: "ACS_FROM_BILLING",
+  cancel_requested: "ACS_FROM_BILLING",
+  subscription_reactivated: "ACS_FROM_BILLING",
+  account_deletion_confirm: "ACS_FROM_NOREPLY",
+  account_deletion_requested: "ACS_FROM_NOREPLY",
+  account_deletion_cancelled: "ACS_FROM_NOREPLY",
+  account_deleted: "ACS_FROM_NOREPLY",
+  welcome: "ACS_FROM_SUPPORT",
+  email_verification: "ACS_FROM_NOREPLY",
+  password_changed: "ACS_FROM_NOREPLY",
+  org_member_joined: "ACS_FROM_NOREPLY",
+  org_member_left: "ACS_FROM_NOREPLY",
+  org_member_removed: "ACS_FROM_NOREPLY",
+  org_role_changed: "ACS_FROM_NOREPLY",
 };
 
 const DEFAULT_FROM = "no-reply@leadforge.local";

@@ -47,6 +47,8 @@ export type LeadSearchPanel =
       estimatedPaidCallsLeft: number;
       /** Run `running` (não preso) da campanha, se houver; sobrevive a refresh. */
       activeRun: ActiveRunView | null;
+      /** SPEC-060: a última busca concluída deixou uma próxima página (botão vira "Buscar mais resultados"). */
+      hasNextPage: boolean;
       runs: SearchRunView[];
     };
 
@@ -55,7 +57,7 @@ export async function getLeadSearchPanel(campaignId: string): Promise<LeadSearch
   const { user, orgId } = await requireProviderOrg();
   const db = scopedPrisma(orgId);
   const start = startOfLocalDay("America/Sao_Paulo", new Date());
-  const [origin, runs, todayRows, orgRows, membership] = await Promise.all([
+  const [origin, runs, todayRows, orgRows, membership, cursorRun] = await Promise.all([
     integrationOrigin(orgId, "places"),
     db.searchRun.findMany({
       where: { campaignId },
@@ -66,6 +68,7 @@ export async function getLeadSearchPanel(campaignId: string): Promise<LeadSearch
     db.searchRun.findMany({ where: { campaignId, startedAt: { gte: start } }, select: { trigger: true, status: true, requests: true } }),
     db.searchRun.findMany({ where: { startedAt: { gte: start } }, select: { trigger: true, status: true, requests: true } }),
     prisma.membership.findUnique({ where: { userId_orgId: { userId: user.id, orgId } }, select: { orgRole: true } }),
+    db.searchRun.findFirst({ where: { campaignId, status: "done", searchQuery: { not: null } }, orderBy: { startedAt: "desc" }, select: { pageToken: true } }),
   ]);
   const b = computeBudget(todayRows, orgRows, { daily: dailyRequestBudget(), manual: manualDailyBudget(), org: orgDailyBudget() });
   const cutoff = Date.now() - STALE_RUN_MS;
@@ -84,6 +87,7 @@ export async function getLeadSearchPanel(campaignId: string): Promise<LeadSearch
     remainingOrg: b.remainingOrg,
     estimatedPaidCallsLeft: b.estimatedPaidCallsLeft,
     activeRun: active ? { id: active.id, trigger: active.trigger, startedAt: active.startedAt } : null,
+    hasNextPage: !!cursorRun?.pageToken,
     runs,
   };
 }

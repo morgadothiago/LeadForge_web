@@ -16,7 +16,9 @@ import { sweepThrottled } from "@/lib/mobile/alerts";
 import { syncOrgStatuses } from "@/lib/billing/status-map";
 import { purgeCanceledOrgs } from "@/lib/billing/purge";
 import { sendBillingReminders } from "@/lib/billing/reminders";
+import { runCancelEffectuationJob } from "@/lib/billing/cancel-effective";
 import { runPixRenewalJob } from "@/lib/billing/pix-renewal";
+import { runAccountDeletionJob } from "@/lib/account-deletion/purge";
 import { getSchedulerConfig, type SchedulerConfig } from "./config";
 import { acquirePgAdvisoryLock, type AcquireLock } from "./lock";
 import { computeNextTouchAt, decideAfterSend, decideStage, pickDueLeads, type ChannelResult, type EndStatus } from "./decide";
@@ -138,8 +140,13 @@ export async function runTick(now: Date, overrides: Partial<TickDeps> = {}): Pro
   // nenhuma Subscription é pixManaged. Isolado; falha nunca derruba o tick. Roda antes do expurgo, mesma
   // ordem de sendBillingReminders (past_due marcado aqui já é visto pelo aviso auto_suspended no PRÓXIMO tick).
   await runPixRenewalJob(new Date()).catch((e) => console.error("[scheduler] renovação PIX (AbacatePay) falhou:", safeErrorForLog(e)));
+  // SPEC-053a (D-053-1): efetiva cancelamentos voluntarios vencidos (cancelAtPeriodEnd) — isolado; roda antes do
+  // expurgo (canceledAt = efetivacao ancora os 90 dias).
+  await runCancelEffectuationJob(new Date()).catch((e) => console.error("[scheduler] efetivação de cancelamento falhou:", safeErrorForLog(e)));
   // SPEC-033 (D-33-4): expurgo/anonimização 90 dias após cancelamento (isolado; falha nunca derruba o tick)
   await purgeCanceledOrgs(new Date()).catch((e) => console.error("[scheduler] expurgo de billing falhou:", safeErrorForLog(e)));
+  // SPEC-054a (D-054-1): exclusao de conta (LGPD) — anonimiza usuarios cuja janela de 30 dias venceu e envia o e-mail #14 (1x). Isolado.
+  await runAccountDeletionJob(new Date()).catch((e) => console.error("[scheduler] exclusão de conta falhou:", safeErrorForLog(e)));
   return summary({ status: error ? "error" : "ok", runId: firstRunId, budget, ...(error ? { error } : {}) });
 }
 
@@ -216,7 +223,7 @@ async function execute(now: Date, deps: TickDeps, t0: number, inc: (k: string, n
       return null;
     }
     if (channel === "whatsapp" && instanceId) {
-      if (r.status === "sent" || (r.status === "deferred" && "reason" in r && INSTANCE_LEVEL_DEFER.has(r.reason))) usedInstances.add(instanceId);
+      if (r.status === "sent" || (r.status === "deferred" && "reason" in r && r.reason !== undefined && INSTANCE_LEVEL_DEFER.has(r.reason))) usedInstances.add(instanceId);
     }
     return r;
   };

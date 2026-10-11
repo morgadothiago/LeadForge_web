@@ -316,12 +316,14 @@ export function CreativeWizard({ info }: { info: AvatarsAndVoices }) {
           <ArrowLeft aria-hidden="true" /> {step === 0 ? "Cancelar" : "Voltar"}
         </Button>
         {last ? (
-          <Button type="submit" disabled={pending || Boolean(quota.blockedReason)} aria-busy={pending}>
+          // `key` distinto: sem ele o React reaproveita o MESMO <button> do "Continuar" e ele vira submit no meio do clique,
+          // enviando o criativo ao entrar na revisão (bug visto em navegador real).
+          <Button key="submit" type="submit" disabled={pending || Boolean(quota.blockedReason)} aria-busy={pending}>
             {pending ? <Loader2 className="animate-spin" aria-hidden="true" /> : <Send aria-hidden="true" />}
             {pending ? "Enviando..." : "Criar e enviar"}
           </Button>
         ) : (
-          <Button type="button" onClick={next}>
+          <Button key="next" type="button" onClick={next}>
             Continuar <ArrowRight aria-hidden="true" />
           </Button>
         )}

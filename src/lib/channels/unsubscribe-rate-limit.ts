@@ -1,11 +1,12 @@
 /**
- * Rate limit em memória (por processo) do endpoint público de descadastro.
+ * Rate limit (SPEC-059: Redis quando REDIS_URL, senão memória por processo; teto de chaves/"full" só na memória) do endpoint público de descadastro.
  * IP confiável (TRUSTED_PROXY_IP_HEADER): 30 req/min por IP + 10 req/min por token.
  * IP "unknown" (sem proxy confiável, IP compartilhado): NÃO limita por IP (bloquearia titulares legítimos entre si);
  * limita por token (10/min, só para token com assinatura válida) e por um teto global generoso (600/min) só contra flood. Descadastro é obrigação legal: na dúvida, aceita.
  */
 
 import { verifyUnsubscribeToken } from "./unsubscribe";
+import { redisHit } from "@/lib/rate-limit/redis";
 
 export const RATE_MAX = 30;
 export const TOKEN_MAX = 10;
@@ -66,7 +67,25 @@ function hit(key: string, max: number, now: number): number | null | "full" {
  * Chave por token só é criada se a assinatura do token é válida (tokens forjados não consomem memória).
  * Lotado sem como descartar: chave de IP nova -> 429 curto (1s); chave de token válido -> aceita sem contar (descadastro é obrigação legal).
  */
-export function rateLimitRetrySeconds(ip: string, token?: string | null, now = Date.now()): number | null {
+export async function rateLimitRetrySeconds(ip: string, token?: string | null, now = Date.now()): Promise<number | null> {
+  const viaRedis = await redisRetry(ip, token, now);
+  if (viaRedis !== undefined) return viaRedis;
+  return memRetrySeconds(ip, token, now);
+}
+
+async function redisRetry(ip: string, token: string | null | undefined, now: number): Promise<number | null | undefined> {
+  const first = ip === "unknown" ? await redisHit("unsub", "g", GLOBAL_MAX, RATE_WINDOW_MS) : await redisHit("unsub", `ip:${ip}`, RATE_MAX, RATE_WINDOW_MS);
+  if (first === undefined) return undefined;
+  const waits: (number | null)[] = [first];
+  if (token && verifyUnsubscribeToken(token, new Date(now))) {
+    const t = await redisHit("unsub", `t:${token}`, TOKEN_MAX, RATE_WINDOW_MS);
+    if (t !== undefined) waits.push(t);
+  }
+  const over = waits.filter((w): w is number => w !== null);
+  return over.length ? Math.max(...over) : null;
+}
+
+function memRetrySeconds(ip: string, token: string | null | undefined, now: number): number | null {
   if (now - lastSweep >= SWEEP_EVERY_MS) sweep(now);
   const waits: (number | null)[] = [];
   const r = ip === "unknown" ? hit("g", GLOBAL_MAX, now) : hit(`ip:${ip}`, RATE_MAX, now);

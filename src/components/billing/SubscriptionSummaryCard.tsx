@@ -8,6 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { formatDate } from "@/components/leads/lead-format";
 import { createPortalSession } from "@/lib/actions/billing";
 import type { BillingSummary } from "@/lib/queries/billing";
+import { CancelSubscriptionPanel } from "./CancelSubscriptionPanel";
 import { CADENCE_LABELS, SUBSCRIPTION_STATUS_LABELS, subscriptionStatusTone } from "./billing-format";
 
 const TONE_VARIANT = { ok: "default", warn: "muted", bad: "destructive" } as const;
@@ -60,11 +61,12 @@ export function SubscriptionSummaryCard({ summary }: { summary: BillingSummary }
             Período de teste até <strong>{formatDate(subscription.trialEndsAt)}</strong>. Nenhuma cobrança até lá.
           </p>
         )}
-        {subscription.currentPeriodEnd && (
+        {subscription.currentPeriodEnd && !subscription.cancelAtPeriodEnd && subscription.status !== "canceled" && (
           <p className="text-sm text-muted-foreground">
-            {subscription.cancelAtPeriodEnd ? "Assinatura cancelada, ativa até" : "Próxima cobrança em"} <strong className="text-foreground">{formatDate(subscription.currentPeriodEnd)}</strong>.
+            Próxima cobrança em <strong className="text-foreground">{formatDate(subscription.currentPeriodEnd)}</strong>.
           </p>
         )}
+        <CancelSubscriptionPanel subscription={subscription} isOwner={isOwner} />
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
           <Button variant="outline" disabled={pending || !isOwner} aria-busy={pending} onClick={openPortal}>
             {pending && <Loader2 className="animate-spin" aria-hidden="true" />}

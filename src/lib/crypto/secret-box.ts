@@ -16,7 +16,7 @@ export function encrypt(plain: string, key: Buffer = getEncryptionKey()): string
 
 export function decrypt(payload: string, key: Buffer = getEncryptionKey()): string {
   const [v, iv, tag, data] = payload.split(":");
-  if (v !== VERSION || !iv || !tag || !data) throw new Error("Segredo cifrado em formato inválido.");
+  if (v !== VERSION || !iv || !tag || data === undefined) throw new Error("Segredo cifrado em formato inválido.");
   try {
     const d = createDecipheriv("aes-256-gcm", key, Buffer.from(iv, "base64"));
     d.setAuthTag(Buffer.from(tag, "base64"));

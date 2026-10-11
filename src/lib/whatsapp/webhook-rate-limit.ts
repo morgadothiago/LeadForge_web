@@ -7,6 +7,8 @@
  *  - token: por token válido (a chave só nasce depois de o token existir no banco).
  */
 
+import { redisHit } from "@/lib/rate-limit/redis";
+
 export interface Limits {
   windowMs: number;
   invalidMax: number;
@@ -50,12 +52,18 @@ function hit(key: string, max: number, now: number): number | null {
   return e.count > max ? Math.max(1, Math.ceil((e.resetAt - now) / 1000)) : null;
 }
 
-export const invalidAttemptRetry = (now = Date.now()): number | null => hit("invalid", limits.invalidMax, now);
+/** SPEC-059: Redis quando disponível (undefined = indisponível => memória). */
+async function hitAny(key: string, max: number, now: number): Promise<number | null> {
+  const w = await redisHit("wa-webhook", key, max, limits.windowMs);
+  return w !== undefined ? w : hit(key, max, now);
+}
+
+export const invalidAttemptRetry = (now = Date.now()): Promise<number | null> => hitAny("invalid", limits.invalidMax, now);
 
 /** Global + por token (token JÁ validado no banco). */
-export function validTrafficRetry(token: string, now = Date.now()): number | null {
-  const g = hit("global", limits.globalMax, now);
-  const t = hit(`t:${token}`, limits.tokenMax, now);
+export async function validTrafficRetry(token: string, now = Date.now()): Promise<number | null> {
+  const g = await hitAny("global", limits.globalMax, now);
+  const t = await hitAny(`t:${token}`, limits.tokenMax, now);
   const over = [g, t].filter((w): w is number => w !== null);
   return over.length ? Math.max(...over) : null;
 }

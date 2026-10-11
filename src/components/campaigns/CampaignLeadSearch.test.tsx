@@ -13,13 +13,18 @@ import type { LeadSearchPanel } from "@/lib/queries/lead-search";
 
 const base: ManagePanel = {
   canManage: true, role: "owner", enabled: true, hasKey: true, budget: 3, maxResults: 20, usedToday: 0,
-  manualBudget: 2, orgBudget: 10, remainingManual: 2, remainingOrg: 9, estimatedPaidCallsLeft: 2, activeRun: null, runs: [],
+  manualBudget: 2, orgBudget: 10, remainingManual: 2, remainingOrg: 9, estimatedPaidCallsLeft: 2, activeRun: null, hasNextPage: false, runs: [],
 };
 const render = (p: Partial<ManagePanel> | LeadSearchPanel, active = true) =>
   renderToStaticMarkup(<CampaignLeadSearch campaignId="c1" campaignName="Camp" campaignActive={active} panel={{ ...base, ...p } as LeadSearchPanel} />);
 const btn = (html: string) => html.match(/<button[^>]*>(?:(?!<\/button>)[\s\S])*Buscar agora<\/button>/)?.[0] ?? "";
 
 describe("CampaignLeadSearch", () => {
+  it("SPEC-060: com proxima pagina o botao vira Buscar mais resultados", () => {
+    const html = render({ hasNextPage: true });
+    expect(html).toContain("Buscar mais resultados");
+    expect(render({})).not.toContain("Buscar mais resultados");
+  });
   it("liberado: botão Buscar agora habilitado, estimativa e aviso de duplicados", () => {
     const html = render({});
     expect(btn(html)).not.toContain('disabled=""');

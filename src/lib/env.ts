@@ -20,6 +20,8 @@ export const envSchema = z.object({
   WHATSAPP_PROMO_WORDS: z.string().optional(),
   /** SPEC-013: segredo do /api/cron/tick (32+ chars). Ausente/curto => endpoint 503. Validado em runtime (scheduler/config), não aqui, para não derrubar o app. */
   CRON_SECRET: z.string().optional(),
+  /** SPEC-059: Redis p/ rate limit compartilhado entre instancias (ex.: redis://localhost:6379). Ausente => limiters em memoria por processo. */
+  REDIS_URL: z.string().optional(),
   SCHEDULER_TIME_BUDGET_MS: z.string().optional(),
   SCHEDULER_MAX_SENDS: z.string().optional(),
   /** SPEC-033 (D-33-5): "mock" (default) ou "stripe". Stripe real exige STRIPE_SECRET_KEY/STRIPE_WEBHOOK_SECRET (sem conta ainda). */

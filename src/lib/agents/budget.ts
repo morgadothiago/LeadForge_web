@@ -17,7 +17,15 @@ const PRICES: Record<string, [number, number]> = {
 };
 const FALLBACK: [number, number] = [5, 25];
 
-export function costMicros(model: string, tokensIn: number, tokensOut: number): number {
+/** SPEC-036 (D-36-3): modelos locais/free tier custam 0 (tokens continuam contados). Lista explícita; desconhecido => FALLBACK. */
+const FREE_MODEL = /^(?:(?:meta-llama|mistralai|google|qwen|ollama)\/)?(?:llama|qwen|mistral|gemma|gemini-[\w.-]*flash)/i;
+export function isFreeModel(model: string): boolean {
+  return FREE_MODEL.test(model.trim());
+}
+
+/** `freeHost`: provedor em host privado/local (instância própria) => custo 0 independente do modelo. */
+export function costMicros(model: string, tokensIn: number, tokensOut: number, opts: { freeHost?: boolean } = {}): number {
+  if (opts.freeHost || (!(model in PRICES) && isFreeModel(model))) return 0;
   const [pi, po] = PRICES[model] ?? FALLBACK;
   return Math.ceil(tokensIn * pi + tokensOut * po);
 }

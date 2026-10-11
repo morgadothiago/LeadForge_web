@@ -16,10 +16,17 @@ const ALLOWLIST: Record<string, string> = {
   // SPEC-038: "esqueci/redefinir senha" — o usuário, por definição, ainda não tem sessão (ou a perdeu).
   forgotPassword: "src/lib/actions/auth.ts",
   resetPassword: "src/lib/actions/auth.ts",
+  // SPEC-055: confirmacao de e-mail pelo link (token = prova de posse; pode abrir em outro navegador, sem sessao).
+  verifyEmail: "src/lib/actions/auth.ts",
   // SPEC-049: signup via convite/código (cria a própria sessão, como login/signup) e pré-visualização do convite
   // por token (página pública /convite/[token]; o token é a prova de posse, rate limit por IP).
   signUpAndJoin: "src/lib/actions/org.ts",
   previewInvite: "src/lib/actions/org.ts",
+  // SPEC-054a: exclusao de conta — links publicos do e-mail (token = prova de posse) e "cancelar pelo login" (e-mail+senha).
+  previewAccountDeletionToken: "src/lib/actions/account-deletion.ts",
+  confirmAccountDeletion: "src/lib/actions/account-deletion.ts",
+  cancelAccountDeletionByToken: "src/lib/actions/account-deletion.ts",
+  cancelAccountDeletionWithPassword: "src/lib/actions/account-deletion.ts",
 };
 
 function walk(dir: string, out: string[] = []): string[] {
@@ -96,7 +103,7 @@ describe("estático: todo arquivo 'use server' exige sessão", () => {
     });
   }
 
-  it("allowlist só contém login/logout/forgotPassword/resetPassword de auth.ts, signUpAndStartCheckout de billing.ts e signUpAndJoin/previewInvite de org.ts", () => {
-    expect(Object.keys(ALLOWLIST).sort()).toEqual(["forgotPassword", "login", "logout", "previewInvite", "resetPassword", "signUpAndJoin", "signUpAndStartCheckout"]);
+  it("allowlist só contém login/logout/forgotPassword/resetPassword de auth.ts, signUpAndStartCheckout de billing.ts, signUpAndJoin/previewInvite de org.ts e as 4 actions publicas de account-deletion.ts (SPEC-054a) e verifyEmail de auth.ts (SPEC-055)", () => {
+    expect(Object.keys(ALLOWLIST).sort()).toEqual(["cancelAccountDeletionByToken", "cancelAccountDeletionWithPassword", "confirmAccountDeletion", "forgotPassword", "login", "logout", "previewAccountDeletionToken", "previewInvite", "resetPassword", "signUpAndJoin", "signUpAndStartCheckout", "verifyEmail"]);
   });
 });

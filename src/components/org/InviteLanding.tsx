@@ -13,7 +13,7 @@ import { PasswordInput } from "@/components/auth/PasswordInput";
 import { LogoutButton } from "@/components/auth/LogoutButton";
 import { acceptInvite, signUpAndJoin } from "@/lib/actions/org";
 import { inviteSignupFormSchema, type InviteSignupFormInput } from "@/lib/schemas/org";
-import { applyServerErrors, roleLabel, type OrgRoleName } from "./org-format";
+import { applyServerErrors, maskEmail, roleLabel, type OrgRoleName } from "./org-format";
 
 export type InviteViewState =
   | { kind: "error"; message: string }
@@ -50,7 +50,7 @@ export function InviteLanding({ token, state }: { token: string; state: InviteVi
         <div className="space-y-4">
           <Notice
             title="Este convite é para outro e-mail"
-            text={`O convite para ${state.orgName} foi enviado para ${state.inviteEmail}, mas você está conectado como ${state.currentEmail}. Saia e entre com a conta do convite.`}
+            text={`O convite para ${state.orgName} foi enviado para ${maskEmail(state.inviteEmail)}, mas você está conectado como ${state.currentEmail}. Saia e entre com a conta do convite.`}
           />
           <div className="flex justify-center">
             <LogoutButton />

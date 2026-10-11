@@ -1,7 +1,8 @@
 "use server";
 
+import { randomUUID } from "node:crypto";
 import { headers } from "next/headers";
-import { Prisma } from "@prisma/client";
+import { Prisma, type SubscriptionStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { ForbiddenError, requireProviderOrg } from "@/lib/auth/require-admin";
 import { createSession } from "@/lib/auth/session";
@@ -9,8 +10,11 @@ import { hashPassword } from "@/lib/auth/password";
 import { getClientIpKey } from "@/lib/auth/client-ip";
 import { SlidingLimiter } from "@/lib/integrations/rate-limit";
 import { getPaymentProvider } from "@/lib/billing/provider-factory";
+import { processBillingEvent } from "@/lib/billing/process-event";
 import { TRIAL_DAYS } from "@/lib/billing/status-map";
+import { cancelModeFor } from "@/lib/billing/cancel-mode";
 import { sendTrialStartedEmail } from "@/lib/billing/trial-email";
+import { sendSignupEmails } from "@/lib/auth/email-verification";
 import { checkoutSchema, signupSchema } from "@/lib/schemas/billing";
 import { failure, formError, safeAction, success, zodErrors, type ActionResult } from "./result";
 
@@ -22,7 +26,7 @@ import { failure, formError, safeAction, success, zodErrors, type ActionResult }
  */
 
 const baseUrl = (): string => (process.env.APP_BASE_URL || process.env.AUTH_URL || "http://localhost:3000").replace(/\/+$/, "");
-const signupLimiter = new SlidingLimiter(5, 10 * 60_000);
+const signupLimiter = new SlidingLimiter(5, 10 * 60_000, 1000, "billing-signup");
 
 /** Só o `owner` (Membership.orgRole) da org gerencia a assinatura — `member` não inicia checkout nem abre o portal. */
 async function requireOwner(): Promise<{ orgId: string; userId: string }> {
@@ -60,6 +64,103 @@ export async function createPortalSession(): Promise<ActionResult<{ url: string 
   });
 }
 
+const cancelLimiter = new SlidingLimiter(5, 10 * 60_000, 1000, "billing-cancel");
+
+/** Estado devolvido ao frontend (053b): `cancelAtPeriodEnd` + `currentPeriodEnd` (fim do acesso) + `status`. */
+export interface SubscriptionChangeResult {
+  status: SubscriptionStatus;
+  cancelAtPeriodEnd: boolean;
+  currentPeriodEnd: Date | null;
+  /** `scheduled` = cancelamento agendado p/ fim do periodo; `immediate` = efetivado agora (trial/sem periodo pago); `already` = nada a fazer (idempotente); `reactivated` = cancelamento agendado desfeito. */
+  outcome: "scheduled" | "immediate" | "already" | "reactivated";
+}
+
+/**
+ * SPEC-053a (D-053-1..6) — cancelar a assinatura da org ativa. Owner-only, rate limit, SEM senha (modal no front).
+ * Plano pago em dia: `cancelAtPeriodEnd=true`, acesso ate `currentPeriodEnd`, sem reembolso. Trial (ou sem periodo
+ * pago vigente): efetivo imediato (D-053-3). Provedor primeiro: se o provedor FALHAR (lanca), nada e gravado localmente
+ * (o usuario tenta de novo, sem divergencia). Provedor sem endpoint (AbacatePay cartao/PIX) => fallback local
+ * (D-053-5). Estado aplicado pelo MESMO `processBillingEvent`/`status-map.ts`. Idempotente.
+ */
+export async function cancelSubscription(): Promise<ActionResult<SubscriptionChangeResult>> {
+  return safeAction(async () => {
+    const { orgId } = await requireOwner();
+    if (await cancelLimiter.hit(orgId) > 0) return formError("Muitas tentativas. Aguarde alguns minutos e tente novamente.");
+    const sub = await prisma.subscription.findUnique({
+      where: { orgId },
+      select: { status: true, cadence: true, currentPeriodEnd: true, cancelAtPeriodEnd: true, externalCustomerId: true, externalSubscriptionId: true, plan: { select: { key: true } } },
+    });
+    if (!sub) return formError("Nenhuma assinatura encontrada para cancelar.");
+    if (sub.status === "canceled" || sub.cancelAtPeriodEnd) {
+      return success({ status: sub.status, cancelAtPeriodEnd: sub.cancelAtPeriodEnd, currentPeriodEnd: sub.currentPeriodEnd, outcome: "already" });
+    }
+    const now = new Date();
+    const atPeriodEnd = cancelModeFor(sub, now) === "scheduled";
+    await getPaymentProvider().cancelSubscription({ orgId, atPeriodEnd });
+    const result = await processBillingEvent(
+      {
+        eventId: `app_cancel:${orgId}:${randomUUID()}`,
+        type: atPeriodEnd ? "subscription.updated" : "subscription.canceled",
+        orgId,
+        planKey: sub.plan.key,
+        cadence: sub.cadence,
+        status: atPeriodEnd ? sub.status : "canceled",
+        currentPeriodEnd: sub.currentPeriodEnd,
+        cancelAtPeriodEnd: atPeriodEnd,
+        externalCustomerId: sub.externalCustomerId,
+        externalSubscriptionId: sub.externalSubscriptionId,
+      },
+      now,
+    );
+    if (result === "org_not_found" || result === "plan_not_found") return formError("Não foi possível cancelar a assinatura.");
+    return success({ status: atPeriodEnd ? sub.status : "canceled", cancelAtPeriodEnd: atPeriodEnd, currentPeriodEnd: sub.currentPeriodEnd, outcome: atPeriodEnd ? "scheduled" : "immediate" });
+  });
+}
+
+/**
+ * SPEC-053a (D-053-4/6) — desfaz o cancelamento AGENDADO antes do fim do periodo (acesso nunca foi interrompido).
+ * Assinatura ja efetivada (`canceled`/periodo vencido): reativar = nova contratacao via `createCheckoutSession`
+ * (dados mantidos ate o expurgo, D-053-4); esta action recusa com mensagem. Idempotente (sem cancelamento
+ * agendado => `already`, sem e-mail).
+ */
+export async function reactivateSubscription(): Promise<ActionResult<SubscriptionChangeResult>> {
+  return safeAction(async () => {
+    const { orgId } = await requireOwner();
+    if (await cancelLimiter.hit(orgId) > 0) return formError("Muitas tentativas. Aguarde alguns minutos e tente novamente.");
+    const sub = await prisma.subscription.findUnique({
+      where: { orgId },
+      select: { status: true, cadence: true, currentPeriodEnd: true, cancelAtPeriodEnd: true, externalCustomerId: true, externalSubscriptionId: true, plan: { select: { key: true } } },
+    });
+    if (!sub) return formError("Nenhuma assinatura encontrada.");
+    const now = new Date();
+    if (sub.status === "canceled" || (sub.cancelAtPeriodEnd && (!sub.currentPeriodEnd || sub.currentPeriodEnd.getTime() <= now.getTime()))) {
+      return formError("O cancelamento já foi efetivado. Contrate um plano novamente em Configurações > Assinatura para reativar.");
+    }
+    if (!sub.cancelAtPeriodEnd) {
+      return success({ status: sub.status, cancelAtPeriodEnd: false, currentPeriodEnd: sub.currentPeriodEnd, outcome: "already" });
+    }
+    await getPaymentProvider().resumeSubscription({ orgId });
+    const result = await processBillingEvent(
+      {
+        eventId: `app_reactivate:${orgId}:${randomUUID()}`,
+        type: "subscription.updated",
+        orgId,
+        planKey: sub.plan.key,
+        cadence: sub.cadence,
+        status: sub.status,
+        currentPeriodEnd: sub.currentPeriodEnd,
+        cancelAtPeriodEnd: false,
+        explicitReactivation: true,
+        externalCustomerId: sub.externalCustomerId,
+        externalSubscriptionId: sub.externalSubscriptionId,
+      },
+      now,
+    );
+    if (result === "org_not_found" || result === "plan_not_found") return formError("Não foi possível reativar a assinatura.");
+    return success({ status: sub.status, cancelAtPeriodEnd: false, currentPeriodEnd: sub.currentPeriodEnd, outcome: "reactivated" });
+  });
+}
+
 function slugify(s: string): string {
   return (
     s
@@ -89,7 +190,7 @@ async function uniqueSlug(base: string): Promise<string> {
 export async function signUpAndStartCheckout(input: unknown): Promise<ActionResult<{ redirectTo: string }>> {
   return safeAction(async () => {
     const ip = getClientIpKey(await headers());
-    const wait = signupLimiter.hit(ip);
+    const wait = await signupLimiter.hit(ip);
     if (wait > 0) return formError(`Muitas tentativas. Tente novamente em ${wait}s.`);
 
     const parsed = signupSchema.safeParse(input);
@@ -110,7 +211,8 @@ export async function signUpAndStartCheckout(input: unknown): Promise<ActionResu
     let orgId: string;
     try {
       const created = await prisma.$transaction(async (tx) => {
-        const user = await tx.user.create({ data: { name, email, role: "provider", passwordHash }, select: { id: true } });
+        // SPEC-055 (D-055-3): cadastro self-service nasce NAO verificado (o default do banco e "verificado").
+        const user = await tx.user.create({ data: { name, email, role: "provider", passwordHash, emailVerifiedAt: null }, select: { id: true } });
         const org = await tx.organization.create({ data: { name: orgName, slug, status: "active" }, select: { id: true } });
         await tx.membership.create({ data: { userId: user.id, orgId: org.id, orgRole: "owner" } });
         await tx.subscription.create({
@@ -129,6 +231,8 @@ export async function signUpAndStartCheckout(input: unknown): Promise<ActionResu
       throw e;
     }
 
+    // SPEC-055: boas-vindas (idempotente) + verificacao de e-mail, pos-commit/best-effort. Nunca no ramo de e-mail duplicado (anti-enumeracao).
+    await sendSignupEmails({ id: userId, name, email }, { verify: true });
     await sendTrialStartedEmail(orgId, plan.name, trialEndsAt);
     await createSession(userId, orgId, "provider");
     return success({ redirectTo: "/dashboard" });

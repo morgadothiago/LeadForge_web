@@ -15,6 +15,8 @@ export type AppErrorCode =
   | "validation"
   | "upstream"
   | "config"
+  /** SPEC-055 (D-055-7): usuario com e-mail nao verificado tentou ENVIAR mensagens. */
+  | "email_not_verified"
   | "unknown";
 
 export interface AppErrorOptions {

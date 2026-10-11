@@ -102,6 +102,8 @@ describe("InviteLanding", () => {
     const wrong = renderToStaticMarkup(<InviteLanding token="t" state={{ kind: "wrong-account", orgName: "Acme", inviteEmail: "n@x.com", currentEmail: "o@x.com" }} />);
     expect(wrong).toContain("outro e-mail");
     expect(wrong).toContain("Sair");
+    expect(wrong).not.toContain("n@x.com");
+    expect(wrong).toContain("n***@x.com");
   });
 });
 

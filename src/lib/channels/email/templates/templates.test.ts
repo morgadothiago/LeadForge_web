@@ -4,6 +4,8 @@ import { courtesyWelcomeTemplate } from "./courtesy-welcome";
 import { billingReminderTemplate } from "./billing-reminder";
 import { subscriptionSuccessTemplate } from "./subscription-success";
 import { subscriptionCanceledTemplate } from "./subscription-canceled";
+import { cancelRequestedTemplate } from "./cancel-requested";
+import { subscriptionReactivatedTemplate } from "./subscription-reactivated";
 import { trialStartedTemplate } from "./trial-started";
 import { paymentReceiptTemplate } from "./payment-receipt";
 import { paymentFailedTemplate } from "./payment-failed";
@@ -83,21 +85,38 @@ describe("subscriptionSuccessTemplate (NOVO, SPEC-046)", () => {
   });
 });
 
-describe("subscriptionCanceledTemplate (NOVO, SPEC-046)", () => {
-  it("inclui data de acesso e data de expurgo (90 dias, D-33-4)", () => {
-    const accessUntil = new Date("2026-03-15T00:00:00Z");
-    const purgeDate = new Date("2026-06-01T00:00:00Z");
-    const { subject, html, text } = subscriptionCanceledTemplate({ planName: "Starter", accessUntil, purgeDate });
+describe("subscriptionCanceledTemplate (SPEC-046/053 — cancelamento efetivado)", () => {
+  it("afirma acesso ENCERRADO na data, retencao de 90 dias e como reativar", () => {
+    const accessEndedAt = new Date("2026-03-15T00:00:00Z");
+    const purgeDate = new Date("2026-06-13T00:00:00Z");
+    const { subject, html, text } = subscriptionCanceledTemplate({ planName: "Starter", accessEndedAt, purgeDate, link: "https://app.x.com/configuracoes/assinatura" });
     expect(subject).toMatch(/cancelad/i);
     expect(html).toContain("15 de março de 2026");
-    expect(html).toContain("01 de junho de 2026");
-    expect(text).toContain("15 de março de 2026");
-    expect(text).toContain("01 de junho de 2026");
+    expect(html).toContain("13 de junho de 2026");
+    expect(text).toMatch(/acesso foi encerrado em 15 de março de 2026/);
+    expect(text).not.toMatch(/continua dispon/i);
+    expect(text).toContain("https://app.x.com/configuracoes/assinatura");
+    expect(text).toMatch(/Reative/);
   });
+});
 
-  it("accessUntil null: mensagem de encerramento imediato", () => {
-    const { text } = subscriptionCanceledTemplate({ planName: "Starter", accessUntil: null, purgeDate: new Date("2026-06-01T00:00:00Z") });
-    expect(text).toMatch(/encerrado imediatamente/i);
+describe("cancelRequestedTemplate (SPEC-053a #10)", () => {
+  it("acesso ate a data, sem reembolso, retencao e como reverter; escapa HTML", () => {
+    const { subject, html, text } = cancelRequestedTemplate({ planName: "<b>Pro</b>", accessUntil: new Date("2026-03-15T00:00:00Z"), purgeDate: new Date("2026-06-13T00:00:00Z"), link: "https://app.x.com/configuracoes/assinatura" });
+    expect(subject).toMatch(/cancelamento/i);
+    expect(text).toContain("acesso continua normal até 15 de março de 2026");
+    expect(text).toContain("13 de junho de 2026");
+    expect(text).toMatch(/reembolso/);
+    expect(text).toContain("https://app.x.com/configuracoes/assinatura");
+    expect(html).not.toContain("<b>Pro</b>");
+  });
+});
+
+describe("subscriptionReactivatedTemplate (SPEC-053a #12)", () => {
+  it("confirma manutencao e proxima cobranca", () => {
+    const { subject, text } = subscriptionReactivatedTemplate({ planName: "Pro", nextBillingDate: new Date("2026-03-15T00:00:00Z"), link: "https://app.x.com/dashboard" });
+    expect(subject).toMatch(/mantida/i);
+    expect(text).toContain("15 de março de 2026");
   });
 });
 
@@ -155,5 +174,19 @@ describe("templates SPEC-052b", () => {
     const p = planChangedTemplate({ previousPlanName: "Starter", planName: "Pro", cadence: "monthly", amountCents: 19900, nextBillingDate: new Date("2026-04-01T00:00:00Z"), link });
     expect(p.subject).toContain("Pro"); expect(p.text).toContain("de Starter para Pro"); expect(p.html).toContain(link);
     expect(planChangedTemplate({ previousPlanName: null, planName: "Pro", cadence: "yearly", amountCents: null, nextBillingDate: null, link }).text).toContain("alterado para Pro");
+  });
+});
+
+describe("orgMemberEventTemplate (SPEC-056)", () => {
+  const base = { orgName: "Acme <b>", memberName: "Ana <i>", memberEmail: "ana@x.com", date: new Date("2026-10-10T12:00:00Z"), link: "https://app.leadforge.local/configuracoes/equipe" };
+  it.each([["joined", /Novo membro/], ["left", /saiu/], ["removed", /removido/], ["role_changed", /Papel/]] as const)("%s: assunto, link e escape", async (kind, re) => {
+    const { orgMemberEventTemplate } = await import("./org-member-event");
+    const t = orgMemberEventTemplate({ ...base, kind, orgRole: "owner", fromRole: "member" });
+    expect(t.subject).toMatch(re);
+    expect(t.html).toContain(base.link);
+    expect(t.text).toContain(base.link);
+    expect(t.text).toContain("ana@x.com");
+    expect(t.html).not.toContain("<b>");
+    expect(t.html).not.toContain("<i>");
   });
 });

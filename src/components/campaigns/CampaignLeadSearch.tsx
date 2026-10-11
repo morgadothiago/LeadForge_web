@@ -12,7 +12,7 @@ import type { LeadSearchPanel } from "@/lib/queries/lead-search";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { getFormError } from "./form-utils";
 import {
-  BACKGROUND_TEXT, DUPLICATES_HINT, POLL_INTERVAL_MS, UI_MAX_WAIT_MS,
+  BACKGROUND_TEXT, DUPLICATES_HINT, NEXT_PAGE_HINT, POLL_INTERVAL_MS, UI_MAX_WAIT_MS,
   confirmCostText, deriveBlock, estimateText, resultText, type Counts,
 } from "./lead-search-format";
 
@@ -118,12 +118,12 @@ export function CampaignLeadSearch({ campaignId, campaignName, campaignActive, p
             </p>
           </div>
           <Button onClick={() => { setError(undefined); setOpen(true); }} disabled={disabled} className="w-full shrink-0 sm:w-auto">
-            {running ? <Loader2 className="animate-spin" aria-hidden="true" /> : <Search aria-hidden="true" />} Buscar agora
+            {running ? <Loader2 className="animate-spin" aria-hidden="true" /> : <Search aria-hidden="true" />} {panel.hasNextPage ? "Buscar mais resultados" : "Buscar agora"}
           </Button>
         </div>
 
         <p className="text-xs text-muted-foreground">{estimateText(panel)}</p>
-        <p className="text-xs text-muted-foreground">{DUPLICATES_HINT}</p>
+        <p className="text-xs text-muted-foreground">{panel.hasNextPage ? NEXT_PAGE_HINT : DUPLICATES_HINT}</p>
 
         {block && (
           <p role="status" className="flex flex-wrap items-start gap-2 rounded-md bg-warning/10 px-3 py-2 text-sm text-warning">
@@ -182,9 +182,9 @@ export function CampaignLeadSearch({ campaignId, campaignName, campaignActive, p
       <ConfirmDialog
         open={open}
         onOpenChange={setOpen}
-        title="Buscar novos leads?"
+        title={panel.hasNextPage ? "Buscar mais resultados?" : "Buscar novos leads?"}
         description={`Campanha "${campaignName}".`}
-        confirmLabel="Buscar agora"
+        confirmLabel={panel.hasNextPage ? "Buscar mais resultados" : "Buscar agora"}
         pending={pending}
         error={error}
         onConfirm={confirm}
@@ -192,7 +192,7 @@ export function CampaignLeadSearch({ campaignId, campaignName, campaignActive, p
         <div className="space-y-2 text-sm text-muted-foreground">
           <p className="font-medium text-foreground">{confirmCostText(panel)}</p>
           <p>Os leads entram como novos; nada é enviado automaticamente.</p>
-          <p>{DUPLICATES_HINT}</p>
+          <p>{panel.hasNextPage ? NEXT_PAGE_HINT : DUPLICATES_HINT}</p>
         </div>
       </ConfirmDialog>
     </>

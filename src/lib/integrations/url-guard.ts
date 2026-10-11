@@ -187,6 +187,24 @@ export async function assertAllowedHost(hostname: string, allowPrivateHost: bool
   return { ip, family: isIP(ip) === 6 ? 6 : 4 };
 }
 
+/** True só se o host resolve e TODOS os IPs são privados/loopback (classificação real; "blocked"/públicos => false). */
+export async function resolvesToPrivateOnly(hostname: string): Promise<boolean> {
+  try {
+    const bare = normalizeHostname(hostname);
+    if (METADATA_HOSTS.has(bare)) return false;
+    const numeric = isIP(bare) ? null : normalizeIPv4Host(bare);
+    if (numeric === "invalid") return false;
+    let ips: string[];
+    if (isIP(bare)) ips = [bare];
+    else if (numeric) ips = [numeric];
+    else if (bare === "localhost" || bare.endsWith(".localhost")) ips = ["127.0.0.1"];
+    else ips = await resolver(bare);
+    return ips.length > 0 && ips.every((ip) => classifyIp(ip) === "private");
+  } catch {
+    return false;
+  }
+}
+
 /** Agents que fixam a conexão no IP já checado (Host/SNI continuam sendo o hostname): fecha a janela de DNS rebinding. */
 export function pinnedAgents(ip: string, family: 4 | 6): { httpAgent: HttpAgent; httpsAgent: HttpsAgent } {
   const lookupFn = ((_host: string, opts: { all?: boolean }, cb: (...a: unknown[]) => void) => {

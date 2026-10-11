@@ -100,7 +100,7 @@ describe("permissão: só admin", () => {
   });
 });
 
-describe("salvar / resolver / cache / fallback", () => {
+describe("salvar / resolver / cache / fallback", async () => {
   it("salva cifrado, sem eco; edição vazia mantém; troca vale sem reiniciar; remover volta ao env", async () => {
     await signInAsSeedAdmin();
     _setCacheTtl(60_000);
@@ -163,7 +163,7 @@ describe("salvar / resolver / cache / fallback", () => {
   });
 });
 
-describe("SSRF ao salvar e ao conectar", () => {
+describe("SSRF ao salvar e ao conectar", async () => {
   it("metadados sempre bloqueados, mesmo com allowPrivateHost", async () => {
     await signInAsSeedAdmin();
     for (const url of ["http://169.254.169.254", "http://[fd00:ec2::254]", "http://metadata.google.internal"]) {
@@ -210,7 +210,7 @@ describe("SSRF ao salvar e ao conectar", () => {
   });
 });
 
-describe("testIntegration", () => {
+describe("testIntegration", async () => {
   async function setup() {
     await signInAsSeedAdmin();
     invalidateIntegrationCache();
@@ -285,7 +285,7 @@ describe("testIntegration", () => {
     _resetTestQuota();
     // 8 testes na integração via "usuários" distintos direto na cota; o 9º é barrado mesmo com usuário novo
     const { consumeTestQuota } = await import("@/lib/integrations/test-connection");
-    for (let i = 0; i < 8; i++) expect(consumeTestQuota(`outro-${i}`, id)).toBe(0);
+    for (let i = 0; i < 8; i++) expect(await consumeTestQuota(`outro-${i}`, id)).toBe(0);
     const r = await testIntegration(id);
     expect(r.ok === false && r.errors?._form?.[0]).toMatch(/Muitos testes/);
     _resetTestQuota();
@@ -312,7 +312,82 @@ describe("testIntegration", () => {
   });
 });
 
-describe("remoção", () => {
+describe("SPEC-036: llm com URL base (OpenAI-compatível)", async () => {
+  const llmRow = () => prisma.integrationSecret.findFirstOrThrow({ where: { integration: "llm" } });
+  it("sem URL a chave é obrigatória; com URL aceita sem chave; SECRET_MIN mantido", async () => {
+    await signInAsSeedAdmin();
+    await prisma.integrationSecret.deleteMany();
+    const noKey = await saveIntegration({ integration: "llm" });
+    expect(!noKey.ok && noKey.errors?.value).toBeTruthy();
+    const short = await saveIntegration({ integration: "llm", value: "curta" });
+    expect(short.ok).toBe(false);
+    const r = await saveIntegration({ integration: "llm", baseUrl: base, allowPrivateHost: true });
+    expect(r.ok).toBe(true);
+    const cfg = await getIntegrationConfig(SEED_IDS.org, "llm");
+    expect(cfg.reveal()).toBe("");
+    expect(cfg.baseUrl).toBe(base);
+  });
+  it("url-guard no salvo: localhost só com allowPrivateHost; metadados sempre bloqueados", async () => {
+    await signInAsSeedAdmin();
+    await prisma.integrationSecret.deleteMany();
+    const priv = await saveIntegration({ integration: "llm", baseUrl: "http://localhost:11434/v1" });
+    expect(priv.ok).toBe(false);
+    const meta = await saveIntegration({ integration: "llm", baseUrl: "http://169.254.169.254/v1", allowPrivateHost: true });
+    expect(meta.ok).toBe(false);
+    const ok = await saveIntegration({ integration: "llm", baseUrl: "http://localhost:11434/v1", allowPrivateHost: true });
+    expect(ok.ok).toBe(true);
+  });
+  it("trocar o host sem nova chave limpa a chave antiga (não vaza a chave do Claude ao novo host)", async () => {
+    await signInAsSeedAdmin();
+    await prisma.integrationSecret.deleteMany();
+    await saveIntegration({ integration: "llm", value: KEY_A });
+    expect((await getIntegrationConfig(SEED_IDS.org, "llm")).reveal()).toBe(KEY_A);
+    invalidateIntegrationCache();
+    const r = await saveIntegration({ integration: "llm", baseUrl: base, allowPrivateHost: true });
+    expect(r.ok).toBe(true);
+    invalidateIntegrationCache();
+    expect((await getIntegrationConfig(SEED_IDS.org, "llm")).reveal()).toBe("");
+  });
+  it("editar llm existente sem value/troca de host não exige ENCRYPTION_KEY; criar/trocar host exige", async () => {
+    await signInAsSeedAdmin();
+    await prisma.integrationSecret.deleteMany();
+    await saveIntegration({ integration: "llm", value: KEY_A });
+    const prev = process.env.ENCRYPTION_KEY;
+    delete process.env.ENCRYPTION_KEY;
+    try {
+      invalidateIntegrationCache();
+      expect((await saveIntegration({ integration: "llm" })).ok).toBe(true);
+      const swap = await saveIntegration({ integration: "llm", baseUrl: base, allowPrivateHost: true });
+      expect(swap.ok).toBe(false);
+      const created = await saveIntegration({ integration: "llm", name: "outra", value: KEY_A });
+      expect(created.ok).toBe(false);
+    } finally {
+      process.env.ENCRYPTION_KEY = prev;
+    }
+  });
+  it("Testar conexão: GET /models com URL (ok/401, chave só como Bearer); Claude sem URL => indisponível", async () => {
+    await signInAsSeedAdmin();
+    await prisma.integrationSecret.deleteMany();
+    logs.length = 0;
+    await saveIntegration({ integration: "llm", value: KEY_B, baseUrl: base, allowPrivateHost: true });
+    const ok = await testIntegration((await llmRow()).id);
+    expect(ok.ok && ok.data.available && ok.data.ok).toBe(true);
+    mode = "401";
+    _resetTestQuota();
+    const bad = await testIntegration((await llmRow()).id);
+    expect(bad.ok && bad.data.available && !bad.data.ok).toBe(true);
+    expect(dump(bad) + logs.join("\n")).not.toContain(KEY_B);
+    mode = "ok";
+    await prisma.integrationSecret.deleteMany();
+    invalidateIntegrationCache();
+    await saveIntegration({ integration: "llm", value: KEY_A });
+    _resetTestQuota();
+    const claude = await testIntegration((await llmRow()).id);
+    expect(claude.ok && claude.data.available).toBe(false);
+  });
+});
+
+describe("remoção", async () => {
   it("bloqueia com instâncias WhatsApp dependentes (com contagem) e exige confirm", async () => {
     await signInAsSeedAdmin();
     await saveIntegration({ integration: "evolution", value: KEY_A, baseUrl: base, allowPrivateHost: true });
@@ -330,7 +405,7 @@ describe("remoção", () => {
   });
 });
 
-describe("remoção transacional", () => {
+describe("remoção transacional", async () => {
   it("dependente criado durante a remoção: contagem e delete na mesma transação; id inexistente -> não encontrada", async () => {
     await signInAsSeedAdmin();
     await saveIntegration({ integration: "evolution", value: KEY_A, baseUrl: base, allowPrivateHost: true });
@@ -347,7 +422,7 @@ describe("remoção transacional", () => {
   });
 });
 
-describe("vazamento e auditoria", () => {
+describe("vazamento e auditoria", async () => {
   it("nenhum valor em logs, auditoria ou retornos; auditoria registra ações", async () => {
     await signInAsSeedAdmin();
     await prisma.integrationSecret.deleteMany();

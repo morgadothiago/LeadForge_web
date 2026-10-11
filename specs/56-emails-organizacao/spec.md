@@ -1,5 +1,5 @@
 # SPEC-056 — E-mails de eventos de organizacao para owners (membro entrou/saiu/removido, convite aceito)
-- status: DRAFT | domain: backend | depende de: 049, 052 (`sendOnce`/`notifyOrgOwners`) | catalogo: #17 (P1)
+- status: IMPLEMENTED (2026-10-10) | domain: backend | depende de: 049, 052 (`sendOnce`/`notifyOrgOwners`) | catalogo: #17 (P1)
 
 ## Objetivo
 Notificar os owners da organizacao quando: um convite e aceito/membro entra (via convite ou codigo), um membro sai, um membro e removido, e o papel de um membro muda; e notificar o proprio membro removido/afetado quando fizer sentido.
@@ -30,3 +30,16 @@ Notificar os owners da organizacao quando: um convite e aceito/membro entra (via
 - Q-056-1: notificar tambem o membro removido / que teve papel alterado?
 - Q-056-2: e-mail imediato por evento ou resumo (digest) para entradas por codigo?
 - Q-056-3: quais eventos entram no P1 (so entrada/remocao/saida, ou tambem mudanca de papel)?
+
+## Decisoes registradas (2026-10-10, usuario aprovou com as recomendacoes do RETOMAR secao 3 item 4)
+- Q-056-1..3 decididas em 2026-10-10 por defaults conservadores (INFERRED, revisaveis):
+- D-056-1 (Q-056-1, INFERRED): notificar SOMENTE os owners (menos dado pessoal trafegando); o membro removido/afetado nao recebe e-mail nesta SPEC.
+- D-056-2 (Q-056-2, INFERRED): e-mail imediato por evento (sem digest), com teto por org/hora para entradas (anti-spam do codigo de entrada): acima do teto os excedentes nao enviam e ficam apenas na auditoria.
+- D-056-3 (Q-056-3, INFERRED): os 4 eventos entram (entrou, saiu, removido, papel alterado); o ator nao e notificado do proprio ato.
+
+## Implementation Notes
+- Arquivos: `src/lib/channels/email/scenario.ts` (4 cenarios noreply, Resend/ACS), `src/lib/channels/email/send-once.ts` (`excludeUserIds` opcional em `notifyOrgOwners`), `src/lib/channels/email/templates/org-member-event.ts` (novo), `src/lib/org/notify.ts` (novo: `notifyOrgMemberEvent`, teto `ORG_JOIN_EMAILS_PER_HOUR=10`), `src/lib/actions/org.ts` (disparo pos-commit em acceptInvite, joinByCode, signUpAndJoin, removeMember, leaveOrganization, changeMemberRole). Testes: `src/lib/actions/org-notify.test.ts` (novo), `scenario.test.ts`, `templates/templates.test.ts`. Sem migration.
+- Decisoes: teto D-056-2 medido por `OrgAuditLog` `member_joined` na ultima hora (excedentes ficam so na auditoria); dedupe `<cenario>:<orgId>:<userId>:<membershipId>` (+ instante em role_changed); excluidos o ator e o membro afetado (D-056-1/3); changeMemberRole so notifica se o papel realmente mudou; owners lidos apos o commit (org ativa apenas).
+- Resultados (VERIFIED): `tsc --noEmit` 0 erros; eslint 0 erros (20 warnings pre-existentes); vitest completo 159 arquivos / 2004 testes passando (banco leadforge_056_test).
+- Criterios de aceitacao: PASS (org-notify.test.ts cobre um e-mail por evento e por owner, ator excluido, recusa/sem mudanca sem envio, duplo clique sem duplicar, falha do provider sem propagar, multiplos owners, isolamento entre orgs, teto).
+- Limitacoes: falha do provider apos reserva da chave nao e retentada (padrao sendOnce); "rollback" garantido por construcao (envio apos o commit).

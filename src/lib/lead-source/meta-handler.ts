@@ -1,3 +1,4 @@
+import { redisHit } from "@/lib/rate-limit/redis";
 import { prisma } from "@/lib/prisma";
 import { tooManyRequests } from "@/lib/http";
 import { safeErrorForLog } from "@/lib/errors";
@@ -37,6 +38,22 @@ export const _resetMetaRateLimit = (): void => {
   validBucket = freshBucket();
 };
 
+/** SPEC-059: Redis (compartilhado) quando disponível; senão o bucket em memória acima. */
+async function hitInvalid(): Promise<number | null> {
+  const w = await redisHit("meta", "invalid", INVALID.max, INVALID.windowMs);
+  if (w !== undefined) return w;
+  const r = hit(invalidBucket, INVALID);
+  invalidBucket = r.b;
+  return r.wait;
+}
+async function hitValid(): Promise<number | null> {
+  const w = await redisHit("meta", "valid", VALID.max, VALID.windowMs);
+  if (w !== undefined) return w;
+  const r = hit(validBucket, VALID);
+  validBucket = r.b;
+  return r.wait;
+}
+
 async function readBodyLimited(req: Request): Promise<string | null> {
   const declared = Number(req.headers.get("content-length"));
   if (Number.isFinite(declared) && declared > MAX_BODY_BYTES) return null;
@@ -73,9 +90,8 @@ export async function handleMetaVerify(req: Request, deps: MetaDeps = {}): Promi
   const token = searchParams.get("hub.verify_token");
   const challenge = searchParams.get("hub.challenge");
   if (mode !== "subscribe" || !token || token !== verifyToken || !challenge) {
-    const r = hit(invalidBucket, INVALID);
-    invalidBucket = r.b;
-    return r.wait !== null ? tooManyRequests(r.wait) : unauthorized();
+    const w = await hitInvalid();
+    return w !== null ? tooManyRequests(w) : unauthorized();
   }
   return text(challenge, 200);
 }
@@ -122,13 +138,11 @@ export async function handleMetaWebhook(req: Request, deps: MetaDeps = {}): Prom
   // Assinatura verificada ANTES de qualquer parse/uso do corpo — nenhum efeito colateral antes desta linha.
   const signatureHeader = req.headers.get("x-hub-signature-256");
   if (!verifyMetaSignature(body, signatureHeader, appSecret)) {
-    const r = hit(invalidBucket, INVALID);
-    invalidBucket = r.b;
-    return r.wait !== null ? tooManyRequests(r.wait) : unauthorized();
+    const w = await hitInvalid();
+    return w !== null ? tooManyRequests(w) : unauthorized();
   }
-  const v = hit(validBucket, VALID);
-  validBucket = v.b;
-  if (v.wait !== null) return tooManyRequests(v.wait);
+  const vw = await hitValid();
+  if (vw !== null) return tooManyRequests(vw);
 
   let parsed: unknown;
   try {

@@ -18,3 +18,9 @@ export const signupSchema = z.object({
   planKey: planKeySchema,
 });
 export type SignupInput = z.input<typeof signupSchema>;
+
+/** SPEC-053b (D-053-6): confirmação explícita do cancelamento (checkbox no modal; sem senha). A action em si não recebe input. */
+export const cancelConfirmSchema = z.object({
+  confirm: z.boolean().refine((v) => v === true, { message: "Marque a caixa para confirmar o cancelamento." }),
+});
+export type CancelConfirmInput = z.input<typeof cancelConfirmSchema>;

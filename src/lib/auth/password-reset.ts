@@ -24,8 +24,8 @@ export function hashResetToken(token: string): string {
 // `actions/auth.ts`, arquivo "use server" cujos exports devem ser todos async) para poder expor um
 // helper de limpeza síncrono para os testes.
 const FORGOT_WINDOW_MS = 60 * 60_000;
-export const forgotByEmailLimiter = new SlidingLimiter(5, FORGOT_WINDOW_MS);
-export const forgotByIpLimiter = new SlidingLimiter(20, FORGOT_WINDOW_MS);
+export const forgotByEmailLimiter = new SlidingLimiter(5, FORGOT_WINDOW_MS, 1000, "forgot-email");
+export const forgotByIpLimiter = new SlidingLimiter(20, FORGOT_WINDOW_MS, 1000, "forgot-ip");
 
 /** Testes: zera os limitadores de `forgotPassword` (mesmo espírito de `_clearRateLimit` em rate-limit.ts). */
 export function clearForgotPasswordRateLimit(): void {

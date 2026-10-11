@@ -5,7 +5,7 @@ import type { EmailTemplate } from "./password-reset";
 /**
  * SPEC-052b (cenario `payment_failed`): falha de cobranca. `d0` sai NO evento `payment.failed` (ou no fallback
  * `past_due_started` do job, mesma chave); `d3`/`d5`/`d7` sao a regua ancorada em `pastDueSince` (D-052-4,
- * igual cartao e PIX). `d7` = ultimo aviso antes de suspender (grace 7d inalterado, D-039-3).
+ * igual cartao e PIX). `d7` = ultimo aviso, enviado em D+6 (24h antes de suspender; grace 7d inalterado, D-039-3).
  * Sem dado sensivel: cartao so 4 digitos. Link ABSOLUTO (APP_BASE_URL).
  */
 export type PaymentFailedStep = "d0" | "d3" | "d5" | "d7";

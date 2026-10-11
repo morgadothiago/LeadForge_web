@@ -1,76 +1,190 @@
-# Para retomar: o que está pronto, o que está bloqueado e o que depende de você
+# Para retomar: o que está pronto, o que depende de você e o que vem depois
 
-Criado em 2026-10-10 (noite), antes de você dormir. **Este arquivo é atualizado quando as tarefas em andamento terminam**
-(ver "Estado final" no fim). Branch: `feat/specs-048-051`. Repo: git@github.com:morgadothiago/LeadForge_web.git.
+Atualizado em 2026-10-11. Branch de trabalho: `docs/retomar-merge-feito` (a `main` já tem as SPECs 048-052b, 057 e 058; as SPECs
+053-056 e a PARTE 2 (036, 059, 060) estão só nesta branch, commitadas, **ainda sem PR**). Repo: git@github.com:morgadothiago/LeadForge_web.git.
 
 ## 1. Como conferir o estado em 1 minuto
 
 ```bash
-git log --oneline -10 && git status --short   # o que foi commitado / o que sobrou
+git log --oneline -10 && git status --short   # árvore limpa = nada sobrando
+git log main..HEAD --oneline                  # o que esta branch tem a mais que a main
 npx tsc --noEmit                              # deve estar limpo
-npx prisma migrate status                     # deve dizer "up to date"
+npx prisma migrate status                     # dev: 1 pendente (20261016120000) + 5 "não encontradas localmente" (drift, ver seção 3b)
+ls prisma/migrations                          # 44 entradas (43 migrations + migration_lock); a última é 20261016120000_search_run_cursor_060
 ```
 
-Ambiente local: Postgres/Redis/Mailpit no Docker (`colima start` se `docker ps` falhar), `npm run dev`, e **`npm run dev:tick`
-em outro terminal** (sem ele criativos ficam em "Na fila"). Mailpit: http://localhost:8025.
+Ambiente local: Postgres/Redis/Mailpit no Docker (`colima start` se `docker ps` falhar), `npm run dev` e **`npm run dev:tick`
+em outro terminal** (sem ele criativos, sequências e a exclusão de conta não andam). Mailpit: http://localhost:8025.
 
-## 2. Em andamento quando você saiu (resultado na seção "Estado final")
+## 2. Estado real
 
-| Tarefa | O que é | Etapas restantes |
-|---|---|---|
-| SPEC-057 | Sidebar agrupada em seções (Captação de leads, Criativos, Automação, Conta) | dev-frontend → QA |
-| SPEC-058a/b | Busca de leads sob demanda | **CONCLUÍDA** (QA aprovado, commitada) |
+**SPECs 048 a 060 estão implementadas.** Na `main`: 048, 049 (a/b), 050, 051 (a/b), 052a, 052b (sem cartão), 057 e 058 (a/b).
+Nesta branch, em ordem do mais antigo para o mais novo:
 
-Regra combinada: **só commitar quando tudo estiver verde** (tsc, lint sem erros, vitest em banco `*_test` novo, QA aprovado). Se algo
-reprovar no QA e não for corrigível sozinho, fica **sem commit** e listado abaixo.
+| Commit | O que entregou |
+|---|---|
+| `95e85e7` | SPEC-053: cancelamento e reativação da assinatura (e PRIMEIROS_PASSOS em linguagem simples) |
+| `0d1e0d2` | SPEC-054: exclusão de conta com soft delete e purga em 30 dias |
+| `e438d5f` | fix: achados do QA das SPECs 053 e 054 |
+| `64a8d48` | SPEC-055: verificação de e-mail, boas-vindas e aviso de senha alterada |
+| `4a46c05` | SPEC-056: e-mails aos owners sobre entrada, saída, remoção e mudança de papel |
+| `6e4d12c` | docs: PRIMEIROS_PASSOS 2.7/2.8, ROTEIRO blocos J/K e RETOMAR (SPECs 053-056) |
+| `09d7100` | **SPEC-036**: provedor LLM OpenAI-compatível (Groq/OpenRouter/Ollama/Gemini) por organização |
+| `bc6a71b` | **SPEC-059**: rate limit persistente em Redis com fallback em memória |
+| `7c7f99b` | **SPEC-060**: paginação da busca Places com cursor, fallback de variações e teto de orçamento |
 
-## 3. Decisões que SÓ VOCÊ pode tomar (bloqueiam trabalho)
+(A branch também carrega `c3b571c`, `84bb762` e `85193b9`. Um 4º commit de docs/specs desta PARTE 2 vem depois destes.)
 
-| # | Decisão | Bloqueia | Minha recomendação |
+- **O que cada SPEC da PARTE 2 faz**
+  - **036**: em `/configuracoes/integracoes`, o card "Provedor de LLM" aceita URL base opcional (com exemplos), chave opcional,
+    caixa "instância própria" (custo zero só se o host é realmente de rede privada) e botão **Testar conexão**; o **Simular** dos
+    agentes mostra provedor e modelo. Sem URL, segue o Claude como antes. Voltar de URL para Claude exige remover e recriar a
+    integração. Sem migration e sem env nova.
+  - **059**: todos os limiters usam Redis quando existe `REDIS_URL` (env opcional; o Redis já está no docker). Sem `REDIS_URL`, ou se
+    o Redis cair, volta à memória do processo com aviso no log (`[rate-limit]`). Chaves hasheadas. `ioredis` instalado. Sem migration.
+  - **060**: o botão da busca vira "Buscar mais resultados" (usa `nextPageToken`; quando acaba, passa para variações da busca). Cada
+    clique faz 1 a 2 chamadas pagas e respeita o teto diário da 058. **Migration nova, escrita à mão, NÃO aplicada no dev.**
+- **Última verificação** (2026-10-11): `tsc` limpo, eslint 0 erros, vitest completo verde em banco `leadforge_*_test` novo. Depois dela
+  rodou o E2E em navegador real (seção 6).
+- **Migrations**: o banco de dev está com todas aplicadas, inclusive `20261015120000_email_verification` e
+  `20261016120000_search_run_cursor_060` (aplicadas em 2026-10-11, via `migrate deploy`). Depois de qualquer `migrate deploy`, pare e ligue o
+  `npm run dev`. Sobram só as 5 migrations `20260928*` que o repo não tem (drift, seção 3b).
+- As SPECs 036 e 059 não têm migration.
+
+## 3. Decisões que SÓ VOCÊ pode tomar
+
+| # | Decisão | Bloqueia | Recomendação |
 |---|---|---|---|
-| 1 | ~~Aprovar SPEC-052b~~ **FEITO**: 052b (parte sem cartão) implementada, sem commit ainda. Falta aplicar a migration `20261013120000_billing_reminder_kinds_052b` no banco de dev (`npx prisma migrate deploy`) e validar o bloco E | -- | -- |
-| 2 | **Q-052-5**: nomes dos eventos de falha/recuperação de cartão do AbacatePay (precisa da doc/sandbox do provedor) | 052b só na parte de cartão (mapear eventos de falha/recuperação de cartão; sem isso a régua de cartão só dispara pelo estado/grace via job) | Pesquisar na doc do provedor |
-| 3 | Aprovar **SPEC-053** (cancelamento/reativação), **054** (exclusão de conta LGPD), **055** (verificação/segurança de cadastro), **056** (e-mails de organização) | cada uma delas | Responder as 5 decisões de e-mail abaixo |
-| 4 | **5 decisões de e-mail**: (a) cancelamento: acesso até fim do período ou imediato? reembolso? (b) exclusão de conta: soft ou hard, em quantos dias? (c) recibo: só e-mail informativo (já assumido) (d) régua de cartão e PIX igual (já assumido) (e) verificação de e-mail: obrigatória antes de usar ou só aviso? | 053-056 | (a) até fim do período, sem reembolso proporcional; (b) soft delete 30 dias e depois purga; (e) obrigatória para enviar mensagens, não para entrar |
-| 5 | **Provedor de avatar real** (Q-051-1: HeyGen, D-ID, Synthesia, Tavus ou Azure AI Speech Avatar) | criativos reais (hoje só mock) | Escolher 1 e abrir SPEC; antes cumprir D-051-15 (SSRF/timeouts) |
-| 6 | **Q-051-11**: teto de retentativas dos criativos | ajuste fino | Aceitar o default |
-| 7 | **Drift `20260928*`** (CPF/CNPJ, trial, AbacatePay): importar essa feature ou remover as colunas do banco de dev? | limpeza de migrations; o aviso "nunca `migrate dev`" continua até lá | Decidir se a feature existe; se não, remover só no banco de dev, com backup |
-| 8 | **Rate limit persistente** (D-049-14): hoje em memória, não vale entre instâncias | produção multi-instância | SPEC própria (Redis/Postgres) antes de escalar |
-| 9 | **LLM grátis**: SPEC-036 está aprovada mas **não implementada** (adapter OpenAI-compatível: Groq/OpenRouter/Ollama/Gemini) | agentes de IA sem custo | Implementar a 036 |
-| 10 | **Q-052-6**: `trial-started` separado das boas-vindas (SPEC-055) ou um e-mail só? (assumi separado) | 055 | Revisar quando aprovar a 055 |
-| 11 | Abrir o **Pull Request** da branch (não abri) | merge | https://github.com/morgadothiago/LeadForge_web/pull/new/feat/specs-048-051 |
-| 12 | **Paginação da busca Places** (`nextPageToken`/rotação de keywords): hoje 1 página de até 20 e repetir dá duplicados | qualidade da captação | SPEC separada depois da 058 |
+| 1 | **Q-052-5** (cartão AbacatePay): a doc oficial foi pesquisada e **não há evento de falha/recuperação de cartão**; nada implementado. Evidência na SPEC-052 | régua de cartão da 052b (hoje só por estado/grace via job) | Com sandbox, mapear `subscription.cancelled` (`cancelledDueTo=max_payment_retries_exceeded`) |
+| 2 | **Provedor de avatar real** (Q-051-1: HeyGen, D-ID, Synthesia, Tavus ou Azure AI Speech Avatar) | criativos reais (hoje só mock) | Escolher 1 e abrir SPEC; antes cumprir D-051-15 (SSRF/timeouts) |
+| 3 | **Drift `20260928*`**: ver 3b | limpeza; "nunca `migrate dev`" vale até lá | Opção A |
+| 4 | **Validação jurídica da retenção (D-054-4, INFERRED)**: 5 anos para registros de cobrança e 6 meses para logs; o código apaga logs após 6 meses, mas os registros de cobrança ficam sem prazo de descarte (não há job de 5 anos). A tela e o e-mail "conta excluída" também listam como retidos o usuário anonimizado, `AccountDeletionRequest`, reuniões e criativos (`src/lib/account-deletion/retention.ts`) | ir para produção com a 054 | Passar por um advogado |
+| 5 | **Exportação de dados (LGPD art. 18 V, portabilidade)**: fora da 054 (D-054-6) | conformidade completa | SPEC futura |
+| 6 | **Revisar as decisões INFERRED das SPECs 055 e 056** (abaixo) | nada trava; são premissas | Aceitar ou pedir ajuste |
+
+Resolvidas nesta rodada (não dependem mais de você): **Q-051-11** fechada (D-051-19: aceito o default, sem teto de retentativas dos
+criativos; revisitar na SPEC do provedor real); **LLM grátis** (SPEC-036 implementada); **rate limit persistente** (SPEC-059
+implementada); **paginação da busca Places** (SPEC-060 implementada).
+
+Polimento pendente da 036 (não bloqueia): sugerir modelo default por provedor; mensagem de 429 sugerindo Ollama.
+
+Decisões INFERRED revisáveis:
+- D-055-1/7: nova conta self-service **nasce não verificada e não envia mensagens** (campanhas, sequências, envio manual) até confirmar o
+  e-mail; login, checkout e demais telas seguem liberados.
+- D-055-3: usuários existentes (e admin/seed) foram **marcados como verificados** na migration (`emailVerifiedAt` tem `DEFAULT now()`).
+- D-055-4: sem tela de trocar senha ou e-mail logado; só o aviso "senha alterada" no reset. D-055-5: só pt-BR.
+- D-055-6: convite conta como verificado só se o e-mail do cadastro for exatamente o convidado e o token for válido; código de entrada não.
+- D-055-8: token de verificação expira em 24h, uso único, só hash; reenvio com cooldown de 60s e limites de 5/h por usuário e 20/h por IP.
+- D-056-1: **só owners** recebem avisos de organização (o membro afetado não recebe e-mail).
+- D-056-2: e-mail imediato por evento, com **teto de 10 entradas por hora por organização** (excedentes ficam só na auditoria).
+- D-056-3: 4 eventos (entrou, saiu, removido, papel alterado); quem fez a ação não é notificado.
+
+### 3b. Drift das migrations `20260928*` (decisão sua; só foi investigado, nada foi alterado)
+
+**O que é.** 5 migrations aplicadas só no banco de dev, vindas de outro clone, que **nunca existiram no git de nenhuma branch**:
+`20260928000000_add_abacatepay_product_id`, `20260928000001_add_user_document`, `20260928000002_add_org_document`,
+`20260928000003_add_org_flags` e `20260928120000_access_blocked_kind`.
+
+**O que elas criaram no banco.**
+- `Plan.abacatepayProductId`.
+- `User.document` e `User.documentType`, com `UNIQUE (document, documentType)` e o índice `User_document_idx`.
+- `Organization.document`, `documentType`, `documentBlocked` e `trialBlocked` (os dois booleanos `NOT NULL DEFAULT false`).
+- o valor `access_blocked` no enum `BillingReminderKind`.
+
+Nada em `schema.prisma`, `src/` ou `specs/` usa isso.
+
+**Dados no dev.** 2 de 9 users e 2 de 11 orgs têm CPF de teste; 0 planos com `productId`; 0 flags `true`; 0 linhas com `access_blocked`.
+
+**Como o Prisma enxerga.** `npx prisma migrate status` (rodado em 2026-10-11) **mostra** o drift: lista as 5 como "não encontradas
+localmente" junto com a 1 pendente (`20261016120000`); a `20261015120000` já está aplicada. Em um banco sem o drift (clone limpo),
+o comando não lista as 5.
+
+**Risco.** Em runtime é nulo (colunas nullable ou com default). O risco real: `prisma migrate dev` pode propor **reset ou drop** dessas
+colunas e dados.
+
+**Opção A (recomendada): limpar só o banco de dev.**
+1. `pg_dump -Fc` do banco de dev (backup).
+2. Em uma transação: dropar os 2 índices (`User_document_idx` e o UNIQUE `(document, documentType)`) e as 7 colunas
+   (`Plan.abacatepayProductId`, `User.document`, `User.documentType`, `Organization.document`, `documentType`, `documentBlocked`,
+   `trialBlocked`); depois `DELETE FROM _prisma_migrations WHERE migration_name LIKE '20260928%'`.
+3. Deixar o valor `access_blocked` no enum (Postgres não remove valor de enum sem recriar o tipo; é inofensivo).
+- Riscos: perde 4 CPFs de teste (o backup cobre); se o outro clone reaplicar as migrations, o drift reaparece.
+
+**Opção B: trazer para o repositório.** Exige o SQL original (o `checksum` em `_prisma_migrations` diverge se for reescrito),
+importa uma feature sem SPEC e expande dados pessoais (LGPD/SPEC-054). Só faz sentido se surgir uma SPEC de CPF/CNPJ.
 
 ## 4. O que só funciona com você (chaves, contas, navegador)
 
-- **Nenhuma tela logada foi vista em navegador real**: sidebar, criativos, seletor de organização, convites, equipe. Use
-  `docs/ROTEIRO_DE_TESTES.md` (blocos A, B, C) e `docs/PRIMEIROS_PASSOS.md`. Falha de isolamento entre tenants é bloqueante.
+- **Validar à mão** o que ficou `[ ]` nos blocos D, E, F, G, H a N do `docs/ROTEIRO_DE_TESTES.md` (o que o Claude já passou está `[x]` com
+  "Claude, navegador automatizado"). Falta também o seu olhar em dark mode das páginas públicas, teclado e leitor de tela.
+- **LLM grátis (036)**: validar de verdade com **Ollama** (local) e **Gemini** (chave do AI Studio); só foi testado com mocks.
+- **Redis (059)**: para ligar, `REDIS_URL=redis://localhost:6379` no `.env` e reiniciar; conferir o aviso `[rate-limit]` ao parar o Redis.
 - **Google Places / Maps**: criar chave (Fase 8 do PRIMEIROS_PASSOS), `LEAD_SEARCH_ENABLED=true`, cadastrar em
-  `/configuracoes/integracoes`. A busca nunca rodou com a API real; o SKU cobrado não foi confirmado; defina teto de orçamento no Google.
+  `/configuracoes/integracoes`. A busca (inclusive a paginação da 060) nunca rodou com a API real; o SKU cobrado não foi confirmado;
+  defina teto de orçamento no Google.
 - **Azure (ACS e Blob), Resend, AbacatePay, Evolution, Claude**: só testados com mocks. Valide o recibo com webhook real/sandbox do
   AbacatePay (campos `amount`, `paidAt`, `card.lastDigits` foram assumidos).
-- **Produção (Vercel)**: definir `CRON_SECRET` (cron por minuto já está no `vercel.json`; exige plano pago, no Hobby só 1x/dia),
-  `TRUSTED_PROXY_IP_HEADER` (obrigatória em produção), envs de e-mail e storage. Sem `CRON_SECRET` nada avança (sequências, criativos, busca).
+- **Produção (Vercel)**: definir `CRON_SECRET` (cron por minuto já está no `vercel.json`; exige plano pago, no Hobby só 1x/dia) e
+  `TRUSTED_PROXY_IP_HEADER` (obrigatória em produção), além de envs de e-mail e storage; e `REDIS_URL` se houver mais de uma
+  instância (senão o rate limit não é compartilhado). Sem `CRON_SECRET` nada avança (sequências, criativos, busca, purga de conta).
 
-## 5. Riscos conhecidos (não bloqueiam, mas não esqueça)
+## 5. Riscos conhecidos atuais (não bloqueiam, mas não esqueça)
 
-- 052a: se o provedor de e-mail falhar na hora do envio, aquele e-mail **se perde** (chave de idempotência reservada antes; sem retry).
-- 052a: o signup espera o envio do e-mail de trial antes de criar a sessão (SMTP lento atrasa o cadastro).
-- 052a: `EmailDispatchLog` sem purga; falta teste de integração das actions `signUpAndStartCheckout`/`createOrganization` chamando o trial.
-- Troca de plano: e-mail restaurado na 052b (regressão D-046-3 resolvida).
-- 052b: D+7 da régua sai no mesmo instante da suspensão automática (grace 7d inalterado), então o e-mail "Último aviso" e o "conta suspensa" podem chegar juntos no mesmo tick.
-- 052b: o e-mail de falha de cartão no AbacatePay não existe (Q-052-5); a régua de cartão só começa quando algo coloca a assinatura em past_due.
-- Termos da Places API restringem cache/armazenamento de dados: confirme antes de operar em escala.
+- Sem `REDIS_URL` (ou com o Redis fora do ar) os limiters caem para **memória por processo**: zeram ao reiniciar e não valem entre
+  instâncias; o aviso aparece no log.
+- E-mail se **perde** se o provedor falhar depois da reserva da chave de idempotência (sem retry), nos e-mails de 052a/052b, 055 e 056.
+- O signup espera o envio de SMTP (trial, boas-vindas, confirmação). Isso cria diferença de tempo na resposta entre e-mail novo e
+  e-mail já existente, o que permite **enumeração de contas** por medição de tempo (limitada pelo rate limit).
+- `bulkApproveFollowups` mostra só "blocked" quando o motivo é `email_not_verified` (não diz que é o e-mail).
+- Reativação feita **fora do app** (direto no Stripe real) será ignorada quando o adapter Stripe existir (053-1).
+- Cartão do AbacatePay pode continuar cobrando até alguém cancelar no painel do provedor (não há endpoint, D-053-5).
+- A purga não tem job de 5 anos para registros de cobrança (ver decisão 4); `EmailDispatchLog` sem purga.
+- Termos da Places API restringem cache/armazenamento de dados: confirme antes de operar em escala. A paginação da 060 faz até 2
+  chamadas pagas por clique, sempre dentro do teto da 058.
+- Em LLM com URL própria, "instância própria" só dá custo zero se o host é de rede privada de verdade; marcar errado distorce o orçamento.
 - `.storage/` (arquivos locais) e `.env` não vão para o git (conferido).
 
-## 6. Estado final (2026-10-10, madrugada)
+## 6. Achados do E2E em navegador real ainda abertos (dependem de você) e contas de teste
 
-- **Tudo commitado e no GitHub** na branch `feat/specs-048-051` (último commit da 052b: `019f3e4`): SPECs 048, 049 (a/b), 050, 051 (a/b),
-  052a, 052b (sem cartão), 057 e 058 (a/b), mais docs. Migrations aplicadas no banco de dev: todas, até `20261013120000`.
-- **Verificação final:** `tsc` limpo; lint 0 erros (14 warnings antigos); vitest completo em banco novo: 150 arquivos, 1868 testes.
-- **PR aberto: https://github.com/morgadothiago/LeadForge_web/pull/1** (base `main`, sem conflito, `main` sem proteção de branch).
-- **MERGE NÃO FEITO:** pedi para fazer o merge na `main` e o `gh pr merge` foi **negado pelo classificador de permissões do Claude Code**
-  ("merge sem revisão"). Não contornei (nada de push direto na `main`). **Para concluir:** abra o PR e clique em *Merge pull request*,
-  ou rode `gh pr merge 1 --merge` você mesmo no terminal (`! gh pr merge 1 --merge` aqui no Claude Code). Depois: `git checkout main && git pull`.
-- **Falta validar com você:** blocos D, E (E6-E11 só após a migration, já aplicada), F e G do `docs/ROTEIRO_DE_TESTES.md`.
-- **Próximo trabalho** depende das decisões da seção 3 (Q-052-5 cartão AbacatePay, 053-056, avatar real, LLM grátis SPEC-036, drift, rate limit persistente).
+- **Remover membro com sessão aberta**: o removido vai para `/login` (perde a sessão), não para a organização própria. Funciona e é seguro
+  (trocar a org na sessão exigiria escrever cookie dentro de `requireUser`); decida se vale ajustar.
+- **URL do vídeo é assinada e pública até expirar** (qualquer pessoa com o link baixa, como a SAS do Azure; desenho da SPEC-050): garanta
+  expiração curta em produção.
+- **Remetente dos e-mails** em dev sai de `seu-email@gmail.com` (placeholder do `.env`): configure `ACS_FROM_*`/`RESEND_FROM_*`/`SMTP_FROM` reais.
+- **Mailpit poluído** pelos testes automatizados (centenas de `zz-*@test.local`): pesquise pelo destinatário.
+- **Formulário de nova campanha** não foi exercitado na interface: teste à mão.
+- **Cadastro com e-mail que já existe** (J11): nenhum e-mail sai para o existente, mas a resposta **não é igual** à de um e-mail novo (novo
+  vai ao `/dashboard`; existente fica em `/signup` com "Não foi possível concluir o cadastro..."): dá para descobrir que o e-mail existe.
+  Decida se aceita (é o comportamento desde a SPEC-049) ou se vira resposta idêntica (exigiria fluxo "confirme pelo e-mail" para todos).
+
+**E2E em navegador real, 2026-10-11 (Claude, Brave + Playwright)** nas telas das SPECs 053 a 060. Passou e está marcado `[x]` no ROTEIRO:
+H1-H7, I3-I9, I11-I12 (parcial), J1-J4, J8-J10, J14, J16 (parcial), K1, K3-K5, K10-K11, L1, L3, L4, L6, L8, M2, M3, M5, N1 (só a interface), N8.
+Bugs achados e corrigidos: (1) rate limit em Redis: a 1ª chamada depois de subir o app ignorava o Redis (conexão ainda abrindo) e o
+bloqueio salvo não valia logo após reiniciar; (2) "Aprovar em lote" sem e-mail verificado só dizia "bloqueado"; (3) o botão "Testar
+conexão" aparecia para o Claude sem URL; (4) o roteiro dizia que o botão de cancelar fica desabilitado (na verdade valida e mostra erro).
+**Não testado** (precisa de chave/serviço real ou de preparo que não fiz): chamadas reais ao Google Places (N2-N7), Ollama/Gemini/Groq reais
+(L2, L5, L9), SMTP caído (J15, K9), convite com mesmo e-mail (J13), aprovar/enviar sem verificar (J5-J7, só testes automáticos), K2, K6-K8,
+H8-H12, I10, app móvel (I5), M1/M4/M6, dark mode e teclado das páginas públicas, leitor de tela.
+**Atenção local:** se você tem um Redis instalado no Mac (Homebrew), ele pode ocupar `localhost:6379` no lugar do container
+`leadforge-redis-1`; confira com `lsof -nP -iTCP:6379 -sTCP:LISTEN`.
+
+Contas de teste no banco de dev: `claude.a*@testes-claude.local` (senha de teste `SenhaForte-12345`, **só dev**). Dados de teste: orgs
+"Empresa A ...", "Segunda Org Teste", criativos e o lead "Lead Secreto do Tenant A". Podem ser apagados.
+
+## 7. Próximo trabalho
+
+1. Validar à mão o que ficou `[ ]` nos blocos H a N do roteiro (lista na seção 6).
+2. Decidir o drift `20260928*` (seção 3b).
+3. Abrir o PR da branch `docs/retomar-merge-feito` para a `main` (SPECs 053-056, 036, 059, 060); o merge é seu.
+4. Com chaves reais: validar LLM grátis (Ollama/Gemini), Redis e a busca Places paginada.
+5. Depois: escolher o provedor de avatar real (SPEC nova, cumprindo D-051-15); mapear `subscription.cancelled` do AbacatePay em
+   sandbox (Q-052-5); parecer jurídico da retenção (decisão 4).
+
+Regra combinada: **só commitar quando tudo estiver verde** (tsc, lint sem erros, vitest em banco `*_test` novo, QA aprovado); nunca
+rodar `migrate dev` neste banco.
+
+## 8. Produção (Fase 9 do PRIMEIROS_PASSOS)
+
+- Passo a passo para colocar no ar: `docs/PRIMEIROS_PASSOS.md`, Fase 9 (banco, Redis, segredos, domínio, e-mail, Azure Blob, AbacatePay, tick, roteiro de conferência de 12 itens).
+- **Achado corrigido:** o `buildCommand` da Vercel roda `prisma db seed` a cada deploy, e o seed criava organização e 20 leads de demonstração em produção. Agora, com `VERCEL_ENV=production` ou `NODE_ENV=production`, o seed cria só planos e o admin (`isProductionEnv` em `prisma/seed.ts`, com teste).
+- **Atenção:** a cada deploy o seed **repõe a senha** do admin para `ADMIN_PASSWORD`. Preços dos planos são PLACEHOLDER (D-33-2): confirme antes de abrir ao público.

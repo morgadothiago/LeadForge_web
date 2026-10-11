@@ -14,6 +14,7 @@ import {
   approveDraftSchema, bulkApproveSchema, createAgentSchema, globalSettingsSchema, idSchema, knowledgeSchema,
   rejectDraftSchema, setActiveSchema, setAutonomySchema, simulateSchema, updateAgentSchema,
 } from "@/lib/schemas/agent";
+import { isAppError } from "@/lib/errors";
 import { failure, formError, safeAction, success, zodErrors, type ActionResult } from "./result";
 
 const revalidate = (): void => {
@@ -205,20 +206,24 @@ export async function rejectDraftAction(input: unknown): Promise<ActionResult<{ 
 }
 
 /** Lote: SOMENTE rascunhos de Follow-up (SPEC-019), desta org. Cada um passa pela política de envio individualmente. */
-export async function bulkApproveFollowups(input: unknown): Promise<ActionResult<{ sent: number; blocked: number; skipped: number }>> {
+export async function bulkApproveFollowups(input: unknown): Promise<ActionResult<{ sent: number; blocked: number; skipped: number; unverified?: boolean }>> {
   return safeAction(async () => {
     const { user: actor, orgId } = await requireActiveProviderOrg();
     const parsed = bulkApproveSchema.safeParse(input);
     if (!parsed.success) return failure(zodErrors(parsed.error));
     const rows = await scopedPrisma(orgId).draft.findMany({ where: { id: { in: parsed.data.ids }, status: "pending", agentRun: { agent: { role: "followup" } } }, select: { id: true }, orderBy: { createdAt: "asc" } });
-    let sent = 0, blocked = 0;
+    let sent = 0, blocked = 0, unverified = false;
     for (const r of rows as { id: string }[]) {
-      const out = await dispatchDraft(r.id, { reviewer: actor.id }).catch(() => ({ status: "blocked" as const }));
+      // SPEC-055 (D-055-7): e-mail nao verificado e tipado; o lote avisa o motivo em vez de so "bloqueado".
+      const out = await dispatchDraft(r.id, { reviewer: actor.id }).catch((e) => {
+        if (isAppError(e) && e.code === "email_not_verified") unverified = true;
+        return { status: "blocked" as const };
+      });
       if (out.status === "blocked") blocked++;
       else sent++;
     }
     revalidate();
-    return success({ sent, blocked, skipped: parsed.data.ids.length - rows.length });
+    return success({ sent, blocked, skipped: parsed.data.ids.length - rows.length, ...(unverified ? { unverified } : {}) });
   });
 }
 

@@ -6,8 +6,11 @@
  * fica bloqueada por min(2^(falhas-limiar) s, 60 s) — `retryAfterMs` em isRateLimited. Ao estourar o teto,
  * bloqueia até a janela expirar. Login com sucesso zera as chaves de e-mail+IP e de e-mail.
  * Store limitado: teto duro de MAX_ENTRIES (FIFO — remove a mais antiga) + limpeza de expiradas a cada escrita.
- * LIMITAÇÃO: estado por processo (multi-instância = N x limite; reinicia no deploy). Migrar p/ Redis/tabela se escalar.
+ * SPEC-059: com REDIS_URL o estado é compartilhado (hash por chave + Lua atômico, `lf:rl:login:*`); sem Redis, ou com ele
+ * fora do ar, usa a memória do processo (limitação anterior: multi-instância = N x limite).
  */
+import { LOGIN_BUMP_LUA, rlKey, tryRedis } from "@/lib/rate-limit/redis";
+
 export const LOGIN_MAX_FAILURES = 5;
 export const LOGIN_MAX_FAILURES_PER_EMAIL = 20;
 export const LOGIN_WINDOW_MS = 15 * 60 * 1000;
@@ -34,7 +37,16 @@ function limited(key: string, max: number, now: number): boolean {
 }
 
 /** Bloqueado se qualquer camada estourou o teto ou está em backoff. */
-export function isRateLimited(key: string, emailK?: string, now = Date.now()): boolean {
+export async function isRateLimited(key: string, emailK?: string, now = Date.now()): Promise<boolean> {
+  const viaRedis = await tryRedis(async (r) => {
+    const rows = await Promise.all([
+      r.hmget(rlKey("login", key), "count", "blockedUntil"),
+      emailK !== undefined ? r.hmget(rlKey("login", emailK), "count", "blockedUntil") : Promise.resolve(null),
+    ]);
+    const over = (row: (string | null)[] | null, max: number) => row !== null && (Number(row[0] ?? 0) >= max || Number(row[1] ?? 0) > now);
+    return over(rows[0], LOGIN_MAX_FAILURES) || over(rows[1], LOGIN_MAX_FAILURES_PER_EMAIL);
+  });
+  if (viaRedis !== undefined) return viaRedis;
   return limited(key, LOGIN_MAX_FAILURES, now) || (emailK !== undefined && limited(emailK, LOGIN_MAX_FAILURES_PER_EMAIL, now));
 }
 
@@ -54,15 +66,21 @@ function prune(now: number): void {
   while (store.size > MAX_ENTRIES) store.delete(store.keys().next().value as string);
 }
 
-export function recordFailure(key: string, emailK?: string, now = Date.now()): void {
+export async function recordFailure(key: string, emailK?: string, now = Date.now()): Promise<void> {
+  const bumpRedis = (k: string, start: number) =>
+    tryRedis((r) => r.eval(LOGIN_BUMP_LUA, 1, rlKey("login", k), now, LOGIN_WINDOW_MS, start, BACKOFF_MAX_MS));
+  const done = await Promise.all([bumpRedis(key, BACKOFF_START_IP), emailK ? bumpRedis(emailK, BACKOFF_START_EMAIL) : Promise.resolve(0)]);
+  if (done[0] !== undefined && done[1] !== undefined) return;
+  // Redis indisponível: registra na memória do processo (degradação, D-059-3).
   bump(key, BACKOFF_START_IP, now);
   if (emailK) bump(emailK, BACKOFF_START_EMAIL, now);
   prune(now);
 }
 
-export function resetFailures(key: string, emailK?: string): void {
+export async function resetFailures(key: string, emailK?: string): Promise<void> {
   store.delete(key);
   if (emailK) store.delete(emailK);
+  await tryRedis((r) => r.del(...[key, emailK].filter((k): k is string => !!k).map((k) => rlKey("login", k))));
 }
 
 export function _storeSize(): number {

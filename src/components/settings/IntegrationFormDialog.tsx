@@ -54,6 +54,10 @@ function IntegrationForm({ summary, item, onDone, onAnnounce }: { summary: Integ
   const [errors, setErrors] = React.useState<FieldErrors | undefined>();
   const [errorTick, setErrorTick] = React.useState(0);
   const editing = Boolean(item);
+  // SPEC-036: LLM aceita URL base opcional (OpenAI-compatível: Ollama/Gemini/Groq); com URL a chave é opcional.
+  const isLlm = summary.integration === "llm";
+  const showUrl = summary.requiresBaseUrl || isLlm;
+  const keyOptional = editing || (isLlm && baseUrl.trim() !== "");
 
   React.useEffect(() => {
     if (!errorTick) return;
@@ -63,8 +67,8 @@ function IntegrationForm({ summary, item, onDone, onAnnounce }: { summary: Integ
   function submit(e: React.FormEvent) {
     e.preventDefault();
     const local: FieldErrors = {};
-    if (!editing && !secret.trim()) local.value = ["Informe a chave."];
-    if (summary.requiresBaseUrl) {
+    if (!keyOptional && !secret.trim()) local.value = ["Informe a chave."];
+    if (showUrl && (summary.requiresBaseUrl || baseUrl.trim())) {
       const m = validateBaseUrl(baseUrl, true);
       if (m) local.baseUrl = [m];
     }
@@ -79,7 +83,7 @@ function IntegrationForm({ summary, item, onDone, onAnnounce }: { summary: Integ
         integration: summary.integration,
         name: item?.name ?? "default",
         ...(secret ? { value: secret } : {}),
-        ...(summary.requiresBaseUrl ? { baseUrl: baseUrl.trim(), allowPrivateHost: priv } : {}),
+        ...(showUrl && (summary.requiresBaseUrl || baseUrl.trim()) ? { baseUrl: baseUrl.trim(), allowPrivateHost: priv } : {}),
       });
       if (r.ok) {
         setSecret("");
@@ -105,20 +109,22 @@ function IntegrationForm({ summary, item, onDone, onAnnounce }: { summary: Integ
           {formError}
         </p>
       )}
-      {summary.requiresBaseUrl && (
-        <Field id={`${uid}-url`} label="URL base" required error={fieldError(errors, "baseUrl")} hint="Endereço do servidor, ex.: https://evolution.exemplo.com">
+      {showUrl && (
+        <Field id={`${uid}-url`} label="URL base" required={!isLlm} error={fieldError(errors, "baseUrl")} hint={isLlm ? "Opcional. Vazio = Claude (Anthropic). Ex.: http://localhost:11434/v1 (Ollama), https://generativelanguage.googleapis.com/v1beta/openai (Gemini), https://api.groq.com/openai/v1 (Groq)" : "Endereço do servidor, ex.: https://evolution.exemplo.com"}>
           {(a) => <Input {...a} name="baseUrl" type="url" inputMode="url" value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} maxLength={300} autoComplete="off" />}
         </Field>
       )}
       <Field
         id={`${uid}-key`}
         label={editing ? "Nova chave (opcional)" : "Chave de API"}
-        required={!editing}
+        required={!keyOptional}
         error={fieldError(errors, "value")}
         hint={
           editing
             ? `Deixe vazio para manter a chave atual (${item?.hintDisplay ?? "••••"}). Preencha só para trocar.`
-            : "8 a 512 caracteres, sem espaços."
+            : isLlm && keyOptional
+              ? "Opcional com URL base (Ollama não usa chave). 12 a 512 caracteres, sem espaços."
+              : "12 a 512 caracteres, sem espaços."
         }
       >
         {(a) => (
@@ -151,7 +157,12 @@ function IntegrationForm({ summary, item, onDone, onAnnounce }: { summary: Integ
       </Field>
       <p className="-mt-2 text-xs text-muted-foreground">A chave não pode ser recuperada depois de salva: guarde-a também no seu gerenciador de segredos.</p>
 
-      {summary.requiresBaseUrl && (
+      {isLlm && baseUrl.trim() !== "" && (
+        <p role="note" className="rounded-md border border-warning/50 bg-warning/10 p-3 text-xs text-muted-foreground">
+          Privacidade (LGPD): com provedor externo (Gemini, Groq, OpenRouter) os dados dos leads (nome, empresa, histórico mínimo) saem do seu computador, e o free tier do Google pode usar o conteúdo para melhoria de produto. Com Ollama local nada sai da sua máquina. Ao trocar a URL sem informar nova chave, a chave anterior é removida.
+        </p>
+      )}
+      {showUrl && (
         <div className="rounded-md border border-warning/50 bg-warning/10 p-3">
           <label htmlFor={`${uid}-priv`} className="flex cursor-pointer items-start gap-2.5 text-sm font-medium">
             <input

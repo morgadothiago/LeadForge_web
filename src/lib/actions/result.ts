@@ -41,6 +41,7 @@ export function handleActionError<T = never>(e: unknown): ActionResult<T> {
   if (e instanceof OrgOwnerRequiredError) return formError(e.message);
   if (e instanceof ForbiddenError) return formError("Sem permissão.");
   if (e instanceof OrgSuspendedError) return formError("Assinatura pendente ou cancelada. Regularize o pagamento em Configurações > Assinatura para continuar.");
+  if (isAppError(e) && e.code === "email_not_verified") return { ok: false, errors: { _form: [e.userMessage], code: ["email_not_verified"] } };
   if (isAppError(e)) {
     console.error("[action]", safeErrorForLog(e));
     return formError(e.userMessage);

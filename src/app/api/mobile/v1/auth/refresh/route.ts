@@ -13,7 +13,7 @@ export async function POST(req: Request): Promise<Response> {
   const parsed = mobileRefreshSchema.safeParse(await readJson(req));
   if (!parsed.success) return invalidInput();
   const { deviceId, refreshToken } = parsed.data;
-  const wait = hitRefreshLimit(deviceId);
+  const wait = await hitRefreshLimit(deviceId);
   if (wait > 0) return tooMany(wait);
 
   const hash = hashRefresh(refreshToken);

@@ -193,27 +193,30 @@ model Membership {
 
 /// SPEC-030: `role` e o papel de PLATAFORMA ("platform_admin" | "provider"), nao o papel dentro do tenant (esse e `Membership.orgRole`). `platform_admin` nao tem `Organization`/`Membership` propria; acessa dados via caminho cross-tenant explicito (`src/lib/tenant/admin-prisma.ts`).
 model User {
-  id                    String               @id @default(uuid())
-  name                  String
-  email                 String               @unique
-  role                  String               @default("provider")
-  passwordHash          String?
-  avatarUrl             String?
+  id                      String                   @id @default(uuid())
+  name                    String
+  email                   String                   @unique
+  role                    String                   @default("provider")
+  passwordHash            String?
+  avatarUrl               String?
   /// SPEC-038 (D-038-2): redefinir a senha grava `now()` aqui. `requireUser()` rejeita qualquer sessão (JWT)
   /// emitida ANTES deste timestamp (compara com o `iat` do token) — mecanismo de invalidação em massa das
   /// sessões antigas, já que a sessão web é JWT stateless (sem tabela de sessões para revogar diretamente).
-  sessionsInvalidatedAt DateTime?
-  createdAt             DateTime             @default(now())
-  updatedAt             DateTime             @updatedAt
-  campaigns             Campaign[]
-  emailAccounts         EmailAccount[]
-  memberships           Membership[]
-  passwordResetTokens   PasswordResetToken[]
-  storedFiles           StoredFile[]
+  sessionsInvalidatedAt   DateTime?
+  /// SPEC-055 (D-055-3/D-055-6): e-mail verificado em. DEFAULT now() de proposito: usuarios existentes (backfill na migration), criados pelo admin, seed e fixtures de teste nascem verificados; SOMENTE o cadastro self-service (`signUpAndStartCheckout`, `signUpAndJoin` por codigo) grava `null` explicitamente. Nao-verificado nao pode ENVIAR mensagens (D-055-7).
+  emailVerifiedAt         DateTime?                @default(now())
+  emailVerificationTokens EmailVerificationToken[]
+  createdAt               DateTime                 @default(now())
+  updatedAt               DateTime                 @updatedAt
+  campaigns               Campaign[]
+  emailAccounts           EmailAccount[]
+  memberships             Membership[]
+  passwordResetTokens     PasswordResetToken[]
+  storedFiles             StoredFile[]
   /// SPEC-049 (D-049-4): ultima org ativa do usuario (sem FK de proposito — validada contra Membership no login; backfill idempotente).
-  lastOrgId             String?
-  orgInvitesCreated     OrgInvite[]          @relation("OrgInviteCreatedBy")
-  orgAuditActed         OrgAuditLog[]        @relation("OrgAuditActor")
+  lastOrgId               String?
+  orgInvitesCreated       OrgInvite[]              @relation("OrgInviteCreatedBy")
+  orgAuditActed           OrgAuditLog[]            @relation("OrgAuditActor")
 }
 
 /// SPEC-049 (D-049-2): convite NOMINAL por e-mail. Token opaco so existe no link do e-mail; o banco guarda o sha256
@@ -256,6 +259,21 @@ model OrgAuditLog {
 /// SPEC-038: token de "esqueci minha senha". Só o hash (sha256) é gravado — nunca o valor em claro (mesmo
 /// cuidado de `MobileDevice.refreshHash`/`IntegrationSecret`). `expiresAt` = criação + 24h (D-038-1, decisão
 /// explícita do usuário — não o padrão de mercado de 30-60min). `usedAt` marca consumo (nunca reutilizável).
+/// SPEC-055 (D-055-8): token de verificacao de e-mail. Mesmo padrao de `PasswordResetToken`: valor opaco so no link do
+/// e-mail, banco guarda o sha256; uso unico (`usedAt`); 24h. `email` = endereco verificado (snapshot).
+model EmailVerificationToken {
+  id        String    @id @default(uuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  email     String
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId, createdAt])
+}
+
 model PasswordResetToken {
   id        String    @id @default(uuid())
   userId    String
@@ -936,6 +954,10 @@ model SearchRun {
   error      String?
   startedAt  DateTime  @default(now())
   finishedAt DateTime?
+  /// SPEC-060: cursor da paginacao (so em run `done`): proximo nextPageToken, query usada e indice da variacao.
+  pageToken   String?
+  searchQuery String?
+  variant     Int     @default(0)
 
   @@index([campaignId, startedAt])
 }
@@ -1088,6 +1110,28 @@ model EmailDispatchLog {
   @@index([orgId])
 }
 
+/// SPEC-054a (D-054-1..5): pedido de exclusao de conta (LGPD art. 18). `userId` SEM FK de proposito (sobrevive a anonimizacao do User);
+/// so guarda HASH do e-mail e HASH dos tokens (confirmar/cancelar), nunca valor em claro. Ciclo: pedido (expiresAt) -> confirmado
+/// (confirmedAt, scheduledFor = +30 dias) -> executado (executedAt) ou cancelado (cancelledAt). `logsPurgedAt` = limpeza dos logs de
+/// auditoria retidos 6 meses (D-054-4).
+model AccountDeletionRequest {
+  id              String    @id @default(uuid())
+  userId          String
+  emailHash       String
+  tokenHash       String    @unique
+  cancelTokenHash String?   @unique
+  requestedAt     DateTime  @default(now())
+  confirmedAt     DateTime?
+  scheduledFor    DateTime?
+  cancelledAt     DateTime?
+  executedAt      DateTime?
+  expiresAt       DateTime
+  logsPurgedAt    DateTime?
+
+  @@index([userId, requestedAt])
+  @@index([scheduledFor])
+}
+
 enum BillingReminderKind {
   trial_ending
   past_due_started
@@ -1128,21 +1172,21 @@ enum StoredFileCategory {
 /// o blob em si fica em `blobKey` (`orgs/{orgId}/{category}/{uuid}-{nome}`). Soft delete (`deletedAt`) +
 /// remocao fisica imediata do blob (D-050-8).
 model StoredFile {
-  id               String             @id @default(uuid())
-  orgId            String
-  org              Organization       @relation(fields: [orgId], references: [id], onDelete: Restrict)
-  category         StoredFileCategory
-  blobKey          String             @unique
-  originalName     String
-  mimeType         String
-  sizeBytes        Int
-  sha256           String?
-  uploadedByUserId String?
-  uploadedBy       User?              @relation(fields: [uploadedByUserId], references: [id], onDelete: SetNull)
-  createdAt        DateTime           @default(now())
-  deletedAt        DateTime?
-  creativeVideos     Creative[]       @relation("CreativeVideoFile")
-  creativeThumbnails Creative[]       @relation("CreativeThumbnailFile")
+  id                 String             @id @default(uuid())
+  orgId              String
+  org                Organization       @relation(fields: [orgId], references: [id], onDelete: Restrict)
+  category           StoredFileCategory
+  blobKey            String             @unique
+  originalName       String
+  mimeType           String
+  sizeBytes          Int
+  sha256             String?
+  uploadedByUserId   String?
+  uploadedBy         User?              @relation(fields: [uploadedByUserId], references: [id], onDelete: SetNull)
+  createdAt          DateTime           @default(now())
+  deletedAt          DateTime?
+  creativeVideos     Creative[]         @relation("CreativeVideoFile")
+  creativeThumbnails Creative[]         @relation("CreativeThumbnailFile")
 
   @@index([orgId, category, createdAt])
 }

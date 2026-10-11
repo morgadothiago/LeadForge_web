@@ -2,7 +2,9 @@ import { z } from "zod";
 import type { AxiosInstance } from "axios";
 import { createHttpClient } from "@/lib/http";
 import { AppError } from "@/lib/errors";
-import { getIntegrationConfig } from "@/lib/integrations/config";
+import { findIntegrationConfig, getIntegrationConfig } from "@/lib/integrations/config";
+import { assertAllowedHost, parseIntegrationUrl, pinnedAgents, resolvesToPrivateOnly } from "@/lib/integrations/url-guard";
+import { hostOf } from "@/lib/integrations/view";
 import { agentOutputSchema, type AgentOutput } from "./types";
 
 /** Interface neutra do provedor de IA (D25). Implementações: Claude (axios) e Fake (testes/replay). */
@@ -61,10 +63,82 @@ export class ClaudeProvider implements LlmProvider {
   }
 }
 
-/** Chave via SPEC-018 (banco > env). Sem chave: AppError config (agente cai em handoff/rascunho, nunca envia às cegas). */
+const openAiResponse = z.object({
+  choices: z.array(z.object({ message: z.object({ content: z.string().nullable().optional() }).optional() })).min(1),
+  usage: z.object({ prompt_tokens: z.number().optional(), completion_tokens: z.number().optional() }).nullish(),
+});
+
+export interface OpenAICompatClientOptions {
+  httpAgent?: Parameters<typeof createHttpClient>[0]["httpAgent"];
+  httpsAgent?: Parameters<typeof createHttpClient>[0]["httpsAgent"];
+}
+
+/** SPEC-036: uma instância axios por integração (OpenAI-compatível: Ollama/Gemini/Groq). Bearer só com chave; sem redirect. */
+export function createOpenAICompatClient(baseUrl: string, apiKey?: string, adapter?: Parameters<typeof createHttpClient>[0]["adapter"], opts: OpenAICompatClientOptions = {}): AxiosInstance {
+  return createHttpClient({
+    name: "Provedor de LLM",
+    baseURL: baseUrl.replace(/\/+$/, ""),
+    timeout: 30_000,
+    headers: { "content-type": "application/json", ...(apiKey ? { authorization: `Bearer ${apiKey}` } : {}) },
+    retry: { maxAttempts: 3 },
+    maxRedirects: 0,
+    adapter,
+    ...opts,
+  });
+}
+
+export class OpenAICompatProvider implements LlmProvider {
+  constructor(private readonly client: AxiosInstance) {}
+  async generate(req: LlmRequest): Promise<LlmResult> {
+    const t0 = Date.now();
+    const res = await this.client.post("/chat/completions", {
+      model: req.model,
+      max_tokens: req.maxTokens ?? 600,
+      messages: [{ role: "system", content: req.system }, { role: "user", content: req.user }],
+    }, { idempotent: true });
+    const parsed = openAiResponse.safeParse(res.data);
+    if (!parsed.success) throw new AppError({ code: "upstream", userMessage: "Resposta inesperada do provedor de LLM." });
+    const text = parsed.data.choices[0]?.message?.content ?? "";
+    return {
+      output: parseAgentOutput(text),
+      tokensIn: parsed.data.usage?.prompt_tokens ?? 0,
+      tokensOut: parsed.data.usage?.completion_tokens ?? 0,
+      latencyMs: Date.now() - t0,
+    };
+  }
+}
+
+/**
+ * Config via SPEC-018 (banco > env), por org. Com `baseUrl` => OpenAI-compatível (URL reconferida pelo url-guard e conexão
+ * fixada no IP checado); sem => ClaudeProvider (comportamento anterior). Sem config: AppError config (handoff/rascunho, nunca envio).
+ */
 export async function getLlmProvider(orgId: string): Promise<LlmProvider> {
   const cfg = await getIntegrationConfig(orgId, "llm");
+  if (cfg.baseUrl) {
+    const u = parseIntegrationUrl(cfg.baseUrl);
+    const { ip, family } = await assertAllowedHost(u.hostname, cfg.allowPrivateHost);
+    return new OpenAICompatProvider(createOpenAICompatClient(u.url, cfg.reveal() || undefined, undefined, pinnedAgents(ip, family)));
+  }
   return new ClaudeProvider(createClaudeClient(cfg.reveal()));
+}
+
+/** D-36-3: custo 0 quando o provedor é uma instância própria (host privado/local). */
+export async function isPrivateLlmHost(orgId: string): Promise<boolean> {
+  try {
+    const cfg = await findIntegrationConfig(orgId, "llm");
+    if (!cfg?.baseUrl || !cfg.allowPrivateHost) return false;
+    return await resolvesToPrivateOnly(parseIntegrationUrl(cfg.baseUrl).hostname);
+  } catch {
+    return false;
+  }
+}
+
+export interface LlmProviderInfo { kind: "claude" | "openai_compat" | "none"; host: string | null; model: string }
+/** Provedor ativo para exibição (Simular): sem segredo; host mascarado. */
+export async function describeLlmProvider(orgId: string, model: string): Promise<LlmProviderInfo> {
+  const cfg = await findIntegrationConfig(orgId, "llm");
+  if (!cfg) return { kind: "none", host: null, model };
+  return cfg.baseUrl ? { kind: "openai_compat", host: hostOf(cfg.baseUrl), model } : { kind: "claude", host: null, model };
 }
 
 /** Fake com replay: respostas programadas por chamada; registra as requisições (testes de guardrail/injeção). */
