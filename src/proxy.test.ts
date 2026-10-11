@@ -19,3 +19,11 @@ describe("proxy: rotas públicas de exclusão de conta (SPEC-054b)", () => {
     expect(res.headers.get("location")).toContain("/login?next=%2Fconfiguracoes%2Fconta");
   });
 });
+
+describe("proxy: /verificar-email pública (SPEC-055b)", () => {
+  it("passa sem sessão, com query de token", async () => {
+    const res = await run("/verificar-email?token=abc");
+    expect(res.status).toBe(200);
+    expect(res.headers.get("location")).toBeNull();
+  });
+});

@@ -47,6 +47,7 @@ import {
   signupJoinSchema,
   switchOrganizationSchema,
 } from "@/lib/schemas/org";
+import { sendSignupEmails } from "@/lib/auth/email-verification";
 import { failure, formError, safeAction, success, zodErrors, type ActionResult } from "./result";
 
 /**
@@ -478,11 +479,14 @@ export async function signUpAndJoin(input: unknown): Promise<ActionResult<{ orgI
     const now = new Date();
     try {
       const joined = await prisma.$transaction(async (tx) => {
-        const created = await tx.user.create({ data: { name, email, role: "provider", passwordHash }, select: { id: true } });
+        // SPEC-055 (D-055-6): convite valido para ESTE e-mail (posse da caixa provada pelo token) => verificado; entrada por codigo NAO.
+        const created = await tx.user.create({ data: { name, email, role: "provider", passwordHash, emailVerifiedAt: tokenHash ? now : null }, select: { id: true } });
         return tokenHash
           ? joinWithInvite(tx, { tokenHash, userId: created.id, userEmail: email, now, via: "signup_invite" }).then((j) => ({ ...j, userId: created.id }))
           : joinWithCode(tx, { code: normalizeJoinCode(code!), userId: created.id, now, via: "signup_code" }).then((j) => ({ ...j, userId: created.id }));
       });
+      // SPEC-055: boas-vindas pos-commit (idempotente, best-effort); verificacao so quando o convite nao provou o e-mail.
+      await sendSignupEmails({ id: joined.userId, name, email }, { verify: !tokenHash });
       await createSession(joined.userId, joined.orgId, "provider");
       return success({ orgId: joined.orgId, redirectTo: "/dashboard" });
     } catch (e) {

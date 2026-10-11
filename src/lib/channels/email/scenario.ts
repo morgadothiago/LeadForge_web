@@ -12,7 +12,7 @@
  * Fallback em cascata, sempre que o env específico do cenário não estiver setado (nunca erro fatal):
  * env do cenário -> `RESEND_FROM_EMAIL` (genérico, opcional) -> `SMTP_USER` -> "no-reply@leadforge.local".
  */
-export type EmailScenario = "password_reset" | "courtesy_welcome" | "billing_reminder" | "subscription_success" | "subscription_canceled" | "org_invite" | "trial_started" | "payment_receipt" | "payment_failed" | "payment_recovered" | "renewal_upcoming" | "plan_changed" | "cancel_requested" | "subscription_reactivated" | "account_deletion_confirm" | "account_deletion_requested" | "account_deletion_cancelled" | "account_deleted";
+export type EmailScenario = "password_reset" | "courtesy_welcome" | "billing_reminder" | "subscription_success" | "subscription_canceled" | "org_invite" | "trial_started" | "payment_receipt" | "payment_failed" | "payment_recovered" | "renewal_upcoming" | "plan_changed" | "cancel_requested" | "subscription_reactivated" | "account_deletion_confirm" | "account_deletion_requested" | "account_deletion_cancelled" | "account_deleted" | "welcome" | "email_verification" | "password_changed";
 
 const SCENARIO_ENV_VAR: Record<EmailScenario, string> = {
   password_reset: "RESEND_FROM_NOREPLY",
@@ -38,6 +38,10 @@ const SCENARIO_ENV_VAR: Record<EmailScenario, string> = {
   account_deletion_requested: "RESEND_FROM_NOREPLY",
   account_deletion_cancelled: "RESEND_FROM_NOREPLY",
   account_deleted: "RESEND_FROM_NOREPLY",
+  // SPEC-055: boas-vindas do cadastro self-service sai do suporte; verificacao e aviso de senha alterada, do noreply.
+  welcome: "RESEND_FROM_SUPPORT",
+  email_verification: "RESEND_FROM_NOREPLY",
+  password_changed: "RESEND_FROM_NOREPLY",
 };
 
 /** SPEC-048 (D-048-5): remetentes do ACS (precisam ser MailFrom do domínio verificado no ACS). */
@@ -60,6 +64,9 @@ const ACS_SCENARIO_ENV_VAR: Record<EmailScenario, string> = {
   account_deletion_requested: "ACS_FROM_NOREPLY",
   account_deletion_cancelled: "ACS_FROM_NOREPLY",
   account_deleted: "ACS_FROM_NOREPLY",
+  welcome: "ACS_FROM_SUPPORT",
+  email_verification: "ACS_FROM_NOREPLY",
+  password_changed: "ACS_FROM_NOREPLY",
 };
 
 const DEFAULT_FROM = "no-reply@leadforge.local";

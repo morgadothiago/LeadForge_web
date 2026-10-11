@@ -12,6 +12,8 @@ export interface CurrentUser {
   orgId: string | null;
   /** SPEC-030: papel de PLATAFORMA da sessão (nunca o `Membership.orgRole`). */
   platformRole: PlatformRole;
+  /** SPEC-055: e-mail confirmado (D-055-7: nao verificado nao pode ENVIAR mensagens; o resto do app segue liberado). A UI usa para o banner. */
+  emailVerified: boolean;
 }
 
 export class UnauthorizedError extends Error {
@@ -43,6 +45,7 @@ export async function requireUser(): Promise<CurrentUser> {
       email: true,
       role: true,
       sessionsInvalidatedAt: true,
+      emailVerifiedAt: true,
       // SPEC-049 (D-049-5): a org ativa da sessão só vale enquanto o usuário ainda tem Membership nela.
       memberships: { where: { orgId: session.orgId ?? "" }, select: { orgId: true }, take: 1 },
     },
@@ -53,7 +56,7 @@ export async function requireUser(): Promise<CurrentUser> {
   if (user.sessionsInvalidatedAt && session.issuedAtMs < user.sessionsInvalidatedAt.getTime()) {
     throw new UnauthorizedError();
   }
-  return { id: user.id, name: user.name, email: user.email, role: user.role, orgId: session.orgId, platformRole: session.platformRole };
+  return { id: user.id, name: user.name, email: user.email, role: user.role, orgId: session.orgId, platformRole: session.platformRole, emailVerified: user.emailVerifiedAt !== null };
 }
 
 /**

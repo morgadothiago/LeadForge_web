@@ -223,7 +223,7 @@ async function execute(now: Date, deps: TickDeps, t0: number, inc: (k: string, n
       return null;
     }
     if (channel === "whatsapp" && instanceId) {
-      if (r.status === "sent" || (r.status === "deferred" && "reason" in r && INSTANCE_LEVEL_DEFER.has(r.reason))) usedInstances.add(instanceId);
+      if (r.status === "sent" || (r.status === "deferred" && "reason" in r && r.reason !== undefined && INSTANCE_LEVEL_DEFER.has(r.reason))) usedInstances.add(instanceId);
     }
     return r;
   };

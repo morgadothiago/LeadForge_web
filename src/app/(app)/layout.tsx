@@ -2,6 +2,7 @@ import * as React from "react";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { HealthBanner } from "@/components/layout/HealthBanner";
+import { VerifyEmailBanner } from "@/components/auth/VerifyEmailBanner";
 import { SubscriptionPendingBanner } from "@/components/billing/SubscriptionPendingBanner";
 import { Header } from "@/components/layout/Header";
 import { AppSidebar } from "@/components/layout/AppSidebar";
@@ -42,6 +43,7 @@ export default async function AppLayout({ children }: LayoutProps<"/">) {
       <AppSidebar user={{ name: user.name, email: user.email }} platformRole={user.platformRole} organizations={organizations} plans={plans} />
       <SidebarInset className="min-h-0 min-w-0 overflow-hidden">
         <Header user={{ name: user.name, email: user.email }} initialTheme={initialTheme} />
+        {!user.emailVerified && <VerifyEmailBanner email={user.email} />}
         <React.Suspense fallback={null}>
           <SubscriptionPendingBanner />
         </React.Suspense>

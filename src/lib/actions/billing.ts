@@ -14,6 +14,7 @@ import { processBillingEvent } from "@/lib/billing/process-event";
 import { TRIAL_DAYS } from "@/lib/billing/status-map";
 import { cancelModeFor } from "@/lib/billing/cancel-mode";
 import { sendTrialStartedEmail } from "@/lib/billing/trial-email";
+import { sendSignupEmails } from "@/lib/auth/email-verification";
 import { checkoutSchema, signupSchema } from "@/lib/schemas/billing";
 import { failure, formError, safeAction, success, zodErrors, type ActionResult } from "./result";
 
@@ -210,7 +211,8 @@ export async function signUpAndStartCheckout(input: unknown): Promise<ActionResu
     let orgId: string;
     try {
       const created = await prisma.$transaction(async (tx) => {
-        const user = await tx.user.create({ data: { name, email, role: "provider", passwordHash }, select: { id: true } });
+        // SPEC-055 (D-055-3): cadastro self-service nasce NAO verificado (o default do banco e "verificado").
+        const user = await tx.user.create({ data: { name, email, role: "provider", passwordHash, emailVerifiedAt: null }, select: { id: true } });
         const org = await tx.organization.create({ data: { name: orgName, slug, status: "active" }, select: { id: true } });
         await tx.membership.create({ data: { userId: user.id, orgId: org.id, orgRole: "owner" } });
         await tx.subscription.create({
@@ -229,6 +231,8 @@ export async function signUpAndStartCheckout(input: unknown): Promise<ActionResu
       throw e;
     }
 
+    // SPEC-055: boas-vindas (idempotente) + verificacao de e-mail, pos-commit/best-effort. Nunca no ramo de e-mail duplicado (anti-enumeracao).
+    await sendSignupEmails({ id: userId, name, email }, { verify: true });
     await sendTrialStartedEmail(orgId, plan.name, trialEndsAt);
     await createSession(userId, orgId, "provider");
     return success({ redirectTo: "/dashboard" });

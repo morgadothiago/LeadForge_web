@@ -8,7 +8,7 @@ import { normalizeSmtpError } from "./smtp-errors";
 import { buildUnsubscribeUrl } from "./unsubscribe";
 import { findSuppression, SUPPRESSED_MESSAGE } from "@/lib/domain/suppression";
 import { startOfLocalDay, startOfNextLocalDay } from "@/lib/whatsapp/send-window";
-import { isCloserTouch, leadStopped, reservableWhere, repliedOrEnded, skipSuppressedBeforeReserve, skipSeedBeforeReserve, REPLIED_MESSAGE } from "./reserve";
+import { isCloserTouch, leadStopped, reservableWhere, repliedOrEnded, skipSuppressedBeforeReserve, skipSeedBeforeReserve, deferUnverifiedBeforeReserve, REPLIED_MESSAGE } from "./reserve";
 import { resolvePublicHost, allowPrivateSmtpHosts, type HostResolver } from "./ssrf";
 
 export { normalizeSmtpError };
@@ -79,7 +79,7 @@ export type SendEmailResult =
   | { status: "sent"; messageId: string; accountId: string }
   | { status: "already_sent" }
   | { status: "skipped"; reason: "opted_out" | "sequence_completed" | "replied" | "suppressed" | "seed_data" }
-  | { status: "deferred"; nextAt: Date }
+  | { status: "deferred"; nextAt: Date; reason?: "email_not_verified" }
   | { status: "failed"; error: AppError };
 
 export function sanitizeError(msg: string): string {
@@ -118,6 +118,9 @@ export async function sendEmail(touchId: string, opts: SendEmailOptions = {}): P
   const where = reservableWhere(touchId, SENDING_STALE_MS);
   if (await skipSuppressedBeforeReserve(touchId, where)) return { status: "skipped", reason: "suppressed" };
   if (await skipSeedBeforeReserve(touchId, where)) return { status: "skipped", reason: "seed_data" };
+  // SPEC-055 (D-055-7): usuario com e-mail nao verificado nao envia mensagens (adia; nada e perdido).
+  const unverifiedAt = await deferUnverifiedBeforeReserve(touchId, where, now);
+  if (unverifiedAt) return { status: "deferred", nextAt: unverifiedAt, reason: "email_not_verified" };
   const reserved = await prisma.touch.updateMany({ where, data: { status: "sending" } });
   if (reserved.count === 0) {
     const cur = await prisma.touch.findUnique({ where: { id: touchId }, select: { status: true } });

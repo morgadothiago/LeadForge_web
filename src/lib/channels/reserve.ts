@@ -1,6 +1,7 @@
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { findSuppression, SUPPRESSED_MESSAGE } from "@/lib/domain/suppression";
+import { EMAIL_NOT_VERIFIED_MESSAGE } from "@/lib/auth/email-verification";
 import { allowSeedSends, isSeedSource, SEED_BLOCK_MESSAGE } from "@/lib/domain/seed-guard";
 
 /**
@@ -64,4 +65,21 @@ export async function skipSeedBeforeReserve(touchId: string, where: Prisma.Touch
   if (!t || !isSeedSource(t.lead.source)) return false;
   const r = await prisma.touch.updateMany({ where, data: { status: "skipped", error: SEED_BLOCK_MESSAGE } });
   return r.count > 0;
+}
+
+/** SPEC-055 (D-055-7): re-tentativa de Touch de usuario com e-mail nao verificado (adiado, sem queimar tentativas nem a sequencia). */
+export const EMAIL_NOT_VERIFIED_DEFER_MS = 60 * 60_000;
+
+/**
+ * SPEC-055 (D-055-7) — PONTO DE ESTRANGULAMENTO de envio: usuario dono da campanha (`campaign.userId`) com e-mail NAO verificado
+ * nao envia mensagens (e-mail nem WhatsApp). Chamado por `sendEmail`/`sendWhatsApp` ANTES de reservar (o Touch nunca passa por
+ * `sending`): devolve o instante da proxima tentativa (Touch volta a `scheduled`, `error` explica) ou `null` se pode enviar.
+ * Ao verificar, o proximo tick envia normalmente (nada e perdido). Todo caller (scheduler, agentes, manual) passa por aqui.
+ */
+export async function deferUnverifiedBeforeReserve(touchId: string, where: Prisma.TouchWhereInput, now: Date): Promise<Date | null> {
+  const t = await prisma.touch.findUnique({ where: { id: touchId }, select: { lead: { select: { campaign: { select: { user: { select: { emailVerifiedAt: true } } } } } } } });
+  if (!t || t.lead.campaign.user.emailVerifiedAt !== null) return null;
+  const nextAt = new Date(now.getTime() + EMAIL_NOT_VERIFIED_DEFER_MS);
+  await prisma.touch.updateMany({ where, data: { status: "scheduled", scheduledAt: nextAt, error: EMAIL_NOT_VERIFIED_MESSAGE } });
+  return nextAt;
 }
