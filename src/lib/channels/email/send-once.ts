@@ -56,6 +56,8 @@ export interface NotifyOrgOwnersInput {
    * Ausente = envio direto sem log (chamadores que ja tem idempotencia propria, ex.: `BillingReminderLog`).
    */
   dedupeKey?: string;
+  /** SPEC-056: owners a NAO notificar (ex.: o ator do proprio ato). */
+  excludeUserIds?: string[];
 }
 
 /**
@@ -64,7 +66,7 @@ export interface NotifyOrgOwnersInput {
  */
 export async function notifyOrgOwners(input: NotifyOrgOwnersInput): Promise<void> {
   try {
-    const owners = await prisma.membership.findMany({ where: { orgId: input.orgId, orgRole: "owner" }, select: { userId: true, user: { select: { email: true } } } });
+    const owners = await prisma.membership.findMany({ where: { orgId: input.orgId, orgRole: "owner", ...(input.excludeUserIds?.length ? { userId: { notIn: input.excludeUserIds } } : {}) }, select: { userId: true, user: { select: { email: true } } } });
     for (const m of owners) {
       if (input.dedupeKey) {
         await sendOnce({ ...input, dedupeKey: `${input.dedupeKey}:${m.userId}`, to: m.user.email, userId: m.userId });

@@ -78,3 +78,13 @@ describe("fromAddressForScenario — cenarios SPEC-054a", () => {
     }
   });
 });
+
+describe("fromAddressForScenario — cenarios SPEC-056", () => {
+  it("eventos de equipe usam o remetente noreply (Resend e ACS)", () => {
+    const env = { RESEND_FROM_NOREPLY: "noreply@d.com", ACS_FROM_NOREPLY: "acs-noreply@d.com", RESEND_FROM_BILLING: "cobranca@d.com" };
+    for (const s of ["org_member_joined", "org_member_left", "org_member_removed", "org_role_changed"] as const) {
+      expect(fromAddressForScenario(s, env)).toBe("noreply@d.com");
+      expect(fromAddressForScenario(s, env, "acs")).toBe("acs-noreply@d.com");
+    }
+  });
+});

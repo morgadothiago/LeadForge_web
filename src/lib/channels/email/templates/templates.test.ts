@@ -176,3 +176,17 @@ describe("templates SPEC-052b", () => {
     expect(planChangedTemplate({ previousPlanName: null, planName: "Pro", cadence: "yearly", amountCents: null, nextBillingDate: null, link }).text).toContain("alterado para Pro");
   });
 });
+
+describe("orgMemberEventTemplate (SPEC-056)", () => {
+  const base = { orgName: "Acme <b>", memberName: "Ana <i>", memberEmail: "ana@x.com", date: new Date("2026-10-10T12:00:00Z"), link: "https://app.leadforge.local/configuracoes/equipe" };
+  it.each([["joined", /Novo membro/], ["left", /saiu/], ["removed", /removido/], ["role_changed", /Papel/]] as const)("%s: assunto, link e escape", async (kind, re) => {
+    const { orgMemberEventTemplate } = await import("./org-member-event");
+    const t = orgMemberEventTemplate({ ...base, kind, orgRole: "owner", fromRole: "member" });
+    expect(t.subject).toMatch(re);
+    expect(t.html).toContain(base.link);
+    expect(t.text).toContain(base.link);
+    expect(t.text).toContain("ana@x.com");
+    expect(t.html).not.toContain("<b>");
+    expect(t.html).not.toContain("<i>");
+  });
+});

@@ -13,6 +13,7 @@ import { sendSystemEmail } from "@/lib/channels/system-mail";
 import { orgInviteTemplate } from "@/lib/channels/email/templates/org-invite";
 import { safeErrorForLog } from "@/lib/errors";
 import { recordOrgAudit } from "@/lib/org/audit";
+import { notifyOrgMemberEvent } from "@/lib/org/notify";
 import { actorIsOwner, lockOrg, requireOrgMember, revokeOwnerArtifacts, requireOrgOwner } from "@/lib/org/guards";
 import { AlreadyMemberError, JoinInvalidError, joinWithCode, joinWithInvite } from "@/lib/org/join";
 import {
@@ -67,6 +68,16 @@ const FORBIDDEN = "Sem permissão para esta ação.";
 const ALREADY_MEMBER = "Você já participa desta organização.";
 
 type OrgRoleName = "owner" | "member";
+
+/** SPEC-056: pos-commit, avisa os owners que `userId` entrou (busca a Membership p/ dedupe). Best-effort, nunca lanca. */
+async function notifyJoined(orgId: string, userId: string, orgRole: OrgRoleName): Promise<void> {
+  try {
+    const m = await prisma.membership.findUnique({ where: { userId_orgId: { userId, orgId } }, select: { id: true } });
+    if (m) await notifyOrgMemberEvent({ kind: "joined", orgId, memberUserId: userId, membershipId: m.id, orgRole });
+  } catch (e) {
+    console.error("[org-notify] falha ao preparar aviso de entrada:", safeErrorForLog(e));
+  }
+}
 
 async function clientIp(): Promise<string> {
   return getClientIpKey(await headers());
@@ -285,6 +296,7 @@ export async function acceptInvite(input: unknown): Promise<ActionResult<{ orgId
       const joined = await prisma.$transaction((tx) =>
         joinWithInvite(tx, { tokenHash: hashInviteToken(parsed.data.token), userId: user.id, userEmail: user.email, now: new Date(), via: "invite" }),
       );
+      await notifyJoined(joined.orgId, user.id, joined.orgRole);
       await createSession(user.id, joined.orgId, "provider");
       return success({ orgId: joined.orgId, redirectTo: "/dashboard" });
     } catch (e) {
@@ -304,6 +316,7 @@ export async function joinByCode(input: unknown): Promise<ActionResult<{ orgId: 
     if (!parsed.success) return failure(zodErrors(parsed.error));
     try {
       const joined = await prisma.$transaction((tx) => joinWithCode(tx, { code: normalizeJoinCode(parsed.data.code), userId: user.id, now: new Date(), via: "code" }));
+      await notifyJoined(joined.orgId, user.id, joined.orgRole);
       await createSession(user.id, joined.orgId, "provider");
       return success({ orgId: joined.orgId, redirectTo: "/dashboard" });
     } catch (e) {
@@ -364,11 +377,12 @@ export async function changeMemberRole(input: unknown): Promise<ActionResult<{ u
       await tx.membership.update({ where: { id: target.id }, data: { orgRole } });
       if (target.orgRole === "owner" && orgRole === "member") await revokeOwnerArtifacts(tx, orgId, userId);
       await recordOrgAudit(tx, { orgId, actorUserId: user.id, action: "role_changed", targetUserId: userId, meta: { from: target.orgRole, to: orgRole } });
-      return "ok" as const;
+      return { changed: { membershipId: target.id, from: target.orgRole } } as const;
     });
     if (result === "forbidden") return formError(FORBIDDEN);
     if (result === "not_found") return formError("Membro não encontrado.");
     if (result === "last_owner") return formError(LAST_OWNER);
+    if (typeof result === "object") await notifyOrgMemberEvent({ kind: "role_changed", orgId, memberUserId: userId, actorUserId: user.id, membershipId: result.changed.membershipId, orgRole, fromRole: result.changed.from });
     return success({ userId, orgRole });
   });
 }
@@ -391,11 +405,12 @@ export async function removeMember(input: unknown): Promise<ActionResult<{ remov
       await tx.membership.delete({ where: { id: target.id } });
       await tx.user.updateMany({ where: { id: userId, lastOrgId: orgId }, data: { lastOrgId: null } });
       await recordOrgAudit(tx, { orgId, actorUserId: user.id, action: "member_removed", targetUserId: userId, meta: { orgRole: target.orgRole } });
-      return "ok" as const;
+      return { removedMembershipId: target.id } as const;
     });
     if (result === "forbidden") return formError(FORBIDDEN);
     if (result === "last_owner") return formError(LAST_OWNER);
     if (result === "not_found") return formError("Membro não encontrado.");
+    await notifyOrgMemberEvent({ kind: "removed", orgId, memberUserId: userId, actorUserId: user.id, membershipId: result.removedMembershipId });
     return success({ removed: true as const });
   });
 }
@@ -419,9 +434,10 @@ export async function leaveOrganization(): Promise<ActionResult<{ orgId: string;
       const next = mine.find((m) => m.orgId !== orgId)!;
       await tx.user.update({ where: { id: user.id }, data: { lastOrgId: next.orgId } });
       await recordOrgAudit(tx, { orgId, actorUserId: user.id, action: "member_left", targetUserId: user.id });
-      return { ok: true as const, nextOrgId: next.orgId };
+      return { ok: true as const, nextOrgId: next.orgId, membershipId: current.id };
     });
     if (!result.ok) return formError(result.error);
+    await notifyOrgMemberEvent({ kind: "left", orgId, memberUserId: user.id, actorUserId: user.id, membershipId: result.membershipId });
     await createSession(user.id, result.nextOrgId, "provider");
     return success({ orgId: result.nextOrgId, redirectTo: "/dashboard" });
   });
@@ -487,6 +503,7 @@ export async function signUpAndJoin(input: unknown): Promise<ActionResult<{ orgI
       });
       // SPEC-055: boas-vindas pos-commit (idempotente, best-effort); verificacao so quando o convite nao provou o e-mail.
       await sendSignupEmails({ id: joined.userId, name, email }, { verify: !tokenHash });
+      await notifyJoined(joined.orgId, joined.userId, joined.orgRole);
       await createSession(joined.userId, joined.orgId, "provider");
       return success({ orgId: joined.orgId, redirectTo: "/dashboard" });
     } catch (e) {
