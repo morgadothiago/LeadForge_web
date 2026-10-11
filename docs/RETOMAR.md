@@ -1,15 +1,13 @@
 # Para retomar: o que está pronto, o que depende de você e o que vem depois
 
-Atualizado em 2026-10-11. Branch de trabalho: `docs/retomar-merge-feito` (a `main` já tem as SPECs 048-052b, 057 e 058; as SPECs
-053-056 e a PARTE 2 (036, 059, 060) estão só nesta branch, commitadas, **ainda sem PR**). Repo: git@github.com:morgadothiago/LeadForge_web.git.
+Atualizado em 2026-10-11. **Tudo está na `main`** (PR #2 mergeado em 2026-10-11, commit `0943fa0`): SPECs 048 a 060, E2E e Fase 9. Não há branch pendente nem agente em andamento. Repo: git@github.com:morgadothiago/LeadForge_web.git.
 
 ## 1. Como conferir o estado em 1 minuto
 
 ```bash
 git log --oneline -10 && git status --short   # árvore limpa = nada sobrando
-git log main..HEAD --oneline                  # o que esta branch tem a mais que a main
 npx tsc --noEmit                              # deve estar limpo
-npx prisma migrate status                     # dev: 1 pendente (20261016120000) + 5 "não encontradas localmente" (drift, ver seção 3b)
+npx prisma migrate status                     # dev: "up to date" (confirmado em 2026-10-11); o drift 20260928* existe na tabela _prisma_migrations mesmo assim (seção 3b)
 ls prisma/migrations                          # 44 entradas (43 migrations + migration_lock); a última é 20261016120000_search_run_cursor_060
 ```
 
@@ -43,7 +41,7 @@ Nesta branch, em ordem do mais antigo para o mais novo:
   - **059**: todos os limiters usam Redis quando existe `REDIS_URL` (env opcional; o Redis já está no docker). Sem `REDIS_URL`, ou se
     o Redis cair, volta à memória do processo com aviso no log (`[rate-limit]`). Chaves hasheadas. `ioredis` instalado. Sem migration.
   - **060**: o botão da busca vira "Buscar mais resultados" (usa `nextPageToken`; quando acaba, passa para variações da busca). Cada
-    clique faz 1 a 2 chamadas pagas e respeita o teto diário da 058. **Migration nova, escrita à mão, NÃO aplicada no dev.**
+    clique faz 1 a 2 chamadas pagas e respeita o teto diário da 058. Migration `20261016120000`, já aplicada no dev.
 - **Última verificação** (2026-10-11): `tsc` limpo, eslint 0 erros, vitest completo verde em banco `leadforge_*_test` novo. Depois dela
   rodou o E2E em navegador real (seção 6).
 - **Migrations**: o banco de dev está com todas aplicadas, inclusive `20261015120000_email_verification` e
@@ -95,8 +93,8 @@ Nada em `schema.prisma`, `src/` ou `specs/` usa isso.
 
 **Dados no dev.** 2 de 9 users e 2 de 11 orgs têm CPF de teste; 0 planos com `productId`; 0 flags `true`; 0 linhas com `access_blocked`.
 
-**Como o Prisma enxerga.** `npx prisma migrate status` (rodado em 2026-10-11) **mostra** o drift: lista as 5 como "não encontradas
-localmente" junto com a 1 pendente (`20261016120000`); a `20261015120000` já está aplicada. Em um banco sem o drift (clone limpo),
+**Como o Prisma enxerga.** `npx prisma migrate status` (rodado em 2026-10-11) diz "up to date" **mesmo com o drift**: as 5 migrations `20260928*` estão em
+`_prisma_migrations` (conferido por SQL) e não existem no repo. Todas as migrations do repo estão aplicadas. Em um banco sem o drift (clone limpo),
 o comando não lista as 5.
 
 **Risco.** Em runtime é nulo (colunas nullable ou com default). O risco real: `prisma migrate dev` pode propor **reset ou drop** dessas
@@ -135,7 +133,6 @@ importa uma feature sem SPEC e expande dados pessoais (LGPD/SPEC-054). Só faz s
 - E-mail se **perde** se o provedor falhar depois da reserva da chave de idempotência (sem retry), nos e-mails de 052a/052b, 055 e 056.
 - O signup espera o envio de SMTP (trial, boas-vindas, confirmação). Isso cria diferença de tempo na resposta entre e-mail novo e
   e-mail já existente, o que permite **enumeração de contas** por medição de tempo (limitada pelo rate limit).
-- `bulkApproveFollowups` mostra só "blocked" quando o motivo é `email_not_verified` (não diz que é o e-mail).
 - Reativação feita **fora do app** (direto no Stripe real) será ignorada quando o adapter Stripe existir (053-1).
 - Cartão do AbacatePay pode continuar cobrando até alguém cancelar no painel do provedor (não há endpoint, D-053-5).
 - A purga não tem job de 5 anos para registros de cobrança (ver decisão 4); `EmailDispatchLog` sem purga.
@@ -175,7 +172,7 @@ Contas de teste no banco de dev: `claude.a*@testes-claude.local` (senha de teste
 
 1. Validar à mão o que ficou `[ ]` nos blocos H a N do roteiro (lista na seção 6).
 2. Decidir o drift `20260928*` (seção 3b).
-3. Abrir o PR da branch `docs/retomar-merge-feito` para a `main` (SPECs 053-056, 036, 059, 060); o merge é seu.
+3. ~~Abrir o PR~~ **feito**: PR #2 mergeado na `main` (`0943fa0`).
 4. Com chaves reais: validar LLM grátis (Ollama/Gemini), Redis e a busca Places paginada.
 5. Depois: escolher o provedor de avatar real (SPEC nova, cumprindo D-051-15); mapear `subscription.cancelled` do AbacatePay em
    sandbox (Q-052-5); parecer jurídico da retenção (decisão 4).
