@@ -168,14 +168,43 @@ H8-H12, I10, app móvel (I5), M1/M4/M6, dark mode e teclado das páginas públic
 Contas de teste no banco de dev: `claude.a*@testes-claude.local` (senha de teste `SenhaForte-12345`, **só dev**). Dados de teste: orgs
 "Empresa A ...", "Segunda Org Teste", criativos e o lead "Lead Secreto do Tenant A". Podem ser apagados.
 
-## 7. Próximo trabalho
+## 7. Próximo trabalho (plano para continuar)
 
-1. Validar à mão o que ficou `[ ]` nos blocos H a N do roteiro (lista na seção 6).
-2. Decidir o drift `20260928*` (seção 3b).
-3. ~~Abrir o PR~~ **feito**: PR #2 mergeado na `main` (`0943fa0`).
-4. Com chaves reais: validar LLM grátis (Ollama/Gemini), Redis e a busca Places paginada.
-5. Depois: escolher o provedor de avatar real (SPEC nova, cumprindo D-051-15); mapear `subscription.cancelled` do AbacatePay em
-   sandbox (Q-052-5); parecer jurídico da retenção (decisão 4).
+**Onde estamos (2026-10-11):** `main` com as SPECs 048 a 060, E2E em navegador real e Fase 9. Deploy da Vercel corrigido (cron diário +
+workflow do GitHub). Sem agente rodando e sem SPEC em aberto.
+
+**Etapa 1: destravar o deploy (você, ~10 min)**
+1. Merge do PR #4 (`gh pr merge 4 --merge`): traz `docs/TESTES_PRIORITARIOS.md`.
+2. Segredos do GitHub (Settings > Secrets and variables > Actions): `CRON_SECRET` (o mesmo da Vercel) e `APP_URL`. Rode o workflow
+   "Tick (agendador)": deve dar `HTTP 200` (503 = falta `CRON_SECRET` na Vercel; 401 = valores diferentes).
+3. Variáveis na Vercel (Fase 9): `DATABASE_URL`, `DATABASE_URL_UNPOOLED`, `AUTH_SECRET`, `ENCRYPTION_KEY`, `CRON_SECRET`,
+   `TRUSTED_PROXY_IP_HEADER`, `AUTH_URL`, `APP_BASE_URL`.
+
+**Etapa 2: produção no ar (você + Claude, 30 a 60 min)**
+1. Postgres e Redis na nuvem (Fase 9.1 e 9.2). 2. E-mail real com domínio verificado (9.5). 3. Deploy e o roteiro de 12 itens (9.10);
+Claude ajuda a ler logs se falhar.
+
+**Etapa 3: os 10 testes de maior risco (`docs/TESTES_PRIORITARIOS.md`)**
+- Sem chaves reais, comece pelos testes 5 a 10 (cadastro limpo, suspender org, e-mail não confirmado, cancelamento, isolamento, teclado/escuro).
+- Com chaves reais: testes 1 a 4 (AbacatePay, e-mail real, Places, LLM real).
+- Anote o que falhar na coluna "Observado" do ROTEIRO e mande ao Claude: correção com teste de regressão.
+
+**Etapa 4: decisões suas (~5 min cada)**
+| Decisão | Recomendação |
+|---|---|
+| Drift das migrations `20260928*` (seção 3b) | Opção A: `pg_dump` e remover só do dev |
+| J11: cadastro com e-mail já existente revela que ele existe | Resposta igual nos dois casos |
+| Parecer jurídico da retenção (5 anos e 6 meses, D-054-4) | Validar antes de abrir ao público |
+| Preços dos planos (PLACEHOLDER, D-33-2) | Definir antes do primeiro cliente |
+| Provedor de avatar real | Escolher 1 (HeyGen, D-ID, Tavus...) |
+
+**Etapa 5: código (só depois das etapas 3 e 4)**
+1. Correções do que o teste manual achar (prioridade máxima).
+2. SPEC do avatar real, cumprindo D-051-15 (SSRF e timeouts), após a escolha do provedor.
+3. Cartão do AbacatePay (Q-052-5): mapear `subscription.cancelled` quando houver sandbox.
+4. Futuro: exportação de dados LGPD, termos de uso e política de privacidade (conteúdo jurídico), plano Pro da Vercel com cron por minuto.
+
+**Sugestão para a próxima sessão:** etapas 1 e 2, testes 5 a 10, e trazer ao Claude o que falhar mais as 5 decisões.
 
 Regra combinada: **só commitar quando tudo estiver verde** (tsc, lint sem erros, vitest em banco `*_test` novo, QA aprovado); nunca
 rodar `migrate dev` neste banco.
