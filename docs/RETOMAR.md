@@ -16,8 +16,8 @@ em outro terminal** (sem ele criativos, sequências e a exclusão de conta não 
 
 ## 2. Estado real
 
-**SPECs 048 a 060 estão implementadas.** Na `main`: 048, 049 (a/b), 050, 051 (a/b), 052a, 052b (sem cartão), 057 e 058 (a/b).
-Nesta branch, em ordem do mais antigo para o mais novo:
+**SPECs 048 a 060 estão implementadas e todas na `main`.** Antes do PR #2: 048, 049 (a/b), 050, 051 (a/b), 052a, 052b (sem cartão), 057 e 058 (a/b).
+Entraram com o PR #2, em ordem do mais antigo para o mais novo:
 
 | Commit | O que entregou |
 |---|---|
@@ -31,7 +31,7 @@ Nesta branch, em ordem do mais antigo para o mais novo:
 | `bc6a71b` | **SPEC-059**: rate limit persistente em Redis com fallback em memória |
 | `7c7f99b` | **SPEC-060**: paginação da busca Places com cursor, fallback de variações e teto de orçamento |
 
-(A branch também carrega `c3b571c`, `84bb762` e `85193b9`. Um 4º commit de docs/specs desta PARTE 2 vem depois destes.)
+(O PR #2 também trouxe `c3b571c`, `84bb762` e `85193b9`, mais um commit de docs/specs da PARTE 2.)
 
 - **O que cada SPEC da PARTE 2 faz**
   - **036**: em `/configuracoes/integracoes`, o card "Provedor de LLM" aceita URL base opcional (com exemplos), chave opcional,
@@ -171,10 +171,10 @@ Contas de teste no banco de dev: `claude.a*@testes-claude.local` (senha de teste
 ## 7. Próximo trabalho (plano para continuar)
 
 **Onde estamos (2026-10-11):** `main` com as SPECs 048 a 060, E2E em navegador real e Fase 9. Deploy da Vercel corrigido (cron diário +
-workflow do GitHub). Sem agente rodando e sem SPEC em aberto.
+workflow do GitHub). PR #4 mergeado (`ee10022`, traz `docs/TESTES_PRIORITARIOS.md`). Sem agente rodando e sem SPEC em aberto.
 
 **Etapa 1: destravar o deploy (você, ~10 min)**
-1. Merge do PR #4 (`gh pr merge 4 --merge`): traz `docs/TESTES_PRIORITARIOS.md`.
+1. ~~Merge do PR #4~~ (feito).
 2. Segredos do GitHub (Settings > Secrets and variables > Actions): `CRON_SECRET` (o mesmo da Vercel) e `APP_URL`. Rode o workflow
    "Tick (agendador)": deve dar `HTTP 200` (503 = falta `CRON_SECRET` na Vercel; 401 = valores diferentes).
 3. Variáveis na Vercel (Fase 9): `DATABASE_URL`, `DATABASE_URL_UNPOOLED`, `AUTH_SECRET`, `ENCRYPTION_KEY`, `CRON_SECRET`,
