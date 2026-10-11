@@ -954,6 +954,10 @@ model SearchRun {
   error      String?
   startedAt  DateTime  @default(now())
   finishedAt DateTime?
+  /// SPEC-060: cursor da paginacao (so em run `done`): proximo nextPageToken, query usada e indice da variacao.
+  pageToken   String?
+  searchQuery String?
+  variant     Int     @default(0)
 
   @@index([campaignId, startedAt])
 }

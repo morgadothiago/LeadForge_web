@@ -118,7 +118,7 @@ describe("getSearchRunStatus / getLeadSearchPanel (SPEC-058a)", () => {
   it("painel: role, restantes, estimativa e activeRun pela mesma contagem do reserve", async () => {
     await asOwnerA();
     let p = await getLeadSearchPanel(campA);
-    expect(p).toMatchObject({ canManage: true, role: "owner", usedToday: 0, remainingManual: 2, remainingOrg: 10, estimatedPaidCallsLeft: 2, activeRun: null });
+    expect(p).toMatchObject({ canManage: true, role: "owner", usedToday: 0, remainingManual: 2, remainingOrg: 10, estimatedPaidCallsLeft: 2, activeRun: null, hasNextPage: false });
     const run = await prisma.searchRun.create({ data: { campaignId: campA, source: "google_places", trigger: "manual", status: "running" } });
     p = await getLeadSearchPanel(campA);
     // running conta 1 (mesma regra do reserve), mesmo com requests = 0

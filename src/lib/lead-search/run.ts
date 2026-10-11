@@ -8,7 +8,7 @@ import { computeBudget } from "./budget";
 import { dailyRequestBudget, isSearchEnabled, manualDailyBudget, maxCampaignsPerTick, maxResultsPerRun, orgDailyBudget, STALE_RUN_MS, tickDeadlineMs } from "./config";
 import { createPlacesClient, PlacesSource } from "./places";
 import { scoreLead } from "./score";
-import type { LeadSource } from "./types";
+import type { LeadSource, SearchCursor } from "./types";
 
 export const SEARCH_LEGAL_BASIS = "interesse_legitimo_b2b";
 
@@ -27,7 +27,7 @@ const startOfDay = (d = new Date()) => startOfLocalDay(SEARCH_TZ, d);
 const lockKey = (campaignId: string) => `leadsearch:${campaignId}`;
 const orgLockKey = (orgId: string) => `leadsearch:org:${orgId}`;
 
-type Reservation = { runId: string } | { blocked: string } | { skipped: true } | { inProgress: string } | { busy: string };
+type Reservation = { runId: string; maxRequests: number } | { blocked: string } | { skipped: true } | { inProgress: string } | { busy: string };
 
 export const BUSY_MESSAGE = "Já existe uma busca em andamento para esta campanha.";
 const STALE_MESSAGE = "Execução interrompida.";
@@ -47,6 +47,7 @@ async function reserve(campaignId: string, orgId: string, sourceId: string, trig
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${lockKey(campaignId)}))`;
     const since = startOfDay();
     let reason = block;
+    let maxRequests = 1;
     if (!reason) {
       await tx.searchRun.updateMany({
         where: { campaignId, status: "running", startedAt: { lt: new Date(Date.now() - STALE_RUN_MS) } },
@@ -69,8 +70,10 @@ async function reserve(campaignId: string, orgId: string, sourceId: string, trig
       const b = computeBudget(today, orgToday, { daily: dailyRequestBudget(), manual: manualDailyBudget(), org: orgDailyBudget() });
       if (trigger === "scheduled") {
         if (b.scheduledUsed >= dailyRequestBudget()) reason = "Limite diário de buscas desta campanha atingido. Tente amanhã.";
+        else maxRequests = dailyRequestBudget() - b.scheduledUsed;
       } else if (b.remainingManual <= 0) reason = "Limite diário de buscas manuais desta campanha atingido. Tente amanhã.";
       else if (b.remainingOrg <= 0) reason = "Limite diário de buscas da organização atingido. Tente amanhã.";
+      else maxRequests = b.estimatedPaidCallsLeft;
     }
     if (reason) {
       if (trigger === "manual") {
@@ -79,7 +82,8 @@ async function reserve(campaignId: string, orgId: string, sourceId: string, trig
       return { blocked: reason };
     }
     const run = await tx.searchRun.create({ data: { campaignId, source: sourceId, trigger }, select: { id: true } });
-    return { runId: run.id };
+    // SPEC-060: chamadas que esta busca pode fazer sem estourar o teto (máx. 2: página + fallback de token inválido).
+    return { runId: run.id, maxRequests: Math.min(Math.max(maxRequests, 1), 2) };
   });
 }
 
@@ -113,6 +117,8 @@ async function execute(campaignId: string, opts: { trigger?: "manual" | "schedul
 
   const run = { id: r.runId };
   const out: SearchOutcome = { runId: run.id, found: 0, created: 0, duplicate: 0, suppressed: 0, invalid: 0, requests: 0 };
+  let nextCursor: SearchCursor | null = null;
+  const progress = { requests: 0 }; // chamadas pagas feitas pela fonte (visível ao catch se search lançar após 2 chamadas)
   const counters = () => ({ requests: out.requests, found: out.found, created: out.created, duplicate: out.duplicate, suppressed: out.suppressed, invalid: out.invalid });
   // SPEC-058 (D-058-4): prazo total da busca síncrona; estourar vira run `failed` (a corrida garante o fim mesmo se a fonte ignorar o signal).
   const ctrl = new AbortController();
@@ -121,8 +127,12 @@ async function execute(campaignId: string, opts: { trigger?: "manual" | "schedul
   const aborted = new Promise<never>((_, rej) => ctrl.signal.addEventListener("abort", () => rej(timeoutErr()), { once: true }));
   aborted.catch(() => undefined);
   try {
-    const found = opts.timeoutMs ? Promise.race([source.search(camp.icp, maxResultsPerRun(), ctrl.signal), aborted]) : source.search(camp.icp, maxResultsPerRun());
-    const { leads, requests } = await found;
+    // SPEC-060: continua de onde a última busca concluída parou (cursor persistido em SearchRun).
+    const prev = await prisma.searchRun.findFirst({ where: { campaignId, status: "done", searchQuery: { not: null } }, orderBy: { startedAt: "desc" }, select: { variant: true, pageToken: true, searchQuery: true } });
+    const sopts = { cursor: prev?.searchQuery ? { variant: prev.variant, pageToken: prev.pageToken, query: prev.searchQuery } : null, maxRequests: r.maxRequests, progress };
+    const found = opts.timeoutMs ? Promise.race([source.search(camp.icp, maxResultsPerRun(), ctrl.signal, sopts), aborted]) : source.search(camp.icp, maxResultsPerRun(), undefined, sopts);
+    const { leads, requests, cursor } = await found;
+    nextCursor = cursor ?? null;
     out.requests = requests;
     out.found = leads.length;
     for (const [i, l] of leads.entries()) {
@@ -158,12 +168,12 @@ async function execute(campaignId: string, opts: { trigger?: "manual" | "schedul
         out.invalid++;
       }
     }
-    await prisma.searchRun.update({ where: { id: run.id }, data: { status: "done", ...counters(), finishedAt: new Date() } });
+    await prisma.searchRun.update({ where: { id: run.id }, data: { status: "done", ...counters(), ...(nextCursor ? { variant: nextCursor.variant, pageToken: nextCursor.pageToken, searchQuery: nextCursor.query } : {}), finishedAt: new Date() } });
     return out;
   } catch (e) {
     console.error("[lead-search] falha:", safeErrorForLog(e));
     const msg = e instanceof AppError ? e.userMessage : "Falha inesperada na busca.";
-    await prisma.searchRun.update({ where: { id: run.id }, data: { status: "failed", ...counters(), requests: Math.max(out.requests, 1), error: msg, finishedAt: new Date() } }).catch(() => undefined);
+    await prisma.searchRun.update({ where: { id: run.id }, data: { status: "failed", ...counters(), requests: Math.max(out.requests, progress.requests, 1), error: msg, finishedAt: new Date() } }).catch(() => undefined);
     throw e;
   } finally {
     if (timer) clearTimeout(timer);
