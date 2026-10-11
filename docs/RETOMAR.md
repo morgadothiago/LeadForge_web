@@ -122,7 +122,7 @@ importa uma feature sem SPEC e expande dados pessoais (LGPD/SPEC-054). Só faz s
   defina teto de orçamento no Google.
 - **Azure (ACS e Blob), Resend, AbacatePay, Evolution, Claude**: só testados com mocks. Valide o recibo com webhook real/sandbox do
   AbacatePay (campos `amount`, `paidAt`, `card.lastDigits` foram assumidos).
-- **Produção (Vercel)**: definir `CRON_SECRET` (cron por minuto já está no `vercel.json`; exige plano pago, no Hobby só 1x/dia) e
+- **Produção (Vercel)**: definir `CRON_SECRET` (o `vercel.json` tem cron diário por causa do plano Hobby; o tick a cada 5 min é o workflow `.github/workflows/tick.yml`, que precisa dos segredos `CRON_SECRET` e `APP_URL` no GitHub) e
   `TRUSTED_PROXY_IP_HEADER` (obrigatória em produção), além de envs de e-mail e storage; e `REDIS_URL` se houver mais de uma
   instância (senão o rate limit não é compartilhado). Sem `CRON_SECRET` nada avança (sequências, criativos, busca, purga de conta).
 

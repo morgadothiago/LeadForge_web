@@ -1,4 +1,4 @@
 {
   "buildCommand": "DATABASE_URL=\"$DATABASE_URL_UNPOOLED\" prisma migrate deploy && DATABASE_URL=\"$DATABASE_URL_UNPOOLED\" prisma db seed && next build",
-  "crons": [{ "path": "/api/cron/tick", "schedule": "* * * * *" }]
+  "crons": [{ "path": "/api/cron/tick", "schedule": "0 6 * * *" }]
 }
