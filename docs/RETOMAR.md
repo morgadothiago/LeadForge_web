@@ -1,6 +1,6 @@
 # Para retomar: o que está pronto, o que depende de você e o que vem depois
 
-Atualizado em 2026-10-11. **Tudo está na `main`** (PR #2 mergeado em 2026-10-11, commit `0943fa0`): SPECs 048 a 060, E2E e Fase 9. A SPEC-045 (react-hook-form em Configurações/Admin) está implementada e aprovada no QA na branch `feat/spec-045-rhf-configuracoes` (PR aberto, ver seção 7). Repo: git@github.com:morgadothiago/LeadForge_web.git.
+Atualizado em 2026-10-11. **Tudo está na `main`** (PR #2 mergeado em 2026-10-11, commit `0943fa0`): SPECs 048 a 060, E2E e Fase 9. A SPEC-045 (react-hook-form em Configurações/Admin) está implementada, aprovada no QA e mergeada (PR #8, `48175e5`). Produção já está no ar em https://lead-forge-web-omega.vercel.app (seção 7). Repo: git@github.com:morgadothiago/LeadForge_web.git.
 
 ## 1. Como conferir o estado em 1 minuto
 
@@ -170,19 +170,34 @@ Contas de teste no banco de dev: `claude.a*@testes-claude.local` (senha de teste
 
 ## 7. Próximo trabalho (plano para continuar)
 
-**Onde estamos (2026-10-11):** `main` com as SPECs 048 a 060, E2E em navegador real e Fase 9. Deploy da Vercel corrigido (cron diário +
-workflow do GitHub). PR #4 mergeado (`ee10022`, traz `docs/TESTES_PRIORITARIOS.md`). SPEC-045 implementada (QA APPROVED, `next build` ok, vitest 2055 verde); falta o bloco O do ROTEIRO à mão (desktop e 390px) e o merge do PR. Não há outra SPEC em aberto.
+**Onde estamos (2026-10-11):** `main` com as SPECs 048 a 060 e a 045 (react-hook-form; QA APPROVED, `next build` ok, vitest 2055 verde),
+E2E em navegador real e Fase 9. **Produção no ar na Vercel** (`https://lead-forge-web-omega.vercel.app`, sem domínio próprio): `/` e
+`/login` respondem 200; no build, "43 migrations found, no pending" e seed em modo produção (só planos e admin). Falta o bloco O do
+ROTEIRO à mão (desktop e 390px). Não há SPEC em aberto.
 
-**Etapa 1: destravar o deploy (você, ~10 min)**
-1. ~~Merge do PR #4~~ (feito).
-2. Segredos do GitHub (Settings > Secrets and variables > Actions): `CRON_SECRET` (o mesmo da Vercel) e `APP_URL`. Rode o workflow
-   "Tick (agendador)": deve dar `HTTP 200` (503 = falta `CRON_SECRET` na Vercel; 401 = valores diferentes).
-3. Variáveis na Vercel (Fase 9): `DATABASE_URL`, `DATABASE_URL_UNPOOLED`, `AUTH_SECRET`, `ENCRYPTION_KEY`, `CRON_SECRET`,
-   `TRUSTED_PROXY_IP_HEADER`, `AUTH_URL`, `APP_BASE_URL`.
+**Etapa 1: destravar o deploy (FEITA em 2026-10-11, com 3 pendências suas)**
+- Vercel (Production) com: `DATABASE_URL`, `DATABASE_URL_UNPOOLED`, `AUTH_SECRET`, `AUTH_URL`, `ENCRYPTION_KEY`, `CRON_SECRET`,
+  `TRUSTED_PROXY_IP_HEADER=x-real-ip`, `APP_BASE_URL`, `REDIS_URL`. GitHub Actions com `CRON_SECRET` e `APP_URL`.
+- **Redis:** criado pelo Marketplace (Upstash for Redis, resource `leadforge-redis`, Production e Preview). Veio `REDIS_URL` (o app usa
+  esta) e `KV_*` (não usadas). Ainda não validei o bloqueio de login sobrevivendo a deploy.
+- **`CRON_SECRET` foi rotacionado** (novo valor na Vercel e no GitHub; deploy refeito; `POST /api/cron/tick` com o segredo novo = 200).
+  Cópia local temporária do valor na pasta de scratchpad da sessão: apague depois de configurar o agendador.
+- **Pendente 1, `AUTH_URL`:** não consegui ler o valor. Confira na Vercel que é exatamente `https://lead-forge-web-omega.vercel.app`
+  (sem barra no fim).
+- **Pendente 2, agendador:** o workflow `Tick (agendador)` do GitHub **não roda**: "your account is locked due to a billing issue".
+  Opção A: resolver o billing do GitHub e rodar o workflow (esperado `HTTP 200`). Opção B (preparada): cron-job.org, a cada 5 min,
+  `POST https://lead-forge-web-omega.vercel.app/api/cron/tick`, header `Authorization: Bearer <CRON_SECRET>`; Test run deve dar 200.
+  Sem nenhum dos dois só o cron diário da Vercel roda (sequências, criativos, busca e purga ficam lentos). Com os dois ativos, desligue
+  um: não verifiquei se o tick é seguro em duplicidade.
+- **Pendente 3:** a instalação do Upstash criou `.agents/`, `.claude/` e `skills-lock.json` sem commit (e o deploy os incluiu). Decida se
+  entram no git ou no `.gitignore`.
 
-**Etapa 2: produção no ar (você + Claude, 30 a 60 min)**
-1. Postgres e Redis na nuvem (Fase 9.1 e 9.2). 2. E-mail real com domínio verificado (9.5). 3. Deploy e o roteiro de 12 itens (9.10);
-Claude ajuda a ler logs se falhar.
+**Etapa 2: produção no ar (em andamento)**
+1. ~~Postgres (Neon) e Redis (Upstash) na nuvem.~~ Feito. 2. **E-mail real com domínio verificado (9.5):** falta; confira se `SMTP_*`
+na Vercel não são o placeholder de dev. 3. **Arquivos:** `STORAGE_PROVIDER=azure` + Azure Blob (9.6); sem isso `/criativos` dá 503.
+4. **Cobrança real:** `PAYMENT_PROVIDER=abacatepay` + chaves + webhook em `/api/billing/webhook` (9.7); sem isso segue em **mock**.
+5. Opcionais: Google Places (`LEAD_SEARCH_ENABLED=true`, 9.9) e chave de LLM no painel. 6. Roteiro de 12 itens (9.10).
+O WhatsApp (Evolution) e o avatar real continuam de fora.
 
 **Etapa 3: os 10 testes de maior risco (`docs/TESTES_PRIORITARIOS.md`)**
 - Sem chaves reais, comece pelos testes 5 a 10 (cadastro limpo, suspender org, e-mail não confirmado, cancelamento, isolamento, teclado/escuro).
@@ -204,7 +219,7 @@ Claude ajuda a ler logs se falhar.
 3. Cartão do AbacatePay (Q-052-5): mapear `subscription.cancelled` quando houver sandbox.
 4. Futuro: exportação de dados LGPD, termos de uso e política de privacidade (conteúdo jurídico), plano Pro da Vercel com cron por minuto.
 
-**Sugestão para a próxima sessão:** etapas 1 e 2, testes 5 a 10, e trazer ao Claude o que falhar mais as 5 decisões.
+**Sugestão para a próxima sessão:** fechar os pendentes da Etapa 1 e o resto da Etapa 2, testes 5 a 10, e trazer ao Claude o que falhar mais as 5 decisões.
 
 Regra combinada: **só commitar quando tudo estiver verde** (tsc, lint sem erros, vitest em banco `*_test` novo, QA aprovado); nunca
 rodar `migrate dev` neste banco.
