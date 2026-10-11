@@ -5,7 +5,7 @@ ver na tela** e como conferir.
 
 Ele ajuda os outros guias: `docs/GUIA.md` (o livro completo), `docs/CONFIGURACAO_POS_PROJETO.md` (o que arrumar depois
 de cada SPEC) e `docs/ROTEIRO_DE_TESTES.md` (o que clicar e o que esperar).
-Revisado contra o código em 2026-10-10 (noite). Onde estiver escrito "não verificado", ninguém testou no navegador ou
+Revisado contra o código em 2026-10-11. Onde estiver escrito "não verificado", ninguém testou no navegador ou
 no serviço de verdade: só se leu o código e rodaram testes automáticos.
 
 ---
@@ -49,16 +49,17 @@ conversa com elas por você e organiza tudo num quadro. Assim você não se perd
 - O caderninho `.env` já tem: `POSTGRES_PASSWORD`, `DATABASE_URL`, `AUTH_SECRET`, `AUTH_URL`, `ADMIN_EMAIL`,
   `ADMIN_PASSWORD`, `ENCRYPTION_KEY`, `CRON_SECRET`, `INGEST_SECRET`, `N8N_ENCRYPTION_KEY`, `EVOLUTION_*` e `SMTP_*`.
 - Faltam, mas **todas são opcionais**:
+  - `REDIS_URL` (faz o limite de tentativas lembrar mesmo se o app reiniciar; veja 2.9)
   - `RESEND_API_KEY`
   - `APP_BASE_URL` (os links dos e-mails usam `AUTH_URL` e, se faltar, `http://localhost:3000`; em produção, defina)
   - qualquer chave de LLM (o "cérebro" que escreve mensagens)
 - Ausentes de propósito: `LEAD_SEARCH_ENABLED` (a busca de leads está desligada), `CREATIVE_*` e `STORAGE_*`.
 - 📬 **O e-mail já vai para o Mailpit:** `SMTP_HOST=localhost`, `SMTP_PORT=1025`, `ALLOW_PRIVATE_SMTP_HOSTS=true`. A caixa
   fica em http://localhost:8025. Nada sai para a internet.
-- 🗄️ **Migrations (gavetas):** são 42 no projeto. A última é `20261015120000_email_verification` (SPEC-055: guarda se cada
-  pessoa já confirmou o e-mail e cria a tabela dos links de confirmação).
-  - ⚠️ No banco de dev, tudo até `20261014120000_account_deletion_request` (SPEC-054) já está aplicado (conferido com
-    `npx prisma migrate status` em 2026-10-10). **Falta só a `20261015120000_email_verification`.** Rode `npx prisma migrate deploy`
+- 🗄️ **Migrations (gavetas):** são 43 no projeto. A última é `20261016120000_search_run_cursor_060` (SPEC-060: dá à busca de
+  clientes uma "memória" de onde parou, com 3 colunas novas).
+  - ⚠️ No banco de dev, tudo até `20261015120000_email_verification` já está aplicado (conferido com
+    `npx prisma migrate status` em 2026-10-11). **Falta só a `20261016120000_search_run_cursor_060`.** Rode `npx prisma migrate deploy`
     e depois pare e ligue o `npm run dev` de novo.
   - Em outro computador ou banco novo, aplique tudo com `npx prisma migrate deploy` (passo 1.3).
 - 🐳 **Caixinhas no ar:** `leadforge-postgres-1`, `leadforge-redis-1` e `mailpit`. O `evolution` e o `n8n` não.
@@ -99,21 +100,24 @@ npx prisma migrate deploy
   successfully applied". Se não há nada novo: "No pending migrations to apply".
 - Sem as migrations de criativos e de `EmailDispatchLog` (o caderno de e-mails enviados), `/criativos` e os e-mails de
   cobrança dão erro de "tabela inexistente". Sem a `20261014120000_account_deletion_request`, a exclusão de conta (2.6) não
-  funciona. Sem a `20261015120000_email_verification`, o cadastro e a confirmação de e-mail (2.7) dão erro.
+  funciona. Sem a `20261015120000_email_verification`, o cadastro e a confirmação de e-mail (2.7) dão erro. Sem a
+  `20261016120000_search_run_cursor_060`, a busca de clientes (Fase 8) dá erro.
 - As migrations novas só **acrescentam** gavetas (não jogam nada fora), então `migrate deploy` é seguro.
 - ⚠️ **Depois de aplicar, pare o `npm run dev` e ligue de novo.** O app antigo guarda uma cópia velha do mapa das gavetas
   (o Prisma Client) e falha em silêncio.
 - Como conferir: `npx prisma migrate status` não lista nenhuma migration pendente.
 
-🚫 **NÃO use `prisma migrate dev` neste banco.** O aviso continua valendo (reconferido em 2026-10-10 com
-`prisma migrate diff`). O banco de dev tem gavetas que o projeto atual não conhece:
+🚫 **NÃO use `prisma migrate dev` neste banco.** O aviso continua valendo (reconferido em 2026-10-11). O banco de dev tem
+gavetas que o projeto atual não conhece, e o `npx prisma migrate status` também avisa, listando 5 migrations "não encontradas
+localmente":
 - `User.document` e `User.documentType`
 - `Organization.document`, `documentType`, `documentBlocked` e `trialBlocked`
 - `Plan.abacatepayProductId`
 - os índices `User_document_*`
 
 Elas vieram de migrations `20260928*` de outro computador, que **não existem neste projeto**. O `migrate dev` ia
-propor **jogar fora essas gavetas e tudo que está dentro**. Um banco novo (clone limpo) não tem esse problema.
+propor **jogar fora essas gavetas e tudo que está dentro**. Um banco novo (clone limpo) não tem esse problema. Isso não atrapalha o
+app nem o `migrate deploy`. A limpeza é uma decisão sua (veja `docs/RETOMAR.md`, seção 3b).
 
 ### 1.4 Colocar brinquedos de exemplo (seed)
 
@@ -322,6 +326,23 @@ valendo: o e-mail sai só depois que a mudança foi gravada. A lista de testes e
 
 ⚠️ Se o provedor de e-mail falhar na hora do envio, aquele aviso se perde (não há nova tentativa).
 
+### 2.9 Limite de tentativas que não esquece (Redis, SPEC-059)
+
+Pense num porteiro que só deixa você tentar a senha algumas vezes. Antes, ele anotava no ar: se o app reiniciava, esquecia tudo.
+Agora ele pode anotar no **Redis** (o bloquinho de recados da caixinha `leadforge-redis-1`), e aí lembra mesmo depois de reiniciar.
+**É opcional.** Sem fazer nada, tudo funciona como antes.
+
+1. Confira que a caixinha está ligada: `docker ps` mostra `leadforge-redis-1` (passo 1.2).
+2. No `.env`, acrescente a linha `REDIS_URL=redis://localhost:6379`.
+3. Pare e ligue o `npm run dev` de novo.
+4. Para testar: erre a senha do login algumas vezes. Reinicie o `npm run dev` e tente de novo: o bloqueio continua.
+
+✅ O que você deve ver: o mesmo bloqueio de antes, só que ele **sobrevive ao reinício**. Se você desligar o Redis
+(`docker stop leadforge-redis-1`), o app não quebra: no terminal do `npm run dev` aparece um aviso `[rate-limit]` e o porteiro
+volta a anotar no ar. Sem `REDIS_URL` nenhum aviso aparece (é o jeito antigo). Nas chaves guardadas no Redis, e-mails e IPs
+ficam embaralhados (hash), nunca em texto claro. Em produção com mais de uma cópia do app, defina `REDIS_URL`, senão cada cópia
+conta separado. A lista de testes está no bloco M do `docs/ROTEIRO_DE_TESTES.md`.
+
 ## Fase 3: e-mail (escolha UMA opção)
 
 ### 3.A Sem enviar nada de verdade (✅ JÁ CONFIGURADO neste ambiente)
@@ -360,8 +381,8 @@ o sistema. Passos E6 a E10 do `docs/ROTEIRO_DE_TESTES.md`.
 - e-mail de falha ou recuperação de **cartão** da AbacatePay (pergunta Q-052-5 ainda aberta; não se sabe o nome dos
   eventos)
 - PDF ou nota fiscal (o recibo é só informativo)
-- As SPECs 053 a 056 (cancelamento, exclusão LGPD, boas-vindas/verificação, e-mails de organização) estão **DRAFT**:
-  ainda são só receitas escritas, não existem no app.
+- As SPECs 053 a 056 (cancelamento, exclusão LGPD, boas-vindas/verificação, e-mails de organização) **já existem no app**
+  (veja 2.5 a 2.8).
 
 **Para voltar a mandar pelo Gmail de verdade:** `SMTP_HOST=smtp.gmail.com`, `SMTP_PORT=587`, apague
 `ALLOW_PRIVATE_SMTP_HOSTS` e reinicie. Sem isso, nenhum e-mail sai da sua máquina.
@@ -440,10 +461,9 @@ Em Configurações > WhatsApp, crie a instância e leia o QR code com o celular.
 
 LLM é um "cérebro de computador" que sabe escrever textos. Os agentes do LeadForge usam um para escrever mensagens.
 
-**Como está hoje:** o código só tem o `ClaudeProvider` (`https://api.anthropic.com`, pago, sem parte grátis) e um
-`FakeLlmProvider` (de mentirinha, só para testes). **Não existe cérebro gratuito pronto no projeto.** Para conferir:
-`src/lib/agents/provider.ts`. A SPEC-036 (LLM gratuito no formato OpenAI) está APROVADA, mas **a implementação está
-pendente**.
+**Como está hoje:** o cérebro pode ser o **Claude** (pago, o padrão) ou qualquer cérebro "no formato OpenAI" que você escolher por
+organização (SPEC-036): Groq, OpenRouter, Ollama (no seu computador) ou Gemini. Isso é o que dá para usar **de graça**. Existe
+também um `FakeLlmProvider` (de mentirinha, só para testes).
 
 ### 6.1 Testar sem cérebro (grátis)
 
@@ -452,26 +472,35 @@ passos da sequência.
 
 - **O que você deve ver na tela:** as sequências andam com textos prontos, sem agente escrevendo.
 
-### 6.2 Testar com Claude
+### 6.2 Testar com Claude (pago)
 
-Em Configurações > Integrações > LLM, cole a chave da Anthropic. Ela fica trancada (cifrada) com a `ENCRYPTION_KEY`.
-É pago.
+Em Configurações > Integrações > **Provedor de LLM**, deixe a **URL base vazia** e cole a chave da Anthropic. Ela fica trancada
+(cifrada) com a `ENCRYPTION_KEY`. Sem URL, o LeadForge usa o Claude como sempre.
 
-### 6.3 Usar um cérebro grátis
+### 6.3 Usar um cérebro grátis (SPEC-036)
 
-Isso pede uma SPEC nova: um adaptador que implemente `LlmProvider` e escolha o provedor em `getLlmProvider()`. É
-exatamente a SPEC-036, já aprovada. Opções para avaliar (confirme limites e termos na página oficial antes: mudam sempre):
+É como escolher quem escreve as cartinhas: você só troca o endereço do escritor. Passo a passo:
 
-- **Gemini API (Google AI Studio):** tem faixa grátis com limite de velocidade. Atenção: nela, o conteúdo pode ser
-  usado para melhorar produtos do Google (cuidado com LGPD e dados de leads).
-- **Groq:** faixa grátis com limite de velocidade. API no formato OpenAI; modelos abertos.
-- **OpenRouter:** alguns modelos `:free`. Disponibilidade e limites variam.
-- **Ollama (local):** grátis, usa só a sua máquina. Nenhum dado sai do computador. A qualidade depende do hardware.
-  API no formato OpenAI em `localhost:11434`.
+1. Entre em `/configuracoes/integracoes` e ache o card **Provedor de LLM**.
+2. No campo **URL base**, cole o endereço do escritor (os exemplos aparecem no próprio card):
+   - **Ollama (no seu computador):** `http://localhost:11434/v1`. Grátis, nada sai do seu computador. Instale o Ollama e deixe
+     rodando. A chave pode ficar vazia.
+   - **Gemini:** `https://generativelanguage.googleapis.com/v1beta/openai`. Pegue a chave grátis no Google AI Studio.
+   - **Groq** ou **OpenRouter:** use o endereço que o site deles mostra, e a chave deles.
+3. No campo **chave**, cole a chave do provedor (o card tem um link para a página onde ela é gerada). No Ollama pode ficar vazio.
+4. **Só no Ollama ou em outro servidor seu, em rede privada:** marque **"instância própria"**. Sem essa caixinha, o LeadForge
+   recusa endereços de dentro do seu computador (proteção). Marque só se o endereço for realmente seu: é isso que faz o custo
+   contar como zero.
+5. Clique em **Testar conexão**.
+6. Salve. Depois, nos agentes, o botão **Simular** mostra qual provedor e qual modelo foram usados.
 
-**Recomendação:** um único adaptador "OpenAI-compatible" (endereço base + chave + modelo configuráveis) serve para
-Groq, OpenRouter, Ollama e o endpoint de compatibilidade do Gemini. Isso já está na **SPEC-036** (a SPEC-052 agora é
-de e-mails de cobrança). Falta só implementar.
+- **O que você deve ver na tela:** "conexão ok" no teste, e no Simular o nome do provedor e do modelo.
+- ⚠️ **Voltar do grátis para o Claude:** apague a integração e crie de novo (só limpar o campo da URL não basta).
+- ⚠️ Na Gemini grátis, o conteúdo pode ser usado para melhorar produtos do Google (cuidado com LGPD e dados de leads). Confirme
+  limites e termos na página oficial de cada um: mudam sempre. Se der erro 429, você bateu no limite do plano grátis: espere
+  um pouco ou troque para o Ollama.
+- ⚠️ **Ainda não foi validado com Ollama nem Gemini de verdade**: só testes automáticos. Teste você e conte o que viu. Lista de
+  testes: bloco L do `docs/ROTEIRO_DE_TESTES.md`. Não precisa de migration nem de variável nova no `.env`.
 
 ---
 
@@ -571,8 +600,11 @@ Tetos opcionais (limites de segurança):
 
 - **O que você deve ver na tela:** o resultado mostra quantos são novos e quantos já existiam (duplicados). Os leads
   entram em `/leads` e no Pipeline como `novo_lead`, sem repetidos e sem quem pediu para não ser contatado (opt-out).
-- Se repetir a mesma busca, quase tudo vem como duplicado (cada chamada traz 1 página de até 20 resultados; páginas
-  seguintes ficam para uma SPEC futura).
+- Depois da primeira busca, o botão passa a dizer **Buscar mais resultados** (SPEC-060). É como virar a página do catálogo: cada
+  clique continua de onde parou e traz clientes **novos**. Quando as páginas acabam, ele passa para outras "variações" da
+  busca. Cada clique faz **1 a 2 chamadas pagas** ao Google e nunca passa do teto do dia (SPEC-058).
+- ⚠️ Antes de usar, aplique a migration nova (`npx prisma migrate deploy`, veja 1.3) e reinicie o `npm run dev`; sem ela a busca
+  dá erro. Se mudar o nicho ou o local da campanha, a busca recomeça do início.
 
 ### Quanto custa
 
@@ -594,8 +626,10 @@ SPEC-058 IMPLEMENTADA (058a backend e 058b frontend, QA aprovado em 2026-10-10):
 - o estado "rodando" sobrevive a recarregar a página
 - o resultado mostra novos, duplicados e suprimidos
 
+SPEC-060 IMPLEMENTADA: paginação com "Buscar mais resultados" (ver 8.9). Também **sem chave real do Google**: validação pendente.
+
 ⚠️ **Nunca rodou com a API de verdade do Google** (só testes com resposta de mentirinha) e a tela nunca foi vista em
-navegador. Use o bloco G de `docs/ROTEIRO_DE_TESTES.md`.
+navegador. Use os blocos G e N de `docs/ROTEIRO_DE_TESTES.md`.
 
 ---
 
@@ -611,8 +645,8 @@ npm run lint
 `npm run typecheck` faz o mesmo que o `tsc`.
 
 - **O que você deve ver na tela:** o `tsc` sem nenhuma linha de erro; o `lint` com 0 erros.
-- Estado em 2026-10-10 (depois da SPEC-058): `tsc` limpo; `lint` com 0 erros (14 avisos que já existiam); vitest
-  completo em banco novo: 149 arquivos, 1852 testes passando.
+- Estado em 2026-10-11 (depois da SPEC-060): `tsc` limpo; `lint` com 0 erros; vitest completo em banco novo: 163 arquivos,
+  2053 testes passando.
 
 ### Rodar os testes (vitest)
 
@@ -626,8 +660,7 @@ TEST_DATABASE_URL=postgresql://leadforge:<senha>@localhost:5434/leadforge_clean_
 - O setup cria, arruma e semeia o banco sozinho. O nome precisa terminar em `_test`.
 - **O que você deve ver na tela:** a lista dos arquivos de teste passando e, no fim, "Tests ... passed".
 - 🚫 **Nunca rode os testes sem `TEST_DATABASE_URL`**: eles cairiam no `leadforge_test` compartilhado e sujo.
-- Hoje há **144 arquivos de teste** (`*.test.ts(x)`). A última rodada completa registrada em banco limpo foi de 141
-  arquivos e 1732 testes passando; **não foi repetida nesta revisão** (e o código da busca de leads está mudando).
+- A última rodada completa registrada em banco limpo (SPEC-060) foi de 163 arquivos e 2053 testes passando.
 - Para apagar e recriar o banco de teste: `npm run test:db:reset`.
 
 ---
@@ -638,6 +671,9 @@ TEST_DATABASE_URL=postgresql://leadforge:<senha>@localhost:5434/leadforge_clean_
 - **`docker ps` falha falando de "colima.sock".** O Colima está parado. Rode `colima start`.
 - **`prisma migrate dev` quer apagar colunas.** É o desencontro do banco de dev (drift). **Não confirme.** Use
   `migrate deploy`.
+- **A busca de clientes dá erro depois de atualizar o código.** Falta a migration da 060 ou o `npm run dev` não foi
+  reiniciado. Passo 1.3.
+- **Aparece `[rate-limit]` no terminal.** O Redis não respondeu e o limite voltou a ser guardado na memória do app. Veja 2.9.
 - **O app não liga em produção.** Falta `TRUSTED_PROXY_IP_HEADER`. Defina (exemplo: `x-real-ip`). É obrigatória em
   produção (SPEC-049; o `next build` não exige).
 - **Nada roda sozinho em produção (mensagens, busca, criativos).** Falta agendar o despertador (tick) ou falta o

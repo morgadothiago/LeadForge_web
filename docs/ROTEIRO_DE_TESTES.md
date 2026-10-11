@@ -7,12 +7,13 @@ são o que a SPEC prevê, não algo que eu tenha executado no navegador.**
 ## 0. Preparação (uma vez)
 
 - [ ] **0.1** Infra no ar: `colima start` e `docker compose up -d postgres redis` (ver PRIMEIROS_PASSOS fase 1).
-- [ ] **0.2** Aplicar as migrations no banco de dev: `npx prisma migrate deploy` (hoje são 39; a última é
-  `20261012120000_email_dispatch_log`). Sem isso: convites, seletor de organização, arquivos, criativos e e-mails de cobrança
+- [ ] **0.2** Aplicar as migrations no banco de dev: `npx prisma migrate deploy` (hoje são 43; a última é
+  `20261016120000_search_run_cursor_060`). Sem isso: convites, seletor de organização, arquivos, criativos e e-mails de cobrança
   falham (tabelas `OrgInvite`, `OrgAuditLog`, `StoredFile`, `Creative*`, `EmailDispatchLog` não existem).
   - É aditivo e seguro. **Não use `migrate dev`**: o banco de dev tem colunas a mais que o schema (`document*`,
     `trialBlocked`, `abacatepayProductId`, de outro clone) e ele proporia apagá-las com os dados (ver PRIMEIROS_PASSOS 1.3).
-  - Verificar: `npx prisma migrate status` diz "Database schema is up to date!".
+  - Verificar: `npx prisma migrate status` não lista migration pendente. Em um banco com o drift `20260928*` ele também lista 5
+    migrations "não encontradas localmente" (investigado, ver `docs/RETOMAR.md` 3b); isso não impede o `migrate deploy`.
 - [ ] **0.3** Reiniciar o `npm run dev` depois da migration (o Prisma Client novo é carregado na subida).
 - [ ] **0.4** Cobrança: nada a fazer. `PAYMENT_PROVIDER` ausente = `mock` (checkout sem cartão).
 - [ ] **0.5** E-mail sem enviar: Mailpit (`docker run -d --name mailpit --restart unless-stopped -p 1025:1025 -p 8025:8025 -e MP_SMTP_AUTH_ACCEPT_ANY=1 -e MP_SMTP_AUTH_ALLOW_INSECURE=1 axllent/mailpit`),
@@ -131,7 +132,7 @@ e uma campanha **ativa** com ICP (ex.: "dentistas" em "Curitiba"). Defina teto d
 | G1 | Sem `LEAD_SEARCH_ENABLED` ou sem chave, abrir `/campanhas/[id]` | Botão desabilitado com aviso "indisponível no momento, fale com o suporte" (sem citar variável de ambiente) | [ ] | |
 | G2 | Owner clica **Buscar agora** e confirma | Estado "rodando"; recarregar a página mantém o estado; termina com "N novos, M duplicados, K suprimidos" | [ ] | |
 | G3 | Ver `/leads` e o Pipeline | Leads novos em `novo_lead`, com telefone/site/endereço; sem e-mail de decisor | [ ] | |
-| G4 | Repetir a busca logo em seguida | Quase só duplicados (1 página de até 20 por chamada; paginação não existe ainda) | [ ] | |
+| G4 | Repetir a busca logo em seguida | Com a SPEC-060, continua de onde parou (botão "Buscar mais resultados", ver bloco N); sem a migration da 060 aplicada, a tela falha | [ ] | |
 | G5 | Passar de 2 buscas manuais no dia na mesma campanha | Bloqueio claro: orçamento esgotado | [ ] | |
 | G6 | Logar como **member** da org | Não consegue disparar (só lê o histórico) | [ ] | |
 | G7 | Tenant B abre a mesma campanha por URL | 404/negado; nenhum lead de A (isolamento, bloqueante) | [ ] | |
@@ -214,6 +215,51 @@ Precisa de uma org com pelo menos 2 owners e Mailpit aberto. Quem pratica a aç�
 | K9 | Derrubar o provedor de e-mail e executar uma ação | A ação (entrar/sair/remover) continua válida; o aviso se perde (sem retry) | [ ] | |
 | K10 | Conferir o texto dos e-mails | PT-BR, link absoluto, sem dado sensível além do necessário | [ ] | |
 | K11 | Org B: ações na org B | Só owners da B são avisados; nenhum aviso vaza para owners da A | [ ] | |
+
+## L. Provedor de LLM grátis por organização (SPEC-036). Sem migration; precisa de uma conta de teste de agentes
+
+Em `/configuracoes/integracoes`, card **Provedor de LLM** (como admin/owner). Para Ollama: `ollama serve` rodando local (porta 11434).
+
+| # | O que fazer | O que deve acontecer | OK? | Observado |
+|---|---|---|---|---|
+| L1 | Abrir o card "Provedor de LLM" | Campos: URL base (opcional, com exemplos de Groq/OpenRouter/Ollama/Gemini), chave (opcional, com link da URL), caixa "instância própria" e botão **Testar conexão** | [ ] | |
+| L2 | Sem URL, salvar só a chave da Anthropic | Funciona como antes (Claude); **Simular** mostra provedor Claude e o modelo | [ ] | |
+| L3 | Ollama: URL `http://localhost:11434/v1`, sem chave, marcar "instância própria", **Testar conexão** | Teste passa; custo contado como zero; host privado só é aceito com a caixa marcada | [ ] | |
+| L4 | Mesmo host privado **sem** marcar "instância própria" | Recusado com mensagem clara (proteção SSRF) | [ ] | |
+| L5 | Gemini (`https://generativelanguage.googleapis.com/v1beta/openai`) ou Groq com a chave do provedor, **Testar conexão** e **Simular** | Teste passa; Simular mostra o provedor e o modelo usados | [ ] | |
+| L6 | Chave errada ou URL inexistente, **Testar conexão** | Erro legível; a chave nunca aparece na tela nem no log | [ ] | |
+| L7 | Voltar de URL para Claude | Exige **remover** a integração e criar de novo (comportamento documentado) | [ ] | |
+| L8 | Org B abre o card | Não vê a configuração da org A (isolamento, bloqueante) | [ ] | |
+| L9 | Provedor devolve 429 (limite do plano grátis) | Erro tratado sem derrubar a tela (sugerir Ollama é polimento pendente) | [ ] | |
+
+## M. Rate limit persistente em Redis (SPEC-059). Sem migration; env opcional `REDIS_URL`
+
+Redis já sobe no docker (`docker compose up -d redis`, porta 6379).
+
+| # | O que fazer | O que deve acontecer | OK? | Observado |
+|---|---|---|---|---|
+| M1 | Sem `REDIS_URL`, errar a senha do login várias vezes | Bloqueio/backoff como antes (memória); reiniciar o `npm run dev` zera o contador | [ ] | |
+| M2 | Com `REDIS_URL=redis://localhost:6379` e reiniciar, repetir M1 | Bloqueio igual; reiniciar o `npm run dev` **não** zera o contador | [ ] | |
+| M3 | `docker exec` no Redis: `redis-cli --scan --pattern 'lf:rl:*'` | Chaves com prefixo `lf:rl:<namespace>:` e o resto **hasheado** (nenhum e-mail, IP ou token legível) | [ ] | |
+| M4 | Reenviar e-mail de verificação mais de 5 vezes (bloco J) com Redis ligado | Limite continua valendo e sobrevive a reinício | [ ] | |
+| M5 | Parar o Redis (`docker stop leadforge-redis-1`) e usar o login | Não quebra nem trava; log com aviso `[rate-limit]`; volta à memória do processo | [ ] | |
+| M6 | Religar o Redis | Em até uns segundos volta a usar o Redis, sem reiniciar o app | [ ] | |
+
+## N. Busca Places paginada (SPEC-060). Precisa da migration `20261016120000_search_run_cursor_060` aplicada no dev
+
+Antes: `npx prisma migrate deploy` (aditiva, 3 colunas em `SearchRun`) e reiniciar o `npm run dev`. Resto do preparo: bloco G.
+
+| # | O que fazer | O que deve acontecer | OK? | Observado |
+|---|---|---|---|---|
+| N1 | Primeira busca da campanha (owner, **Buscar agora**) | Traz até 20 resultados; o botão passa a dizer **Buscar mais resultados** se houver próxima página | [ ] | |
+| N2 | Clicar **Buscar mais resultados** | Traz resultados **novos** (continua de onde parou), sem repetir os já criados | [ ] | |
+| N3 | Continuar até acabarem as páginas | Passa para variações da busca em vez de só devolver duplicados | [ ] | |
+| N4 | Conferir o custo no Google Cloud | 1 a 2 chamadas pagas por clique; nunca acima do teto manual/diário da SPEC-058 | [ ] | |
+| N5 | Passar do teto de buscas do dia | Bloqueio claro de orçamento; nenhuma chamada ao Google e o cursor não muda | [ ] | |
+| N6 | Mudar o ICP (nicho ou local) da campanha e buscar | Recomeça da primeira página/variação | [ ] | |
+| N7 | Busca que falha (chave errada) | Run fica "failed" e o cursor **não** avança | [ ] | |
+| N8 | Tenant B tenta a mesma campanha por URL | 404/negado (isolamento, bloqueante) | [ ] | |
+| N9 | Conferir log e tela | Nenhuma chave de API aparece | [ ] | |
 
 ## Se algo falhar, me mande
 

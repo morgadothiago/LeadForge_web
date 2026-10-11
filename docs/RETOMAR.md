@@ -1,7 +1,7 @@
 # Para retomar: o que está pronto, o que depende de você e o que vem depois
 
-Atualizado em 2026-10-10. Branch de trabalho: `docs/retomar-merge-feito` (a `main` já tem as SPECs 048-052b, 057 e 058; as SPECs
-053-056 estão só nesta branch, commitadas, **ainda sem PR**). Repo: git@github.com:morgadothiago/LeadForge_web.git.
+Atualizado em 2026-10-11. Branch de trabalho: `docs/retomar-merge-feito` (a `main` já tem as SPECs 048-052b, 057 e 058; as SPECs
+053-056 e a PARTE 2 (036, 059, 060) estão só nesta branch, commitadas, **ainda sem PR**). Repo: git@github.com:morgadothiago/LeadForge_web.git.
 
 ## 1. Como conferir o estado em 1 minuto
 
@@ -9,8 +9,8 @@ Atualizado em 2026-10-10. Branch de trabalho: `docs/retomar-merge-feito` (a `mai
 git log --oneline -10 && git status --short   # árvore limpa = nada sobrando
 git log main..HEAD --oneline                  # o que esta branch tem a mais que a main
 npx tsc --noEmit                              # deve estar limpo
-npx prisma migrate status                     # dev: 1 migration pendente + 5 "não encontradas localmente" (drift, ver seção 3)
-ls prisma/migrations                          # 42 migrations; a última é 20261015120000_email_verification
+npx prisma migrate status                     # dev: 1 pendente (20261016120000) + 5 "não encontradas localmente" (drift, ver seção 3b)
+ls prisma/migrations                          # 43 migrations; a última é 20261016120000_search_run_cursor_060
 ```
 
 Ambiente local: Postgres/Redis/Mailpit no Docker (`colima start` se `docker ps` falhar), `npm run dev` e **`npm run dev:tick`
@@ -18,41 +18,57 @@ em outro terminal** (sem ele criativos, sequências e a exclusão de conta não 
 
 ## 2. Estado real
 
-**SPECs 048 a 058 estão implementadas.** Na `main`: 048, 049 (a/b), 050, 051 (a/b), 052a, 052b (sem cartão), 057 e 058 (a/b).
-Nesta branch (`git log main..HEAD` mostra 9 commits à frente da `main`), as SPECs 053-056, em ordem do mais antigo para o mais novo:
+**SPECs 048 a 060 estão implementadas.** Na `main`: 048, 049 (a/b), 050, 051 (a/b), 052a, 052b (sem cartão), 057 e 058 (a/b).
+Nesta branch, em ordem do mais antigo para o mais novo:
 
 | Commit | O que entregou |
 |---|---|
 | `95e85e7` | SPEC-053: cancelamento e reativação da assinatura (e PRIMEIROS_PASSOS em linguagem simples) |
 | `0d1e0d2` | SPEC-054: exclusão de conta com soft delete e purga em 30 dias |
-| `e438d5f` | fix: achados do QA das SPECs 053 e 054 (evento externo não desfaz agendamento, regra única agendado x imediato, bloqueio de org sem assinatura, lista de retidos completa) |
+| `e438d5f` | fix: achados do QA das SPECs 053 e 054 |
 | `64a8d48` | SPEC-055: verificação de e-mail, boas-vindas e aviso de senha alterada |
 | `4a46c05` | SPEC-056: e-mails aos owners sobre entrada, saída, remoção e mudança de papel |
+| `6e4d12c` | docs: PRIMEIROS_PASSOS 2.7/2.8, ROTEIRO blocos J/K e RETOMAR (SPECs 053-056) |
+| `09d7100` | **SPEC-036**: provedor LLM OpenAI-compatível (Groq/OpenRouter/Ollama/Gemini) por organização |
+| `bc6a71b` | **SPEC-059**: rate limit persistente em Redis com fallback em memória |
+| `7c7f99b` | **SPEC-060**: paginação da busca Places com cursor, fallback de variações e teto de orçamento |
 
-(A branch também carrega `c3b571c`, `84bb762` e `85193b9`: correção do wizard de criativos, docs do E2E e último aviso em D+6.)
+(A branch também carrega `c3b571c`, `84bb762` e `85193b9`. Um 4º commit de docs/specs desta PARTE 2 vem depois destes.)
 
-- **Última verificação** (na SPEC-056, banco novo `leadforge_056_test`): `tsc` limpo, eslint 0 erros (20 warnings antigos), vitest
-  **159 arquivos / 2004 testes** verdes. A árvore está limpa. Nada disso foi validado em navegador real (só SSR e testes).
-- **Migrations aditivas no banco de dev** (conferido com `npx prisma migrate status`):
-  - `20261014120000_account_deletion_request` (SPEC-054): **já aplicada** (a última em comum entre o projeto e o banco).
-  - `20261015120000_email_verification` (SPEC-055): **FALTA aplicar.** Rode `npx prisma migrate deploy` (**nunca `migrate dev`**) e
-    depois pare e ligue o `npm run dev` de novo (o Prisma Client antigo falha em silêncio).
-- A 056 não tem migration.
+- **O que cada SPEC da PARTE 2 faz**
+  - **036**: em `/configuracoes/integracoes`, o card "Provedor de LLM" aceita URL base opcional (com exemplos), chave opcional,
+    caixa "instância própria" (custo zero só se o host é realmente de rede privada) e botão **Testar conexão**; o **Simular** dos
+    agentes mostra provedor e modelo. Sem URL, segue o Claude como antes. Voltar de URL para Claude exige remover e recriar a
+    integração. Sem migration e sem env nova.
+  - **059**: todos os limiters usam Redis quando existe `REDIS_URL` (env opcional; o Redis já está no docker). Sem `REDIS_URL`, ou se
+    o Redis cair, volta à memória do processo com aviso no log (`[rate-limit]`). Chaves hasheadas. `ioredis` instalado. Sem migration.
+  - **060**: o botão da busca vira "Buscar mais resultados" (usa `nextPageToken`; quando acaba, passa para variações da busca). Cada
+    clique faz 1 a 2 chamadas pagas e respeita o teto diário da 058. **Migration nova, escrita à mão, NÃO aplicada no dev.**
+- **Última verificação** (SPEC-060, banco `leadforge_060b_test`): `tsc` limpo, eslint 0 erros, vitest **163 arquivos / 2053 testes**
+  verdes. Nada disso foi validado em navegador real nem com chaves reais (só SSR, mocks e testes).
+- **Migrations a aplicar no banco de dev** (conferido com `npx prisma migrate status` em 2026-10-11: "43 migrations found", última
+  em comum `20261015120000_email_verification`, **só 1 pendente**):
+  - `20261015120000_email_verification` (SPEC-055): **já aplicada** no dev.
+  - `20261016120000_search_run_cursor_060` (SPEC-060, aditiva, 3 colunas em `SearchRun`): **FALTA aplicar.** Rode
+    `npx prisma migrate deploy` (**nunca `migrate dev`**) e depois pare e ligue o `npm run dev` de novo.
+- As SPECs 036 e 059 não têm migration.
 
 ## 3. Decisões que SÓ VOCÊ pode tomar
 
 | # | Decisão | Bloqueia | Recomendação |
 |---|---|---|---|
-| 1 | **Q-052-5**: nomes dos eventos de falha/recuperação de cartão do AbacatePay (precisa da doc/sandbox do provedor) | régua de cartão da 052b (hoje só dispara por estado/grace via job) | Pesquisar na doc do provedor |
+| 1 | **Q-052-5** (cartão AbacatePay): a doc oficial foi pesquisada e **não há evento de falha/recuperação de cartão**; nada implementado. Evidência na SPEC-052 | régua de cartão da 052b (hoje só por estado/grace via job) | Com sandbox, mapear `subscription.cancelled` (`cancelledDueTo=max_payment_retries_exceeded`) |
 | 2 | **Provedor de avatar real** (Q-051-1: HeyGen, D-ID, Synthesia, Tavus ou Azure AI Speech Avatar) | criativos reais (hoje só mock) | Escolher 1 e abrir SPEC; antes cumprir D-051-15 (SSRF/timeouts) |
-| 3 | **Q-051-11**: teto de retentativas dos criativos | ajuste fino | Aceitar o default |
-| 4 | **Drift `20260928*`** (CPF/CNPJ, trial, AbacatePay): o banco de dev tem 5 migrations que o projeto não tem (`add_abacatepay_product_id`, `add_user_document`, `access_blocked_kind`, `add_org_document`, `add_org_flags`) | limpeza; o aviso "nunca `migrate dev`" vale até lá | Decidir se a feature existe; se não, remover só no banco de dev, com backup |
-| 5 | **Rate limit persistente** (D-049-14): hoje em memória, não vale entre instâncias | produção multi-instância | SPEC própria (Redis/Postgres) antes de escalar |
-| 6 | **LLM grátis**: SPEC-036 aprovada e **não implementada** (adapter OpenAI-compatível: Groq/OpenRouter/Ollama/Gemini) | agentes de IA sem custo | Implementar a 036 |
-| 7 | **Paginação da busca Places** (`nextPageToken`/rotação de keywords): hoje 1 página de até 20 e repetir dá duplicados | qualidade da captação | SPEC separada |
-| 8 | **Validação jurídica da retenção (D-054-4, INFERRED)**: 5 anos para registros de cobrança e 6 meses para logs de auditoria; o código apaga os logs após 6 meses, mas os registros de cobrança ficam sem prazo de descarte (não há job de 5 anos). A tela e o e-mail "conta excluída" também listam como retidos o usuário anonimizado, `AccountDeletionRequest`, reuniões e criativos (`src/lib/account-deletion/retention.ts`) | ir para produção com a 054 | Passar por um advogado |
-| 9 | **Exportação de dados (LGPD art. 18 V, portabilidade)**: fora da 054 (D-054-6) | conformidade completa | SPEC futura |
-| 10 | **Revisar as decisões INFERRED das SPECs 055 e 056** (veja abaixo) | nada trava; são premissas | Aceitar ou pedir ajuste |
+| 3 | **Drift `20260928*`**: ver 3b | limpeza; "nunca `migrate dev`" vale até lá | Opção A |
+| 4 | **Validação jurídica da retenção (D-054-4, INFERRED)**: 5 anos para registros de cobrança e 6 meses para logs; o código apaga logs após 6 meses, mas os registros de cobrança ficam sem prazo de descarte (não há job de 5 anos). A tela e o e-mail "conta excluída" também listam como retidos o usuário anonimizado, `AccountDeletionRequest`, reuniões e criativos (`src/lib/account-deletion/retention.ts`) | ir para produção com a 054 | Passar por um advogado |
+| 5 | **Exportação de dados (LGPD art. 18 V, portabilidade)**: fora da 054 (D-054-6) | conformidade completa | SPEC futura |
+| 6 | **Revisar as decisões INFERRED das SPECs 055 e 056** (abaixo) | nada trava; são premissas | Aceitar ou pedir ajuste |
+
+Resolvidas nesta rodada (não dependem mais de você): **Q-051-11** fechada (D-051-19: aceito o default, sem teto de retentativas dos
+criativos; revisitar na SPEC do provedor real); **LLM grátis** (SPEC-036 implementada); **rate limit persistente** (SPEC-059
+implementada); **paginação da busca Places** (SPEC-060 implementada).
+
+Polimento pendente da 036 (não bloqueia): sugerir modelo default por provedor; mensagem de 429 sugerindo Ollama.
 
 Decisões INFERRED revisáveis:
 - D-055-1/7: nova conta self-service **nasce não verificada e não envia mensagens** (campanhas, sequências, envio manual) até confirmar o
@@ -65,30 +81,70 @@ Decisões INFERRED revisáveis:
 - D-056-2: e-mail imediato por evento, com **teto de 10 entradas por hora por organização** (excedentes ficam só na auditoria).
 - D-056-3: 4 eventos (entrou, saiu, removido, papel alterado); quem fez a ação não é notificado.
 
+### 3b. Drift das migrations `20260928*` (decisão sua; só foi investigado, nada foi alterado)
+
+**O que é.** 5 migrations aplicadas só no banco de dev, vindas de outro clone, que **nunca existiram no git de nenhuma branch**:
+`20260928000000_add_abacatepay_product_id`, `20260928000001_add_user_document`, `20260928000002_add_org_document`,
+`20260928000003_add_org_flags` e `20260928120000_access_blocked_kind`.
+
+**O que elas criaram no banco.**
+- `Plan.abacatepayProductId`.
+- `User.document` e `User.documentType`, com `UNIQUE (document, documentType)` e o índice `User_document_idx`.
+- `Organization.document`, `documentType`, `documentBlocked` e `trialBlocked` (os dois booleanos `NOT NULL DEFAULT false`).
+- o valor `access_blocked` no enum `BillingReminderKind`.
+
+Nada em `schema.prisma`, `src/` ou `specs/` usa isso.
+
+**Dados no dev.** 2 de 9 users e 2 de 11 orgs têm CPF de teste; 0 planos com `productId`; 0 flags `true`; 0 linhas com `access_blocked`.
+
+**Como o Prisma enxerga.** `npx prisma migrate status` (rodado em 2026-10-11) **mostra** o drift: lista as 5 como "não encontradas
+localmente" junto com a 1 pendente (`20261016120000`); a `20261015120000` já está aplicada. Em um banco sem o drift (clone limpo),
+o comando não lista as 5.
+
+**Risco.** Em runtime é nulo (colunas nullable ou com default). O risco real: `prisma migrate dev` pode propor **reset ou drop** dessas
+colunas e dados.
+
+**Opção A (recomendada): limpar só o banco de dev.**
+1. `pg_dump -Fc` do banco de dev (backup).
+2. Em uma transação: dropar os 2 índices (`User_document_idx` e o UNIQUE `(document, documentType)`) e as 7 colunas
+   (`Plan.abacatepayProductId`, `User.document`, `User.documentType`, `Organization.document`, `documentType`, `documentBlocked`,
+   `trialBlocked`); depois `DELETE FROM _prisma_migrations WHERE migration_name LIKE '20260928%'`.
+3. Deixar o valor `access_blocked` no enum (Postgres não remove valor de enum sem recriar o tipo; é inofensivo).
+- Riscos: perde 4 CPFs de teste (o backup cobre); se o outro clone reaplicar as migrations, o drift reaparece.
+
+**Opção B: trazer para o repositório.** Exige o SQL original (o `checksum` em `_prisma_migrations` diverge se for reescrito),
+importa uma feature sem SPEC e expande dados pessoais (LGPD/SPEC-054). Só faz sentido se surgir uma SPEC de CPF/CNPJ.
+
 ## 4. O que só funciona com você (chaves, contas, navegador)
 
-- **Validar no navegador real** os blocos novos J (SPEC-055) e K (SPEC-056), mais os itens novos de H e I, e os blocos D, E, F e G do
-  `docs/ROTEIRO_DE_TESTES.md`. Falta também o seu olhar em dark mode e teclado/leitor de tela. Nenhum item novo foi marcado como passou.
+- **Aplicar a migration da 060** (`npx prisma migrate deploy`), reiniciar o `npm run dev` e validar no navegador os blocos J, K,
+  L, M e N do `docs/ROTEIRO_DE_TESTES.md`, os itens novos de H e I e os blocos D, E, F e G. Falta também o seu olhar em dark mode e
+  teclado/leitor de tela. Nenhum item novo foi marcado como passou.
+- **LLM grátis (036)**: validar de verdade com **Ollama** (local) e **Gemini** (chave do AI Studio); só foi testado com mocks.
+- **Redis (059)**: para ligar, `REDIS_URL=redis://localhost:6379` no `.env` e reiniciar; conferir o aviso `[rate-limit]` ao parar o Redis.
 - **Google Places / Maps**: criar chave (Fase 8 do PRIMEIROS_PASSOS), `LEAD_SEARCH_ENABLED=true`, cadastrar em
-  `/configuracoes/integracoes`. A busca nunca rodou com a API real; o SKU cobrado não foi confirmado; defina teto de orçamento no Google.
+  `/configuracoes/integracoes`. A busca (inclusive a paginação da 060) nunca rodou com a API real; o SKU cobrado não foi confirmado;
+  defina teto de orçamento no Google.
 - **Azure (ACS e Blob), Resend, AbacatePay, Evolution, Claude**: só testados com mocks. Valide o recibo com webhook real/sandbox do
   AbacatePay (campos `amount`, `paidAt`, `card.lastDigits` foram assumidos).
 - **Produção (Vercel)**: definir `CRON_SECRET` (cron por minuto já está no `vercel.json`; exige plano pago, no Hobby só 1x/dia) e
-  `TRUSTED_PROXY_IP_HEADER` (obrigatória em produção), além de envs de e-mail e storage. Sem `CRON_SECRET` nada avança (sequências,
-  criativos, busca, purga de conta).
+  `TRUSTED_PROXY_IP_HEADER` (obrigatória em produção), além de envs de e-mail e storage; e `REDIS_URL` se houver mais de uma
+  instância (senão o rate limit não é compartilhado). Sem `CRON_SECRET` nada avança (sequências, criativos, busca, purga de conta).
 
 ## 5. Riscos conhecidos atuais (não bloqueiam, mas não esqueça)
 
-- Todos os limiters (reenvio de verificação, cancelamento, etc.) são **em memória por processo**: zeram ao reiniciar e não valem entre instâncias.
+- Sem `REDIS_URL` (ou com o Redis fora do ar) os limiters caem para **memória por processo**: zeram ao reiniciar e não valem entre
+  instâncias; o aviso aparece no log.
 - E-mail se **perde** se o provedor falhar depois da reserva da chave de idempotência (sem retry), nos e-mails de 052a/052b, 055 e 056.
 - O signup espera o envio de SMTP (trial, boas-vindas, confirmação). Isso cria diferença de tempo na resposta entre e-mail novo e
   e-mail já existente, o que permite **enumeração de contas** por medição de tempo (limitada pelo rate limit).
 - `bulkApproveFollowups` mostra só "blocked" quando o motivo é `email_not_verified` (não diz que é o e-mail).
-- Reativação feita **fora do app** (direto no Stripe real) será ignorada quando o adapter Stripe existir (o evento externo não desfaz
-  mais cancelamento agendado, 053-1).
+- Reativação feita **fora do app** (direto no Stripe real) será ignorada quando o adapter Stripe existir (053-1).
 - Cartão do AbacatePay pode continuar cobrando até alguém cancelar no painel do provedor (não há endpoint, D-053-5).
-- A purga não tem job de 5 anos para registros de cobrança (ver decisão 8); `EmailDispatchLog` sem purga.
-- Termos da Places API restringem cache/armazenamento de dados: confirme antes de operar em escala.
+- A purga não tem job de 5 anos para registros de cobrança (ver decisão 4); `EmailDispatchLog` sem purga.
+- Termos da Places API restringem cache/armazenamento de dados: confirme antes de operar em escala. A paginação da 060 faz até 2
+  chamadas pagas por clique, sempre dentro do teto da 058.
+- Em LLM com URL própria, "instância própria" só dá custo zero se o host é de rede privada de verdade; marcar errado distorce o orçamento.
 - `.storage/` (arquivos locais) e `.env` não vão para o git (conferido).
 
 ## 6. Achados do E2E em navegador real ainda abertos (dependem de você) e contas de teste
@@ -106,10 +162,13 @@ Contas de teste no banco de dev: `claude.a*@testes-claude.local` (senha de teste
 
 ## 7. Próximo trabalho
 
-1. Aplicar a migration `20261015120000_email_verification` no dev, reiniciar o `npm run dev` e validar os blocos J e K no navegador.
-2. Abrir o PR da branch `docs/retomar-merge-feito` para a `main` (SPECs 053-056); o merge é seu.
-3. **PARTE 2** (depende das decisões da seção 3): SPEC-036 LLM grátis; rate limit persistente; paginação da busca Places; Q-052-5
-   (eventos de cartão do AbacatePay); Q-051-11 (teto de retentativas dos criativos); resolver o drift de migrations `20260928*`.
+1. Aplicar a migration `20261016120000_search_run_cursor_060` no dev (`npx prisma migrate deploy`), reiniciar o `npm run dev` e
+   validar no navegador (blocos J a N do roteiro).
+2. Decidir o drift `20260928*` (seção 3b).
+3. Abrir o PR da branch `docs/retomar-merge-feito` para a `main` (SPECs 053-056, 036, 059, 060); o merge é seu.
+4. Com chaves reais: validar LLM grátis (Ollama/Gemini), Redis e a busca Places paginada.
+5. Depois: escolher o provedor de avatar real (SPEC nova, cumprindo D-051-15); mapear `subscription.cancelled` do AbacatePay em
+   sandbox (Q-052-5); parecer jurídico da retenção (decisão 4).
 
 Regra combinada: **só commitar quando tudo estiver verde** (tsc, lint sem erros, vitest em banco `*_test` novo, QA aprovado); nunca
 rodar `migrate dev` neste banco.
