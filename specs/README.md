@@ -46,7 +46,7 @@ Fullstack = executa dev-backend primeiro, depois dev-frontend.
 | 042 | Padrao react-hook-form + piloto (Auth: login/signup/esqueci-senha/redefinir-senha) | dev-frontend | 6 (SaaS) | IMPLEMENTED (2026-09-27; QA APPROVED) | 009,034,037,038 |
 | 043 | react-hook-form: Campanhas, ICP, Leads | dev-frontend | 6 (SaaS) | IMPLEMENTED (2026-09-27; QA APPROVED) | 042 |
 | 044 | react-hook-form: Sequences, Templates, Agentes, Calendario | dev-frontend | 6 (SaaS) | IMPLEMENTED (2026-09-28; QA APPROVED) | 042 |
-| 045 | react-hook-form: Configuracoes, Integracoes, WhatsApp, Supressao, Admin, Billing | dev-frontend | 6 (SaaS) | APPROVED (usuario, 2026-09-27) | 042 |
+| 045 | react-hook-form: Configuracoes, Integracoes, WhatsApp, Supressao, Admin, Billing | dev-frontend | 6 (SaaS) | IMPLEMENTED (2026-10-11; sem commit) | 042 |
 | 046 | E-mail transacional: Resend (fallback SMTP) + templates HTML + 2 cenarios novos (assinatura efetuada/cancelada) | dev-backend | 6 (SaaS) | IMPLEMENTED (2026-09-27; QA APPROVED) | 010,033,037,038,039,040 |
 | 047 | AbacatePay como adapter adicional de PaymentProvider (PIX/cartao) | dev-backend | 6 (SaaS) | IMPLEMENTED (2026-09-27; QA APPROVED) | 033 |
 | 048 | E-mail: Azure Communication Services (ACS) como provider | dev-backend | 8 (Azure/Criativos) | IMPLEMENTED (2026-10-09) | 046 |

@@ -347,6 +347,17 @@ conta separado. A lista de testes está no bloco M do `docs/ROTEIRO_DE_TESTES.md
 continua funcionando (o porteiro anota nesse Redis), só não vai aparecer em `docker exec leadforge-redis-1 redis-cli`. Para ver
 quem está na porta: `lsof -nP -iTCP:6379 -sTCP:LISTEN`.
 
+### 2.10 Formulários que avisam erro na hora (SPEC-045)
+
+Pense numa professora que confere o seu caderno **enquanto você escreve**, e não só quando você entrega. Os formulários de
+**e-mail, integrações, lista de bloqueio, WhatsApp e suspender empresa** (admin) agora avisam o erro no próprio campo e levam o
+cursor até ele. **Nada para configurar.** As regras são as mesmas de antes.
+
+1. Entre em **Configurações > E-mail** e clique para adicionar uma conta. Deixe um campo obrigatório vazio e salve.
+2. ✅ O que você deve ver: uma mensagem vermelha junto do campo, e o cursor pulando para ele.
+
+A lista de testes está no bloco O do `docs/ROTEIRO_DE_TESTES.md`.
+
 ## Fase 3: e-mail (escolha UMA opção)
 
 ### 3.A Sem enviar nada de verdade (✅ JÁ CONFIGURADO neste ambiente)

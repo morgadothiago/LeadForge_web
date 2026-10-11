@@ -3,13 +3,16 @@ import * as React from "react";
 import { useRouter } from "next/navigation";
 import { Eye, EyeOff, ShieldAlert } from "lucide-react";
 import { toast } from "sonner";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { useForm } from "react-hook-form";
+import { z } from "zod";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Field } from "@/components/campaigns/Field";
-import { fieldError, getFormError } from "@/components/campaigns/form-utils";
+import { applyServerErrors } from "@/components/org/org-format";
 import { saveIntegration } from "@/lib/actions/integration";
-import type { FieldErrors } from "@/lib/actions/result";
+import { saveIntegrationSchema } from "@/lib/schemas/integration";
 import type { IntegrationItemView, IntegrationSummary } from "@/lib/integrations/view";
 import { validateBaseUrl } from "./integration-format";
 
@@ -41,84 +44,105 @@ export function IntegrationFormDialog({ summary, item, open, onOpenChange, onAnn
   );
 }
 
+/**
+ * Estado do formulário RHF (SPEC-045). Os nomes de `value`/`baseUrl`/`allowPrivateHost` coincidem com os paths do
+ * `saveIntegrationSchema`, então erro de servidor (`ActionResult.errors`) cai direto no campo certo.
+ */
+interface IntegrationFormState {
+  value: string;
+  baseUrl: string;
+  allowPrivateHost: boolean;
+}
+
+const INTEGRATION_FIELDS = ["value", "baseUrl", "allowPrivateHost"] as const;
+
 function IntegrationForm({ summary, item, onDone, onAnnounce }: { summary: IntegrationSummary; item?: IntegrationItemView; onDone: () => void; onAnnounce?: (m: string) => void }) {
   const router = useRouter();
   const uid = React.useId();
-  const formRef = React.useRef<HTMLFormElement>(null);
   const [pending, startTransition] = React.useTransition();
-  // Único lugar onde o valor da chave existe: input controlado, limpo ao salvar/fechar.
-  const [secret, setSecret] = React.useState("");
   const [showSecret, setShowSecret] = React.useState(false);
-  const [baseUrl, setBaseUrl] = React.useState(item?.baseUrl ?? "");
-  const [priv, setPriv] = React.useState(item?.allowPrivateHost ?? false);
-  const [errors, setErrors] = React.useState<FieldErrors | undefined>();
-  const [errorTick, setErrorTick] = React.useState(0);
   const editing = Boolean(item);
   // SPEC-036: LLM aceita URL base opcional (OpenAI-compatível: Ollama/Gemini/Groq); com URL a chave é opcional.
   const isLlm = summary.integration === "llm";
   const showUrl = summary.requiresBaseUrl || isLlm;
+  const requiresBaseUrl = summary.requiresBaseUrl;
+  const integration = summary.integration;
+  const itemName = item?.name ?? "default";
+
+  // Mesmas checagens locais de antes ("Informe a chave.", `validateBaseUrl`); passando nelas, o schema do servidor
+  // (`saveIntegrationSchema`, fonte única) valida o mesmo payload que a action recebe.
+  const resolver = React.useMemo(
+    () =>
+      zodResolver(
+        z.preprocess((v: IntegrationFormState, ctx) => {
+          const keyOptional = editing || (isLlm && v.baseUrl.trim() !== "");
+          const withUrl = showUrl && (requiresBaseUrl || v.baseUrl.trim() !== "");
+          if (!keyOptional && !v.value.trim()) ctx.addIssue({ code: "custom", path: ["value"], message: "Informe a chave." });
+          if (withUrl) {
+            const m = validateBaseUrl(v.baseUrl, true);
+            if (m) ctx.addIssue({ code: "custom", path: ["baseUrl"], message: m });
+          }
+          return {
+            integration,
+            name: itemName,
+            ...(v.value ? { value: v.value } : {}),
+            ...(withUrl ? { baseUrl: v.baseUrl.trim(), allowPrivateHost: v.allowPrivateHost } : {}),
+          };
+        }, saveIntegrationSchema),
+      ),
+    [editing, isLlm, showUrl, requiresBaseUrl, integration, itemName],
+  );
+
+  const { register, handleSubmit, watch, setValue, setError, setFocus, getValues, formState } = useForm<IntegrationFormState, unknown, z.output<typeof saveIntegrationSchema>>({
+    resolver,
+    defaultValues: { value: "", baseUrl: item?.baseUrl ?? "", allowPrivateHost: item?.allowPrivateHost ?? false },
+  });
+  const { errors } = formState;
+  const baseUrl = watch("baseUrl");
   const keyOptional = editing || (isLlm && baseUrl.trim() !== "");
 
-  React.useEffect(() => {
-    if (!errorTick) return;
-    formRef.current?.querySelector<HTMLElement>('[aria-invalid="true"]')?.focus();
-  }, [errorTick]);
-
-  function submit(e: React.FormEvent) {
-    e.preventDefault();
-    const local: FieldErrors = {};
-    if (!keyOptional && !secret.trim()) local.value = ["Informe a chave."];
-    if (showUrl && (summary.requiresBaseUrl || baseUrl.trim())) {
-      const m = validateBaseUrl(baseUrl, true);
-      if (m) local.baseUrl = [m];
-    }
-    if (Object.keys(local).length) {
-      setErrors(local);
-      setErrorTick((t) => t + 1);
-      return;
-    }
-    setErrors(undefined);
+  const onSubmit = handleSubmit(() => {
+    const v = getValues();
     startTransition(async () => {
+      // Payload cru (a action revalida com o mesmo schema). O valor da chave só existe no input; limpo ao salvar.
       const r = await saveIntegration({
         integration: summary.integration,
         name: item?.name ?? "default",
-        ...(secret ? { value: secret } : {}),
-        ...(showUrl && (summary.requiresBaseUrl || baseUrl.trim()) ? { baseUrl: baseUrl.trim(), allowPrivateHost: priv } : {}),
+        ...(v.value ? { value: v.value } : {}),
+        ...(showUrl && (summary.requiresBaseUrl || v.baseUrl.trim()) ? { baseUrl: v.baseUrl.trim(), allowPrivateHost: v.allowPrivateHost } : {}),
       });
       if (r.ok) {
-        setSecret("");
+        setValue("value", "");
         const msg = `${summary.label}: configuração salva.`;
         toast.success(msg);
         onAnnounce?.(msg);
         onDone();
         router.refresh();
-      } else {
-        setErrors(r.errors);
-        setErrorTick((t) => t + 1);
+        return;
       }
+      toast.error(applyServerErrors(r.errors, setError, setFocus, INTEGRATION_FIELDS));
     });
-  }
+  });
 
-  const formError = errors?._form ? getFormError({ _form: errors._form }) : undefined;
   const testHint = summary.testAvailable ? null : "O teste real de conexão ainda não está disponível para esta integração (depende do cliente correspondente).";
 
   return (
-    <form ref={formRef} onSubmit={submit} className="grid gap-4" noValidate autoComplete="off">
-      {formError && (
+    <form onSubmit={onSubmit} className="grid gap-4" noValidate autoComplete="off">
+      {errors.root?.message && (
         <p role="alert" className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">
-          {formError}
+          {errors.root.message}
         </p>
       )}
       {showUrl && (
-        <Field id={`${uid}-url`} label="URL base" required={!isLlm} error={fieldError(errors, "baseUrl")} hint={isLlm ? "Opcional. Vazio = Claude (Anthropic). Ex.: http://localhost:11434/v1 (Ollama), https://generativelanguage.googleapis.com/v1beta/openai (Gemini), https://api.groq.com/openai/v1 (Groq)" : "Endereço do servidor, ex.: https://evolution.exemplo.com"}>
-          {(a) => <Input {...a} name="baseUrl" type="url" inputMode="url" value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} maxLength={300} autoComplete="off" />}
+        <Field id={`${uid}-url`} label="URL base" required={!isLlm} error={errors.baseUrl?.message} hint={isLlm ? "Opcional. Vazio = Claude (Anthropic). Ex.: http://localhost:11434/v1 (Ollama), https://generativelanguage.googleapis.com/v1beta/openai (Gemini), https://api.groq.com/openai/v1 (Groq)" : "Endereço do servidor, ex.: https://evolution.exemplo.com"}>
+          {(a) => <Input {...a} {...register("baseUrl")} type="url" inputMode="url" maxLength={300} autoComplete="off" />}
         </Field>
       )}
       <Field
         id={`${uid}-key`}
         label={editing ? "Nova chave (opcional)" : "Chave de API"}
         required={!keyOptional}
-        error={fieldError(errors, "value")}
+        error={errors.value?.message}
         hint={
           editing
             ? `Deixe vazio para manter a chave atual (${item?.hintDisplay ?? "••••"}). Preencha só para trocar.`
@@ -131,14 +155,12 @@ function IntegrationForm({ summary, item, onDone, onAnnounce }: { summary: Integ
           <div className="flex gap-2">
             <Input
               {...a}
-              name="secret"
+              {...register("value")}
               type={showSecret ? "text" : "password"}
               autoComplete="new-password"
               autoCapitalize="off"
               autoCorrect="off"
               spellCheck={false}
-              value={secret}
-              onChange={(e) => setSecret(e.target.value)}
               maxLength={512}
             />
             <Button
@@ -168,8 +190,7 @@ function IntegrationForm({ summary, item, onDone, onAnnounce }: { summary: Integ
             <input
               id={`${uid}-priv`}
               type="checkbox"
-              checked={priv}
-              onChange={(e) => setPriv(e.target.checked)}
+              {...register("allowPrivateHost")}
               aria-describedby={`${uid}-priv-d`}
               className="mt-0.5 size-4 shrink-0 accent-primary"
             />

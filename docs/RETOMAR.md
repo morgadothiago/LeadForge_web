@@ -1,6 +1,6 @@
 # Para retomar: o que está pronto, o que depende de você e o que vem depois
 
-Atualizado em 2026-10-11. **Tudo está na `main`** (PR #2 mergeado em 2026-10-11, commit `0943fa0`): SPECs 048 a 060, E2E e Fase 9. Não há branch pendente nem agente em andamento. Repo: git@github.com:morgadothiago/LeadForge_web.git.
+Atualizado em 2026-10-11. **Tudo está na `main`** (PR #2 mergeado em 2026-10-11, commit `0943fa0`): SPECs 048 a 060, E2E e Fase 9. A SPEC-045 (react-hook-form em Configurações/Admin) está implementada e aprovada no QA na branch `feat/spec-045-rhf-configuracoes` (PR aberto, ver seção 7). Repo: git@github.com:morgadothiago/LeadForge_web.git.
 
 ## 1. Como conferir o estado em 1 minuto
 
@@ -113,7 +113,7 @@ importa uma feature sem SPEC e expande dados pessoais (LGPD/SPEC-054). Só faz s
 
 ## 4. O que só funciona com você (chaves, contas, navegador)
 
-- **Validar à mão** o que ficou `[ ]` nos blocos D, E, F, G, H a N do `docs/ROTEIRO_DE_TESTES.md` (o que o Claude já passou está `[x]` com
+- **Validar à mão** o que ficou `[ ]` nos blocos D, E, F, G, H a O do `docs/ROTEIRO_DE_TESTES.md` (o que o Claude já passou está `[x]` com
   "Claude, navegador automatizado"). Falta também o seu olhar em dark mode das páginas públicas, teclado e leitor de tela.
 - **LLM grátis (036)**: validar de verdade com **Ollama** (local) e **Gemini** (chave do AI Studio); só foi testado com mocks.
 - **Redis (059)**: para ligar, `REDIS_URL=redis://localhost:6379` no `.env` e reiniciar; conferir o aviso `[rate-limit]` ao parar o Redis.
@@ -171,7 +171,7 @@ Contas de teste no banco de dev: `claude.a*@testes-claude.local` (senha de teste
 ## 7. Próximo trabalho (plano para continuar)
 
 **Onde estamos (2026-10-11):** `main` com as SPECs 048 a 060, E2E em navegador real e Fase 9. Deploy da Vercel corrigido (cron diário +
-workflow do GitHub). PR #4 mergeado (`ee10022`, traz `docs/TESTES_PRIORITARIOS.md`). Sem agente rodando e sem SPEC em aberto.
+workflow do GitHub). PR #4 mergeado (`ee10022`, traz `docs/TESTES_PRIORITARIOS.md`). SPEC-045 implementada (QA APPROVED, `next build` ok, vitest 2055 verde); falta o bloco O do ROTEIRO à mão (desktop e 390px) e o merge do PR. Não há outra SPEC em aberto.
 
 **Etapa 1: destravar o deploy (você, ~10 min)**
 1. ~~Merge do PR #4~~ (feito).

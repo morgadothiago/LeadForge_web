@@ -3,14 +3,18 @@ import * as React from "react";
 import { useRouter } from "next/navigation";
 import { AlertTriangle, Plus } from "lucide-react";
 import { toast } from "sonner";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { Controller, useForm } from "react-hook-form";
+import { z } from "zod";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Field } from "@/components/campaigns/Field";
-import { fieldError } from "@/components/campaigns/form-utils";
+import { applyServerErrors } from "@/components/org/org-format";
 import { maskBrPhone } from "@/components/leads/lead-format";
 import { createWhatsAppInstance, updateInstance } from "@/lib/actions/whatsapp";
 import type { ActionResult } from "@/lib/actions/result";
+import { whatsappInstanceCreateSchema, whatsappInstanceUpdateSchema } from "@/lib/schemas/whatsapp";
 import { DAILY_LIMIT_MAX_UI, DAILY_LIMIT_MIN_UI, WARMUP_RAMP, validateDailyLimit } from "./health-format";
 import { formatInstanceNumber } from "./whatsapp-format";
 
@@ -55,38 +59,76 @@ export function WhatsAppInstanceFormDialog({ mode, instance, open, onOpenChange,
   );
 }
 
+/** Estado do formulário RHF (SPEC-045): strings puras; normalização do número e coerção do teto são do schema. */
+interface InstanceFormState {
+  instanceName: string;
+  number: string;
+  dailyLimit: string;
+}
+
+const INSTANCE_FIELDS = ["instanceName", "number", "dailyLimit"] as const;
+
 function InstanceForm({ mode, instance, onDone, onCreated }: { mode: "create" | "edit"; instance?: InstanceFormValues; onDone: () => void; onCreated?: Props["onCreated"] }) {
   const router = useRouter();
   const uid = React.useId();
-  const [phone, setPhone] = React.useState(instance ? formatInstanceNumber(instance.number) : "");
-  const [name, setName] = React.useState(instance?.instanceName ?? "");
+  const [pending, startTransition] = React.useTransition();
+  const instanceId = instance?.id;
+  const editing = mode === "edit" && Boolean(instanceId);
 
-  const [state, action, pending] = React.useActionState(async (_prev: ActionResult<{ id: string }> | null, fd: FormData): Promise<ActionResult<{ id: string }>> => {
-    const g = (k: string) => String(fd.get(k) ?? "");
-    const limitError = validateDailyLimit(g("dailyLimit"));
-    if (limitError) return { ok: false as const, errors: { dailyLimit: [limitError] } };
-    if (mode === "edit" && instance) return updateInstance({ id: instance.id, number: g("number"), dailyLimit: g("dailyLimit") });
-    return createWhatsAppInstance({ instanceName: g("instanceName"), number: g("number"), dailyLimit: g("dailyLimit") });
-  }, null);
+  // Checagem local do teto (mesma `validateDailyLimit` e mensagens de antes); depois, o schema do servidor.
+  const resolver = React.useMemo(() => {
+    const localLimit = (v: InstanceFormState, ctx: z.RefinementCtx) => {
+      const limitError = validateDailyLimit(v.dailyLimit);
+      if (limitError) ctx.addIssue({ code: "custom", path: ["dailyLimit"], message: limitError });
+    };
+    return editing
+      ? zodResolver(
+          z.preprocess((v: InstanceFormState, ctx) => {
+            localLimit(v, ctx);
+            return { id: instanceId, number: v.number, dailyLimit: v.dailyLimit };
+          }, whatsappInstanceUpdateSchema),
+        )
+      : zodResolver(
+          z.preprocess((v: InstanceFormState, ctx) => {
+            localLimit(v, ctx);
+            return { instanceName: v.instanceName, number: v.number, dailyLimit: v.dailyLimit };
+          }, whatsappInstanceCreateSchema),
+        );
+  }, [editing, instanceId]);
 
-  React.useEffect(() => {
-    if (state?.ok) {
-      toast.success(mode === "create" ? "Instância criada." : "Instância atualizada.");
-      onDone();
-      router.refresh();
-      if (mode === "create") onCreated?.({ id: state.data.id, name });
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- reagir apenas ao resultado da action
-  }, [state]);
+  const { register, handleSubmit, control, setError, setFocus, getValues, formState } = useForm<InstanceFormState, unknown, z.output<typeof whatsappInstanceCreateSchema> | z.output<typeof whatsappInstanceUpdateSchema>>({
+    resolver,
+    defaultValues: {
+      instanceName: instance?.instanceName ?? "",
+      number: instance ? formatInstanceNumber(instance.number) : "",
+      dailyLimit: String(instance?.dailyLimit ?? 30),
+    },
+  });
+  const { errors } = formState;
 
-  const errors = state && !state.ok ? state.errors : undefined;
-  const formError = fieldError(errors, "_form");
+  const onSubmit = handleSubmit(() => {
+    const v = getValues();
+    startTransition(async () => {
+      const r: ActionResult<{ id: string }> =
+        editing && instanceId
+          ? await updateInstance({ id: instanceId, number: v.number, dailyLimit: v.dailyLimit })
+          : await createWhatsAppInstance({ instanceName: v.instanceName, number: v.number, dailyLimit: v.dailyLimit });
+      if (r.ok) {
+        toast.success(mode === "create" ? "Instância criada." : "Instância atualizada.");
+        onDone();
+        router.refresh();
+        if (mode === "create") onCreated?.({ id: r.data.id, name: v.instanceName });
+        return;
+      }
+      toast.error(applyServerErrors(r.errors, setError, setFocus, INSTANCE_FIELDS));
+    });
+  });
 
   return (
-    <form action={action} className="grid gap-4" noValidate>
-      {formError && (
+    <form onSubmit={onSubmit} className="grid gap-4" noValidate>
+      {errors.root?.message && (
         <p role="alert" className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">
-          {formError}
+          {errors.root.message}
         </p>
       )}
       <div role="note" className="flex gap-2 rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-xs">
@@ -96,8 +138,8 @@ function InstanceForm({ mode, instance, onDone, onCreated }: { mode: "create" | 
         </p>
       </div>
       {mode === "create" ? (
-        <Field id={`${uid}-name`} label="Nome da instância" required error={fieldError(errors, "instanceName")} hint="Único; 3 a 40 caracteres (letras, números, hífen e underline).">
-          {(a) => <Input {...a} name="instanceName" value={name} onChange={(e) => setName(e.target.value)} maxLength={40} autoComplete="off" placeholder="vendas-01" />}
+        <Field id={`${uid}-name`} label="Nome da instância" required error={errors.instanceName?.message} hint="Único; 3 a 40 caracteres (letras, números, hífen e underline).">
+          {(a) => <Input {...a} {...register("instanceName")} maxLength={40} autoComplete="off" placeholder="vendas-01" />}
         </Field>
       ) : (
         <p className="text-sm">
@@ -105,17 +147,25 @@ function InstanceForm({ mode, instance, onDone, onCreated }: { mode: "create" | 
           <span className="font-medium">{instance?.instanceName}</span>
         </p>
       )}
-      <Field id={`${uid}-num`} label="Número do WhatsApp" required error={fieldError(errors, "number")} hint="Celular brasileiro com DDD. Ex.: (11) 91234-5678.">
-        {(a) => <Input {...a} name="number" type="tel" inputMode="tel" autoComplete="off" value={phone} onChange={(e) => setPhone(maskBrPhone(e.target.value))} placeholder="(11) 91234-5678" />}
+      <Field id={`${uid}-num`} label="Número do WhatsApp" required error={errors.number?.message} hint="Celular brasileiro com DDD. Ex.: (11) 91234-5678.">
+        {(a) => (
+          <Controller
+            control={control}
+            name="number"
+            render={({ field }) => (
+              <Input {...a} {...field} type="tel" inputMode="tel" autoComplete="off" placeholder="(11) 91234-5678" onChange={(e) => field.onChange(maskBrPhone(e.target.value))} />
+            )}
+          />
+        )}
       </Field>
       <Field
         id={`${uid}-limit`}
         label="Teto diário de mensagens"
         required
-        error={fieldError(errors, "dailyLimit")}
+        error={errors.dailyLimit?.message}
         hint={`De ${DAILY_LIMIT_MIN_UI} a ${DAILY_LIMIT_MAX_UI}. Este é o TETO, não o valor de hoje: o envio real segue a rampa de aquecimento abaixo.`}
       >
-        {(a) => <Input {...a} name="dailyLimit" type="number" inputMode="numeric" min={DAILY_LIMIT_MIN_UI} max={DAILY_LIMIT_MAX_UI} defaultValue={instance?.dailyLimit ?? 30} />}
+        {(a) => <Input {...a} {...register("dailyLimit")} type="number" inputMode="numeric" min={DAILY_LIMIT_MIN_UI} max={DAILY_LIMIT_MAX_UI} />}
       </Field>
       <div className="rounded-md border border-border bg-muted/30 px-3 py-2 text-xs">
         <p className="mb-1 font-medium">Aquecimento (limite real por dia desde a 1ª conexão)</p>
