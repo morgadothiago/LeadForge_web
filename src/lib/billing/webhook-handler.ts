@@ -84,7 +84,7 @@ export async function handleBillingWebhook(request: Request, opts: HandlerOption
 
     let event;
     try {
-      event = provider.parseWebhookEvent(rawBody);
+      event = await provider.parseWebhookEvent(rawBody);
     } catch (e) {
       if (e instanceof AppError && e.code === "validation") return json(400, { error: "invalid_payload", message: "Payload de webhook inválido." });
       throw e;

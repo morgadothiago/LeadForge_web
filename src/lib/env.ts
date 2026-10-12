@@ -30,6 +30,8 @@ export const envSchema = z.object({
   STRIPE_WEBHOOK_SECRET: z.string().min(1).optional(),
   /** SPEC-033 QA fix (achado crítico): segredo compartilhado (32+ chars) que autentica POST /api/billing/webhook quando PAYMENT_PROVIDER=mock (Bearer). Ausente => rota responde 503 (nunca aceita evento não autenticado). Validado em runtime (billing/config), não aqui, para não derrubar o app. */
   MOCK_WEBHOOK_SECRET: z.string().optional(),
+  /** SPEC-062 (D-062-23): em producao (NODE_ENV/VERCEL_ENV = production) o provedor de cobranca `mock` e RECUSADO (ativaria plano pago sem pagar), salvo excecao explicita `ALLOW_MOCK_BILLING=true`. */
+  ALLOW_MOCK_BILLING: z.string().optional(),
   /** SPEC-041: flags "true" para ligar cada webhook de captação de leads (desligados por padrão). */
   INTEGRATION_LEADS_GOOGLE_ADS_ENABLED: z.string().optional(),
   INTEGRATION_LEADS_META_ENABLED: z.string().optional(),
@@ -74,6 +76,11 @@ export const envSchema = z.object({
 });
 
 export type Env = z.infer<typeof envSchema>;
+
+/** SPEC-062: producao = `NODE_ENV` ou `VERCEL_ENV` iguais a "production" (mesma regra do seed, `prisma/seed.ts`). */
+export function isProductionEnv(source: Record<string, string | undefined> = process.env): boolean {
+  return source.VERCEL_ENV === "production" || source.NODE_ENV === "production";
+}
 
 export function parseEnv(source: Record<string, string | undefined>): Env {
   const env = envSchema.parse(source);

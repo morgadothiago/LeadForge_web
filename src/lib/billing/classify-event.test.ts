@@ -24,8 +24,8 @@ describe("classifyBillingEvent (SPEC-052a)", () => {
     expect(classifyBillingEvent(prior(), ev({ status: "past_due" }), "p1")).toBe("payment_failed");
     expect(classifyBillingEvent(prior(), ev({ type: "payment.failed", status: "past_due" }), "p1")).toBe("payment_failed");
   });
-  it("trialing novo = trial_started; trialing ja em trial = noop", () => {
-    expect(classifyBillingEvent(null, ev({ status: "trialing" }), "p1")).toBe("trial_started");
+  it("SPEC-062: evento trialing (legado/externo) = noop, nunca mais trial_started", () => {
+    expect(classifyBillingEvent(null, ev({ status: "trialing" }), "p1")).toBe("noop");
     expect(classifyBillingEvent(prior({ status: "trialing" }), ev({ status: "trialing" }), "p1")).toBe("noop");
   });
   it("canceled/incomplete = noop", () => {

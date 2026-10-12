@@ -45,7 +45,7 @@ describe("sendOnce (SPEC-052a)", () => {
 
 describe("notifyOrgOwners (SPEC-052a)", () => {
   it("com dedupeKey: 1 envio por owner e reentrega nao duplica", async () => {
-    const input = { orgId: org.orgId, scenario: "trial_started" as const, subject: "s", html: "h", text: "t", dedupeKey: `zz-${randomUUID()}` };
+    const input = { orgId: org.orgId, scenario: "payment_receipt" as const, subject: "s", html: "h", text: "t", dedupeKey: `zz-${randomUUID()}` };
     await notifyOrgOwners(input);
     await notifyOrgOwners(input);
     expect(sendSystemEmail).toHaveBeenCalledTimes(1);

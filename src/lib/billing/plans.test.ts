@@ -5,14 +5,18 @@ import { listActivePlans } from "./plans";
 
 /** SPEC-034 — catálogo público de planos (D-33-2 seed: starter/pro self-service, business sob consulta). */
 describe("listActivePlans", () => {
-  it("devolve só planos ativos, do mais barato ao mais caro, sem exigir sessão", async () => {
+  it("devolve só planos ativos (self-service do mais barato ao mais caro; sob consulta por último), sem exigir sessão", async () => {
     const plans = await listActivePlans();
     expect(plans.length).toBeGreaterThanOrEqual(3);
     const keys = plans.map((p) => p.key);
     expect(keys).toContain("starter");
     expect(keys).toContain("pro");
     expect(keys).toContain("business");
-    for (let i = 1; i < plans.length; i++) expect(plans[i].priceMonthlyCents).toBeGreaterThanOrEqual(plans[i - 1].priceMonthlyCents);
+    const selfService = plans.filter((p) => p.selfServiceCheckout);
+    for (let i = 1; i < selfService.length; i++) expect(selfService[i].priceMonthlyCents).toBeGreaterThanOrEqual(selfService[i - 1].priceMonthlyCents);
+    // SPEC-062b: "sob consulta" (sem checkout self-service, ex. Business) nunca vem antes de um plano self-service.
+    const firstConsult = plans.findIndex((p) => !p.selfServiceCheckout);
+    if (firstConsult >= 0) expect(plans.slice(firstConsult).every((p) => !p.selfServiceCheckout)).toBe(true);
   });
 
   it("starter/pro são self-service; business não", async () => {

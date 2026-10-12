@@ -1,4 +1,5 @@
 import { AppError } from "@/lib/errors";
+import { isProductionEnv } from "@/lib/env";
 import { MockPaymentProvider } from "./providers/mock";
 import { StripePaymentProvider } from "./providers/stripe";
 import { AbacatePayPaymentProvider } from "./providers/abacatepay";
@@ -15,7 +16,17 @@ let cached: PaymentProvider | undefined;
 export function getPaymentProvider(env: Record<string, string | undefined> = process.env): PaymentProvider {
   if (cached) return cached;
   const name = env.PAYMENT_PROVIDER === "stripe" ? "stripe" : env.PAYMENT_PROVIDER === "abacatepay" ? "abacatepay" : "mock";
-  if (name === "mock") return (cached = new MockPaymentProvider());
+  if (name === "mock") {
+    // SPEC-062 (D-062-23 / Q-062-7): com plano obrigatorio, "pagar" no mock = ativar de graca. Em producao so com excecao explicita.
+    if (isProductionEnv(env) && env.ALLOW_MOCK_BILLING !== "true") {
+      throw new AppError({
+        code: "config",
+        userMessage: "Pagamento indisponível no momento. Tente novamente mais tarde.",
+        cause: new Error("PAYMENT_PROVIDER=mock recusado em producao (cobranca gratuita). Configure um provedor real ou, so como excecao explicita, ALLOW_MOCK_BILLING=true."),
+      });
+    }
+    return (cached = new MockPaymentProvider());
+  }
   if (name === "abacatepay") {
     const apiKey = env.ABACATEPAY_API_KEY;
     const webhookSecret = env.ABACATEPAY_WEBHOOK_SECRET;

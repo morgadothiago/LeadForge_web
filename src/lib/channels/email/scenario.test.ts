@@ -50,12 +50,15 @@ describe("fromAddressForScenario — ACS (SPEC-048, D-048-5)", () => {
 
 
 describe("fromAddressForScenario — cenarios SPEC-052a", () => {
-  it("trial_started e payment_receipt usam o remetente billing (Resend e ACS)", () => {
+  it("payment_receipt usa o remetente billing (Resend e ACS); org_setup_reminder (SPEC-062) usa o noreply", () => {
     const env = { RESEND_FROM_BILLING: "cobranca@d.com", ACS_FROM_BILLING: "acs-cobranca@d.com" };
-    for (const s of ["trial_started", "payment_receipt"] as const) {
+    for (const s of ["payment_receipt"] as const) {
       expect(fromAddressForScenario(s, env)).toBe("cobranca@d.com");
       expect(fromAddressForScenario(s, env, "acs")).toBe("acs-cobranca@d.com");
     }
+    const noreply = { RESEND_FROM_NOREPLY: "n@d.com", ACS_FROM_NOREPLY: "acs-n@d.com", RESEND_FROM_BILLING: "cobranca@d.com" };
+    expect(fromAddressForScenario("org_setup_reminder", noreply)).toBe("n@d.com");
+    expect(fromAddressForScenario("org_setup_reminder", noreply, "acs")).toBe("acs-n@d.com");
   });
 });
 

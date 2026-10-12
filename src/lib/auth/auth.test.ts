@@ -291,7 +291,7 @@ describe("forgotPassword / resetPassword (SPEC-038)", async () => {
   });
 
   it("token inválido/inexistente é rejeitado com erro genérico", async () => {
-    const r = await resetPassword({ token: "token-que-nunca-existiu", password: NEW_PASS });
+    const r = await resetPassword({ token: "token-que-nunca-existiu", password: NEW_PASS, confirmPassword: NEW_PASS });
     expect(r).toEqual({ ok: false, errors: { _form: ["Link de redefinição inválido ou expirado. Solicite um novo link."] } });
   });
 
@@ -300,18 +300,18 @@ describe("forgotPassword / resetPassword (SPEC-038)", async () => {
     await prisma.passwordResetToken.create({
       data: { userId: pwUserId, tokenHash: hash, expiresAt: new Date(Date.now() - (RESET_TOKEN_TTL_MS + 60_000)) },
     });
-    const r = await resetPassword({ token, password: NEW_PASS });
+    const r = await resetPassword({ token, password: NEW_PASS, confirmPassword: NEW_PASS });
     expect(r.ok).toBe(false);
     const record = await prisma.passwordResetToken.findUnique({ where: { tokenHash: hash } });
     expect(record!.usedAt).toBeNull();
   });
 
-  it("senha nova fraca é rejeitada (mesma validação Zod do signup, 12+ caracteres); token permanece não usado", async () => {
+  it("senha nova fraca é rejeitada (mesma validação Zod do signup, 6+ caracteres, SPEC-064); token permanece não usado", async () => {
     const { token, hash } = newResetToken();
     await prisma.passwordResetToken.create({ data: { userId: pwUserId, tokenHash: hash, expiresAt: new Date(Date.now() + RESET_TOKEN_TTL_MS) } });
-    const r = await resetPassword({ token, password: "curta123" });
+    const r = await resetPassword({ token, password: "12345", confirmPassword: "12345" });
     expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.errors.password?.[0]).toBe("Senha deve ter ao menos 12 caracteres.");
+    if (!r.ok) expect(r.errors.password?.[0]).toBe("Senha deve ter ao menos 6 caracteres.");
     const record = await prisma.passwordResetToken.findUnique({ where: { tokenHash: hash } });
     expect(record!.usedAt).toBeNull();
   });
@@ -328,7 +328,7 @@ describe("forgotPassword / resetPassword (SPEC-038)", async () => {
     const content = vi.mocked(sendSystemEmail).mock.calls.at(-1)![2];
     const token = extractToken(content.text);
 
-    const reset = await resetPassword({ token, password: NEW_PASS });
+    const reset = await resetPassword({ token, password: NEW_PASS, confirmPassword: NEW_PASS });
     expect(reset).toEqual({ ok: true, data: { redirectTo: "/login" } });
 
     // D-038-2: a sessão antiga (emitida ANTES da redefinição) deixa de valer.
@@ -349,9 +349,9 @@ describe("forgotPassword / resetPassword (SPEC-038)", async () => {
   it("token já usado (reuso bloqueado): a 2ª chamada com o mesmo token falha", async () => {
     const { token, hash } = newResetToken();
     await prisma.passwordResetToken.create({ data: { userId: pwUserId, tokenHash: hash, expiresAt: new Date(Date.now() + RESET_TOKEN_TTL_MS) } });
-    const first = await resetPassword({ token, password: "Outra-Senha-Forte-789" });
+    const first = await resetPassword({ token, password: "Outra-Senha-Forte-789", confirmPassword: "Outra-Senha-Forte-789" });
     expect(first.ok).toBe(true);
-    const second = await resetPassword({ token, password: "Mais-Uma-Senha-000" });
+    const second = await resetPassword({ token, password: "Mais-Uma-Senha-000", confirmPassword: "Mais-Uma-Senha-000" });
     expect(second.ok).toBe(false);
     if (!second.ok) expect(second.errors._form?.[0]).toMatch(/inválido ou expirado/);
   });
@@ -433,13 +433,13 @@ describe("todas as Server Actions chamam requireUser (exceto auth.ts)", async ()
     const fns = parts.map((c) => ({ name: /function (\w+)/.exec(c)![1], exported: c.startsWith("export"), body: c }));
     const ok = (fn: (typeof fns)[number], seen = new Set<string>()): boolean => {
       // SPEC-030/033: requireProviderOrg()/requireActiveProviderOrg()/requirePlatformAdmin() chamam requireUser() por dentro.
-      if (/\brequireUser\(\)|\brequireOrgMember\(\)|\brequireOrgOwner\(\)|\brequireProviderOrg\(\)|\brequireActiveProviderOrg\(\)|\brequirePlatformAdmin\(\)/.test(fn.body)) return true;
+      if (/\brequireUser\(\)|\brequireOrgMember\(\)|\brequireOrgOwner\(\)|\brequireProviderOrg\(\)|\brequireProviderUser\(\)|\brequireActiveProviderOrg\(\)|\brequirePlatformAdmin\(\)/.test(fn.body)) return true;
       seen.add(fn.name);
       return fns.some((o) => !seen.has(o.name) && new RegExp(`\\b${o.name}\\(`).test(fn.body) && ok(o, seen));
     };
-    // SPEC-033: signUpAndStartCheckout (billing.ts) é pública como login/logout (cria a própria sessão) — allowlist pontual, mesmo critério de src/lib/use-server-auth.test.ts.
+    // SPEC-062: signUp (billing.ts, antes signUpAndStartCheckout) é pública como login/logout (cria a própria sessão) — allowlist pontual, mesmo critério de src/lib/use-server-auth.test.ts.
     // SPEC-049: signUpAndJoin/previewInvite (org.ts) são públicas (signup via convite/código; pré-visualização por token) — mesma allowlist de use-server-auth.test.ts. requireOrgMember/requireOrgOwner (src/lib/org/guards.ts) chamam requireProviderOrg() por dentro.
-    const exported = fns.filter((x) => x.exported && !(f === "billing.ts" && x.name === "signUpAndStartCheckout") && !(f === "org.ts" && ["signUpAndJoin", "previewInvite"].includes(x.name)) && !(f === "account-deletion.ts" && ["previewAccountDeletionToken", "confirmAccountDeletion", "cancelAccountDeletionByToken", "cancelAccountDeletionWithPassword"].includes(x.name)));
+    const exported = fns.filter((x) => x.exported && !(f === "billing.ts" && x.name === "signUp") && !(f === "org.ts" && ["signUpAndJoin", "previewInvite"].includes(x.name)) && !(f === "account-deletion.ts" && ["previewAccountDeletionToken", "confirmAccountDeletion", "cancelAccountDeletionByToken", "cancelAccountDeletionWithPassword"].includes(x.name)));
     expect(exported.length).toBeGreaterThan(0);
     for (const fn of exported) expect(ok(fn), `${f}:${fn.name} não chama requireUser`).toBe(true);
   });

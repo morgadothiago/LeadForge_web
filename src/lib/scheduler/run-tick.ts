@@ -18,6 +18,8 @@ import { purgeCanceledOrgs } from "@/lib/billing/purge";
 import { sendBillingReminders } from "@/lib/billing/reminders";
 import { runCancelEffectuationJob } from "@/lib/billing/cancel-effective";
 import { runPixRenewalJob } from "@/lib/billing/pix-renewal";
+import { purgeAbandonedShells, sendOrgSetupReminders } from "@/lib/billing/shell-jobs";
+import { NOT_SHELL } from "@/lib/billing/shell";
 import { runAccountDeletionJob } from "@/lib/account-deletion/purge";
 import { getSchedulerConfig, type SchedulerConfig } from "./config";
 import { acquirePgAdvisoryLock, type AcquireLock } from "./lock";
@@ -106,7 +108,7 @@ export async function runTick(now: Date, overrides: Partial<TickDeps> = {}): Pro
     // deps.campaignIds (testes/execução dirigida): resolve as orgs donas dessas campanhas em vez de varrer todas.
     const orgIds = deps.campaignIds
       ? [...new Set((await prisma.campaign.findMany({ where: { id: { in: deps.campaignIds } }, select: { orgId: true } })).map((c) => c.orgId))]
-      : (await prisma.organization.findMany({ where: { status: "active" }, select: { id: true } })).map((o) => o.id);
+      : (await prisma.organization.findMany({ where: { status: "active", ...NOT_SHELL }, select: { id: true } })).map((o) => o.id); // SPEC-062: casca de cobranca paga fica `active` mas NUNCA entra no scheduler
     for (const orgId of orgIds) {
       if (state.budget) break; // orçamento de tempo/envios já esgotado nesta rodada
       const runId = (await prisma.schedulerRun.create({ data: { orgId, startedAt: now, status: "running" } })).id;
@@ -145,6 +147,9 @@ export async function runTick(now: Date, overrides: Partial<TickDeps> = {}): Pro
   await runCancelEffectuationJob(new Date()).catch((e) => console.error("[scheduler] efetivação de cancelamento falhou:", safeErrorForLog(e)));
   // SPEC-033 (D-33-4): expurgo/anonimização 90 dias após cancelamento (isolado; falha nunca derruba o tick)
   await purgeCanceledOrgs(new Date()).catch((e) => console.error("[scheduler] expurgo de billing falhou:", safeErrorForLog(e)));
+  // SPEC-062 (D-062-18/19): limpa cascas de cobranca SEM pagamento (> 7 dias) e lembra quem pagou e nao criou a organizacao (D+1/3/7). Isolados.
+  await purgeAbandonedShells(new Date()).catch((e) => console.error("[scheduler] limpeza de cascas de cobrança falhou:", safeErrorForLog(e)));
+  await sendOrgSetupReminders(new Date()).catch((e) => console.error("[scheduler] lembretes de organização pendente falharam:", safeErrorForLog(e)));
   // SPEC-054a (D-054-1): exclusao de conta (LGPD) — anonimiza usuarios cuja janela de 30 dias venceu e envia o e-mail #14 (1x). Isolado.
   await runAccountDeletionJob(new Date()).catch((e) => console.error("[scheduler] exclusão de conta falhou:", safeErrorForLog(e)));
   return summary({ status: error ? "error" : "ok", runId: firstRunId, budget, ...(error ? { error } : {}) });

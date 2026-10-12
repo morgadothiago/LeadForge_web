@@ -2,7 +2,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { filterOrganizations, orgInitials, applyServerErrors, countOwners, formatDate, joinCodeState, joinCodeSummary, parseJoinInput, roleLabel, safeInternalPath } from "./org-format";
 import { confirmCopy } from "./TeamPanel";
-import { inviteSignupFormSchema, joinCodeFormSchema, signupJoinFormSchema } from "@/lib/schemas/org";
+import { inviteSignupFormSchema, joinCodeFormSchema, signupJoinSchema } from "@/lib/schemas/org";
 
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: vi.fn() }) }));
 vi.mock("@/lib/actions/org", () => ({ changeMemberRole: vi.fn(), disableJoinCode: vi.fn(), removeMember: vi.fn(), revokeInvite: vi.fn(), inviteMember: vi.fn(), generateJoinCode: vi.fn() }));
@@ -45,9 +45,16 @@ describe("org-format (SPEC-049b)", () => {
     expect(msg).toBe("Falhou.");
   });
   it("schemas de formulário (zod) validam o que a UI envia", () => {
-    expect(signupJoinFormSchema.safeParse({ name: "A", email: "A@X.com", password: "123456789012", joinInput: " COD " }).data?.email).toBe("a@x.com");
-    expect(signupJoinFormSchema.safeParse({ name: "A", email: "a@x.com", password: "curta", joinInput: "x" }).success).toBe(false);
-    expect(inviteSignupFormSchema.safeParse({ name: "", password: "123456789012" }).success).toBe(false);
+    // SPEC-062: signUpAndJoin so por convite (token + nome + senha)
+    const pw = { password: "abc123", confirmPassword: "abc123" };
+    expect(signupJoinSchema.safeParse({ name: "A", ...pw, token: " tok " }).data?.token).toBe("tok");
+    expect(signupJoinSchema.safeParse({ name: "A", password: "12345", confirmPassword: "12345", token: "x" }).success).toBe(false);
+    expect(signupJoinSchema.safeParse({ name: "A", ...pw }).success).toBe(false);
+    expect(inviteSignupFormSchema.safeParse({ name: "", ...pw }).success).toBe(false);
+    expect(inviteSignupFormSchema.safeParse({ name: "A", ...pw }).success).toBe(true);
+    const mism = inviteSignupFormSchema.safeParse({ name: "A", password: "abc123", confirmPassword: "abc124" });
+    expect(mism.success).toBe(false);
+    expect(!mism.success && mism.error.issues[0].path).toEqual(["confirmPassword"]);
     expect(joinCodeFormSchema.safeParse({ expiresInDays: "7", maxUses: "10" }).data).toEqual({ expiresInDays: 7, maxUses: 10 });
     expect(joinCodeFormSchema.safeParse({ expiresInDays: "31", maxUses: "10" }).success).toBe(false);
     expect(joinCodeFormSchema.safeParse({ expiresInDays: "7", maxUses: "0" }).success).toBe(false);

@@ -82,13 +82,13 @@ describe("processBillingEvent (SPEC-033)", () => {
     }
   });
 
-  it("trialing -> Organization.status=active, trialEndsAt preenchido", async () => {
+  it("SPEC-062: evento trialing sem trialEndsAt (nada cria trial) -> trial expirado = Organization.status=suspended, trialEndsAt segue nulo", async () => {
     await processBillingEvent(baseEvent({ status: "trialing", currentPeriodEnd: null }), NOW);
     const sub = await prisma.subscription.findUniqueOrThrow({ where: { orgId: org.orgId } });
     expect(sub.status).toBe("trialing");
-    expect(sub.trialEndsAt).not.toBeNull();
+    expect(sub.trialEndsAt).toBeNull();
     const o = await prisma.organization.findUniqueOrThrow({ where: { id: org.orgId } });
-    expect(o.status).toBe("active");
+    expect(o.status).toBe("suspended");
   });
 
   it("past_due recente -> Organization.status=active (dentro do grace de 7d)", async () => {

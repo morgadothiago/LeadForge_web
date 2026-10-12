@@ -1,50 +1,31 @@
-import { timingSafeEqual } from "node:crypto";
+import { randomBytes, timingSafeEqual } from "node:crypto";
 import { z } from "zod";
 import type { AxiosInstance } from "axios";
 import type { BillingCadence } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { AppError } from "@/lib/errors";
+import { isProductionEnv } from "@/lib/env";
 import { createHttpClient, type HttpClientOptions } from "@/lib/http";
 import type { CancelSubscriptionInput, CancelSubscriptionResult, ResumeSubscriptionInput, ResumeSubscriptionResult, CheckoutSessionInput, CheckoutSessionResult, ParsedBillingEvent, PaymentProvider, PortalSessionInput, PortalSessionResult } from "../provider";
+import { AbacateClient } from "./abacatepay-client";
+import { assertExpectedDevMode, ensureProduct, keyFingerprintOf, priceFor } from "./abacatepay-catalog";
+import { parseAbacatePayWebhook } from "./abacatepay-webhook";
 
 /**
- * SPEC-047 (D-047-1/D-047-2) — adapter AbacatePay (gateway brasileiro, foco em PIX). Implementação
- * COMPLETA em código, mas SEM chamada de rede real até `ABACATEPAY_API_KEY` estar configurada (só é
- * instanciado se `PAYMENT_PROVIDER=abacatepay` E `ABACATEPAY_API_KEY`/`ABACATEPAY_WEBHOOK_SECRET`
- * estiverem presentes, `provider-factory.ts` — mesmo padrão do stub Stripe, D-33-5).
+ * SPEC-047 (D-047-1/D-047-2) reescrita pela SPEC-063 (063a) sobre o contrato REAL da API v2 (validado em dev mode em 2026-10-12;
+ * achados na SPEC, "Implementation Notes"). Instanciado so se `PAYMENT_PROVIDER=abacatepay` E `ABACATEPAY_API_KEY`/`ABACATEPAY_WEBHOOK_SECRET`
+ * estiverem presentes (`provider-factory.ts`).
  *
- * NUNCA testado contra a API real do AbacatePay (sem credenciais) — NOT VERIFIED end-to-end, mesmo
- * espírito de `providers/stripe.ts`. A pesquisa da doc oficial confirmou o formato de auth, os 3
- * endpoints usados aqui e os campos de resposta citados abaixo como "CONFIRMADO"; qualquer outro campo
- * de request/response está marcado "ASSUMIDO" (best-effort baseado no padrão comum de gateways
- * brasileiros) — a spec.md (seção Riscos) já pede para revalidar isso na doc interativa antes de ativar
- * em produção.
+ * D-047-1 (HIBRIDO): `createCheckoutSession` escolhe cartao OU PIX (`input.method`, default "card"):
+ * - "card": produto no catalogo (`abacatepay-catalog.ts`) -> `POST /subscriptions/create` (cria um CHECKOUT `bill_...`; a assinatura
+ *   `subs_...` so existe apos o pagamento) — recorrencia REAL gerenciada pela AbacatePay.
+ * - "pix":  `POST /transparents/create` — cobranca avulsa; a renovacao de cada ciclo e do LeadForge (`createPixCharge`, `pix-renewal.ts`).
  *
- * D-047-1 (HÍBRIDO): `createCheckoutSession` escolhe cartão OU PIX (`input.method`, default "card"):
- * - "card": `POST /subscriptions/create` — recorrência REAL gerenciada pela AbacatePay (cobrança
- *   automática, retryPolicy, trialDays). Não precisamos reimplementar nada de ciclo aqui.
- * - "pix":  `POST /transparents/create` — cobrança avulsa (PIX não suporta recorrência nativa nesse
- *   provedor). A renovação de cada ciclo é responsabilidade do LeadForge — `createPixCharge` (método
- *   público adicional, fora da interface `PaymentProvider` genérica, chamado só por
- *   `src/lib/billing/pix-renewal.ts`, o job de renovação).
- *
- * D-047-2: autenticação do webhook é o `webhookSecret` (comparação em tempo constante) — a ÚNICA camada
- * real por conta. O header `X-Webhook-Signature` (HMAC com chave PÚBLICA, igual para todas as contas,
- * conforme a doc) NÃO é validado aqui: não é segredo nenhum, então uma verificação dele não aumentaria a
- * segurança real, só complexidade — mantido documentado como decisão explícita, não como omissão.
- *
- * QA fix (SPEC-047, rodada de QA): o AbacatePay envia `webhookSecret` como QUERY PARAM da URL de
- * callback, não como header — o receiver compartilhado (`webhook-handler.ts`) agora lê
- * `?webhookSecret=` da query quando o header `stripe-signature` está ausente e o repassa como 2º
- * argumento de `verifyWebhookSignature` (o header continua com precedência; nada muda pro Stripe).
- * Assim a autenticação real por conta (D-047-2) funciona de fato via rota `/api/billing/webhook`
- * compartilhada, sem duplicar rota nem logar a URL completa (a rota só loga mensagens de erro).
+ * Autenticacao do webhook (D-047-2/D-063-16): `?webhookSecret=` em tempo constante. A verificacao do HMAC `X-Webhook-Signature` e da 063b.
+ * Correlacao pagamento -> organizacao e parser: `abacatepay-webhook.ts`. Erros 4xx: `abacatepay-client.ts` / `abacatepay-errors.ts`.
  */
 
 const BASE_URL = "https://api.abacatepay.com/v2";
-const CADENCE_TO_CYCLE: Record<BillingCadence, string> = { monthly: "MONTHLY", yearly: "YEARLY" };
-/** Mesmo cálculo de duração de ciclo usado em `providers/mock.ts` (30/365 dias) — usado quando o AbacatePay não devolve a próxima data de cobrança. */
-export const CYCLE_MS: Record<BillingCadence, number> = { monthly: 30 * 24 * 3600_000, yearly: 365 * 24 * 3600_000 };
 
 export interface AbacatePayOptions {
   apiKey: string;
@@ -52,15 +33,20 @@ export interface AbacatePayOptions {
   adapter?: HttpClientOptions["adapter"];
   retry?: HttpClientOptions["retry"];
   logger?: HttpClientOptions["logger"];
-  /** Testes: injeta o "agora" usado para calcular `currentPeriodEnd` quando o AbacatePay não devolve a próxima data. */
+  /** Testes: injeta o "agora" usado no parser do webhook (periodo, validade de datas). */
   clock?: () => Date;
+  /** Testes: captura as linhas de log de erro 4xx (default `console.error`). */
+  errorLog?: (line: string) => void;
 }
 
 export interface CreatePixChargeInput {
   orgId: string;
   planKey: string;
   cadence: BillingCadence;
+  /** Mantido na interface (job de renovacao): NAO e enviado ao provedor — `customer` so com e-mail da 422 (D-063-18). */
   customerEmail: string;
+  /** Fim do periodo que esta cobranca renova (so compoe o `externalId`). */
+  periodEndMs?: number;
 }
 export interface CreatePixChargeResult {
   chargeId: string;
@@ -69,44 +55,59 @@ export interface CreatePixChargeResult {
   expiresAt: Date;
 }
 
-// CONFIRMADO na doc (spec.md): brCode/brCodeBase64/expiresAt. `id` ASSUMIDO (todo gateway com webhook de
-// confirmação precisa de algum identificador da cobrança; sem ele não daria pra correlacionar o evento).
+// Respostas: zod LENIENTE (so o que usamos), formatos REAIS validados em dev mode.
 const transparentsRes = z.object({
-  data: z.object({ id: z.string().min(1), brCode: z.string().min(1), brCodeBase64: z.string().min(1), expiresAt: z.string() }),
+  data: z.object({ id: z.string().min(1), brCode: z.string().min(1), brCodeBase64: z.string().min(1), expiresAt: z.string(), devMode: z.boolean().optional() }),
 });
-// ASSUMIDO: `id` da subscription + (opcional) `url` para o cliente inserir o cartão/confirmar. Não
-// confirmado na doc pública (spec.md, seção Riscos) — revalidar antes de ativar em produção.
-const subscriptionsRes = z.object({
-  data: z.object({ id: z.string().min(1), url: z.string().nullish(), status: z.string().nullish() }),
+const checkoutRes = z.object({
+  data: z.object({ id: z.string().min(1), url: z.string().min(1), devMode: z.boolean().optional(), status: z.string().nullish() }),
 });
 
 function invalid(): AppError {
   return new AppError({ code: "upstream", userMessage: "AbacatePay devolveu uma resposta inesperada." });
 }
 
+/** D-063-7: so devolve ao usuario uma URL https do dominio abacatepay.com (guarda contra resposta inesperada). */
+export function isTrustedCheckoutUrl(raw: string): boolean {
+  try {
+    const u = new URL(raw);
+    return u.protocol === "https:" && (u.hostname === "abacatepay.com" || u.hostname.endsWith(".abacatepay.com"));
+  } catch {
+    return false;
+  }
+}
+
+/** A API recusa caracteres fora do ASCII basico em `description` do PIX (ex.: travessao U+2014 da 400). */
+function asciiOnly(text: string): string {
+  return text.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^\x20-\x7e]/g, "-");
+}
+
 export class AbacatePayPaymentProvider implements PaymentProvider {
   readonly name = "abacatepay" as const;
   private readonly http: AxiosInstance;
+  private readonly client: AbacateClient;
   private readonly webhookSecret: string;
+  private readonly keyFingerprint: string;
   private readonly clock: () => Date;
 
   constructor(opts: AbacatePayOptions) {
     this.webhookSecret = opts.webhookSecret;
+    this.keyFingerprint = keyFingerprintOf(opts.apiKey);
     this.clock = opts.clock ?? (() => new Date());
-    // CONFIRMADO na doc (spec.md): `Authorization: Bearer <API_KEY>`; sem URL de sandbox separada (o
-    // ambiente é determinado pela própria chave — toda resposta traz `devMode`).
+    // `Authorization: Bearer <API_KEY>`; sem URL de sandbox separada (o ambiente e a propria chave — toda resposta traz `devMode`).
     this.http = createHttpClient({
       name: "AbacatePay", baseURL: BASE_URL, timeout: 20_000,
       headers: { Authorization: `Bearer ${opts.apiKey}`, "Content-Type": "application/json" },
       adapter: opts.adapter, retry: opts.retry, logger: opts.logger,
     });
+    this.client = new AbacateClient(this.http, () => [opts.apiKey, opts.webhookSecret], opts.errorLog);
   }
 
   async createCheckoutSession(input: CheckoutSessionInput): Promise<CheckoutSessionResult> {
-    const plan = await prisma.plan.findUnique({ where: { key: input.planKey }, select: { key: true, active: true, selfServiceCheckout: true, priceMonthlyCents: true, priceYearlyCents: true } });
+    const plan = await prisma.plan.findUnique({ where: { key: input.planKey }, select: { id: true, key: true, name: true, active: true, selfServiceCheckout: true, priceMonthlyCents: true, priceYearlyCents: true } });
     if (!plan || !plan.active) throw new AppError({ code: "not_found", userMessage: "Plano não encontrado." });
     if (!plan.selfServiceCheckout) throw new AppError({ code: "validation", userMessage: "Este plano não tem checkout self-service. Entre em contato com vendas." });
-    const amountCents = input.cadence === "yearly" ? (plan.priceYearlyCents ?? plan.priceMonthlyCents) : plan.priceMonthlyCents;
+    priceFor(plan, input.cadence); // D-063-4: yearly sem preco anual = recusa ANTES de qualquer chamada de rede.
 
     if ((input.method ?? "card") === "pix") {
       const pix = await this.createPixCharge({ orgId: input.orgId, planKey: input.planKey, cadence: input.cadence, customerEmail: input.customerEmail });
@@ -117,56 +118,63 @@ export class AbacatePayPaymentProvider implements PaymentProvider {
       };
     }
 
-    // D-047-1 (cartão): recorrência REAL gerenciada pela AbacatePay. ASSUMIDO: request body/response.url —
-    // ver comentário do topo do arquivo/spec.md (Riscos).
-    const { data } = await this.http.post("/subscriptions/create", {
-      cycle: CADENCE_TO_CYCLE[input.cadence],
-      amount: amountCents,
-      method: "CREDIT_CARD",
-      customer: { email: input.customerEmail },
-      returnUrl: input.successUrl,
-      cancelUrl: input.cancelUrl,
+    // D-063-6: o valor e o ciclo vem do PRODUTO; o corpo so tem campos que a API aceita.
+    const product = await ensureProduct({ client: this.client, keyFingerprint: this.keyFingerprint, plan, cadence: input.cadence });
+    const res = await this.client.post("/subscriptions/create", {
+      items: [{ id: product.providerProductId, quantity: 1 }],
+      methods: ["CARD"],
+      externalId: `lf:${input.orgId}:${randomBytes(4).toString("hex")}`,
+      completionUrl: input.successUrl,
+      returnUrl: input.cancelUrl,
+      // Auditoria/diagnostico apenas: a correlacao do pagamento nunca depende deste campo (D-063-8).
       metadata: { orgId: input.orgId, planKey: input.planKey, cadence: input.cadence },
+      retryPolicy: { maxRetry: 3, retryEvery: 2 },
     });
-    const r = subscriptionsRes.safeParse(data);
-    if (!r.success) throw invalid();
-    return { url: r.data.data.url ?? input.successUrl, sessionId: r.data.data.id };
+    const r = checkoutRes.safeParse(res);
+    if (!r.success || !isTrustedCheckoutUrl(r.data.data.url)) throw invalid();
+    assertExpectedDevMode(r.data.data.devMode);
+    // D-063-7: elo do pagamento -> organizacao (a casca/assinatura da org ja existe antes do checkout).
+    await prisma.subscription.updateMany({ where: { orgId: input.orgId }, data: { externalCheckoutId: r.data.data.id } });
+    return { url: r.data.data.url, sessionId: r.data.data.id };
   }
 
   /** SPEC-047 (D-047-1) — não faz parte da interface `PaymentProvider` genérica: só chamado por `src/lib/billing/pix-renewal.ts`. */
   async createPixCharge(input: CreatePixChargeInput): Promise<CreatePixChargeResult> {
     const plan = await prisma.plan.findUnique({ where: { key: input.planKey }, select: { priceMonthlyCents: true, priceYearlyCents: true } });
     if (!plan) throw new AppError({ code: "not_found", userMessage: "Plano não encontrado." });
-    const amountCents = input.cadence === "yearly" ? (plan.priceYearlyCents ?? plan.priceMonthlyCents) : plan.priceMonthlyCents;
+    const amountCents = priceFor(plan, input.cadence); // D-063-4: nunca cai no preco mensal.
 
-    // CONFIRMADO na doc (spec.md): method "PIX", resposta com brCode/brCodeBase64/expiresAt. ASSUMIDO: os
-    // demais campos do body (amount/description/customer/metadata) e o campo `id` da resposta.
-    const { data } = await this.http.post("/transparents/create", {
-      amount: amountCents,
+    // D-063-18: corpo real `{method, data:{...}}`, SEM `customer` (so e-mail = 422; name+taxId viram obrigatorios).
+    // `externalId` repetido devolve a MESMA cobranca (idempotente no provedor, inclusive expirada) — por isso leva um sufixo por tentativa.
+    const res = await this.client.post("/transparents/create", {
       method: "PIX",
-      description: `LeadForge — plano ${input.planKey} (${input.cadence === "yearly" ? "anual" : "mensal"})`,
-      customer: { email: input.customerEmail },
-      metadata: { orgId: input.orgId, planKey: input.planKey, cadence: input.cadence },
+      data: {
+        amount: amountCents,
+        description: asciiOnly(`LeadForge - plano ${input.planKey} (${input.cadence === "yearly" ? "anual" : "mensal"})`),
+        externalId: `lf-pix:${input.orgId}:${input.periodEndMs ?? this.clock().getTime()}:${randomBytes(4).toString("hex")}`,
+        metadata: { orgId: input.orgId, planKey: input.planKey, cadence: input.cadence },
+      },
     });
-    const r = transparentsRes.safeParse(data);
+    const r = transparentsRes.safeParse(res);
     if (!r.success) throw invalid();
+    assertExpectedDevMode(r.data.data.devMode);
     return { chargeId: r.data.data.id, brCode: r.data.data.brCode, brCodeBase64: r.data.data.brCodeBase64, expiresAt: new Date(r.data.data.expiresAt) };
   }
 
+  /** Somente TESTE/dev mode: simula o pagamento de uma cobranca PIX (`POST /transparents/simulate-payment`). Recusado em producao. */
+  async simulatePixPayment(chargeId: string): Promise<void> {
+    if (isProductionEnv()) throw new AppError({ code: "config", userMessage: "Operação indisponível." });
+    await this.client.request("POST", "/transparents/simulate-payment", { params: { id: chargeId }, data: {} });
+  }
+
   async createPortalSession(_input: PortalSessionInput): Promise<PortalSessionResult> {
-    // CONFIRMADO na doc (spec.md): não existe portal de self-service no AbacatePay (nenhuma página
-    // hospedada tipo Stripe Billing Portal) — erro tratado em vez de quebrar (Fora do escopo, spec.md).
+    // CONFIRMADO na doc: não existe portal de self-service no AbacatePay — erro tratado em vez de quebrar.
     throw new AppError({ code: "config", userMessage: "Gestão de assinatura indisponível para este provedor." });
   }
 
   /**
-   * SPEC-053a (D-053-5): o AbacatePay NAO tem endpoint de cancelar/retomar assinatura confirmado na doc
-   * (ver mapAbacatePayEvent: `subscriptions/cancel|change-plan` nao implementados). Fallback documentado:
-   * - PIX (`pixManaged`): sem recorrencia no provedor — cancelar = o LeadForge para de gerar cobranca
-   *   (`pix-renewal.ts` ignora `cancelAtPeriodEnd`); nada a chamar.
-   * - Cartao: cancelamento so MARCADO localmente (`providerConfirmed: false`). LIMITACAO: sem chamada ao
-   *   provedor, a recorrencia do cartao pode continuar cobrando ate o cancelamento ser feito por fora
-   *   (suporte/painel AbacatePay); um webhook `subscription.renewed` posterior sobrescreve o estado local.
+   * SPEC-053a (D-053-5), INALTERADO na 063a (cancelar/reativar/trocar plano = 063b): sem chamada ao provedor, `providerConfirmed:false`.
+   * LIMITACAO ate a 063b: a recorrencia do cartao no provedor continua ate ser cancelada la (`POST /subscriptions/cancel`).
    */
   async cancelSubscription(_input: CancelSubscriptionInput): Promise<CancelSubscriptionResult> {
     return { providerConfirmed: false };
@@ -177,10 +185,8 @@ export class AbacatePayPaymentProvider implements PaymentProvider {
   }
 
   /**
-   * D-047-2: compara `presentedSecret` (o `webhookSecret` da query string da URL de callback — ver
-   * LIMITAÇÃO CONHECIDA no topo do arquivo sobre como esse valor chega até aqui hoje) contra
-   * `this.webhookSecret`, em tempo constante (mesmo padrão de `secretsMatch`,
-   * `src/lib/scheduler/cron-endpoint.ts`). Nunca loga `presentedSecret`/a URL completa (D-047-2).
+   * D-047-2: compara `presentedSecret` (o `webhookSecret` da query string da URL de callback) contra `this.webhookSecret`, em tempo
+   * constante (mesmo padrão de `secretsMatch`, `src/lib/scheduler/cron-endpoint.ts`). Nunca loga `presentedSecret`/a URL completa.
    */
   verifyWebhookSignature(_rawBody: string, presentedSecret: string | null): boolean {
     if (!presentedSecret) return false;
@@ -190,106 +196,8 @@ export class AbacatePayPaymentProvider implements PaymentProvider {
     return timingSafeEqual(a, b);
   }
 
-  parseWebhookEvent(rawBody: string): ParsedBillingEvent | null {
-    // A verificação de assinatura (verifyWebhookSignature) já rodou antes de chamar isto (webhook-handler.ts).
-    let json: unknown;
-    try {
-      json = JSON.parse(rawBody);
-    } catch {
-      throw new AppError({ code: "validation", userMessage: "Payload de webhook inválido." });
-    }
-    return mapAbacatePayEvent(json, this.clock());
+  /** Assincrono (D-063-12): a correlacao consulta o banco e, como ultimo recurso, a API. A autenticacao ja rodou no handler. */
+  parseWebhookEvent(rawBody: string): Promise<ParsedBillingEvent | null> {
+    return parseAbacatePayWebhook(rawBody, { now: this.clock(), client: this.client, keyFingerprint: this.keyFingerprint });
   }
-}
-
-// Envelope CONFIRMADO na doc (spec.md): {id, event, apiVersion, devMode, data}. `id` = idempotência
-// (campo do payload, não gerado por nós — reaproveitado como `ParsedBillingEvent.eventId`, mesma
-// unicidade global que `processBillingEvent`/`WebhookEvent.eventId` já garantem para todos os providers).
-const envelope = z.object({
-  id: z.string().min(1),
-  event: z.string().min(1),
-  data: z.record(z.string(), z.unknown()).nullish(),
-});
-
-const EVENTS_HANDLED = new Set(["subscription.completed", "subscription.renewed", "transparent.completed"]);
-const CADENCES = new Set(["monthly", "yearly"]);
-
-/**
- * Mapeia o vocabulário do AbacatePay para `BillingEventType`/`ParsedBillingEvent` (`status-map.ts`).
- * ASSUMIDO (spec.md, Riscos): correlação com `orgId`/`planKey`/`cadence` via `data.metadata` — o mesmo
- * objeto `metadata` que ESTE adapter envia em `createPixCharge`/`createCheckoutSession` (cartão), que o
- * AbacatePay deveria ecoar de volta no payload (padrão comum de gateway; não confirmado por fetch direto
- * contra a doc interativa). Sem `metadata.orgId`/`metadata.planKey`/`metadata.cadence` válidos, o evento é
- * tratado como não reconhecido (`null` — ignorado, nunca 500), igual a qualquer outro provider.
- * Eventos fora de `EVENTS_HANDLED` (ex.: `checkout.completed`, que não é gerado por este adapter — D-047-1
- * não usa `/payment/create` — nem eventos de gestão de subscription não implementados aqui,
- * subscriptions/cancel|change-plan) também retornam `null`.
- */
-function mapAbacatePayEvent(json: unknown, now: Date): ParsedBillingEvent | null {
-  const env = envelope.safeParse(json);
-  if (!env.success) throw new AppError({ code: "validation", userMessage: "Payload de webhook inválido." });
-  if (!EVENTS_HANDLED.has(env.data.event)) return null;
-
-  const data = env.data.data ?? {};
-  const metadata = (data.metadata && typeof data.metadata === "object" ? (data.metadata as Record<string, unknown>) : {}) as Record<string, unknown>;
-  const orgId = typeof metadata.orgId === "string" ? metadata.orgId : null;
-  const planKey = typeof metadata.planKey === "string" ? metadata.planKey : null;
-  const cadence = typeof metadata.cadence === "string" && CADENCES.has(metadata.cadence) ? (metadata.cadence as BillingCadence) : null;
-  if (!orgId || !planKey || !cadence) return null; // não reconhecível (sem correlação confiável) — ignorado, nunca 500.
-
-  if (env.data.event === "subscription.completed") {
-    return {
-      eventId: env.data.id, type: "subscription.created", orgId, planKey, cadence, status: "active",
-      currentPeriodEnd: readDate(data.nextBillingAt ?? data.currentPeriodEnd) ?? new Date(now.getTime() + CYCLE_MS[cadence]),
-      cancelAtPeriodEnd: false,
-      externalCustomerId: readString(data.customerId), externalSubscriptionId: readString(data.id),
-      ...paymentInfo(data, "card", now),
-    };
-  }
-  if (env.data.event === "subscription.renewed") {
-    return {
-      eventId: env.data.id, type: "subscription.updated", orgId, planKey, cadence, status: "active",
-      currentPeriodEnd: readDate(data.nextBillingAt ?? data.currentPeriodEnd) ?? new Date(now.getTime() + CYCLE_MS[cadence]),
-      cancelAtPeriodEnd: false,
-      externalCustomerId: readString(data.customerId), externalSubscriptionId: readString(data.id),
-      ...paymentInfo(data, "card", now),
-    };
-  }
-  // transparent.completed (PIX avulso pago, D-047-1): marca o período pago e estende currentPeriodEnd por
-  // um ciclo (o AbacatePay não gerencia recorrência de PIX — não há "próxima cobrança" no payload dele).
-  return {
-    eventId: env.data.id, type: "subscription.updated", orgId, planKey, cadence, status: "active",
-    currentPeriodEnd: new Date(now.getTime() + CYCLE_MS[cadence]),
-    cancelAtPeriodEnd: false,
-    externalCustomerId: null, externalSubscriptionId: readString(data.id),
-    ...paymentInfo(data, "pix", now),
-  };
-}
-
-/**
- * SPEC-052a — dados de pagamento para o recibo. ASSUMIDO (mesmo status dos demais campos do payload nao
- * confirmados na doc): `amount` em centavos, `paidAt` ISO, `card.lastDigits`/`lastFourDigits`/`last4`.
- * Tudo opcional; ausente -> recibo cai no valor do plano (D-052-3). Cartao: so os 4 ultimos digitos.
- */
-function paymentInfo(data: Record<string, unknown>, method: "card" | "pix", now: Date) {
-  const card = data.card && typeof data.card === "object" ? (data.card as Record<string, unknown>) : {};
-  const rawLast4 = card.lastDigits ?? card.lastFourDigits ?? card.last4 ?? data.cardLast4;
-  const digits = typeof rawLast4 === "string" ? rawLast4.replace(/\D/g, "") : "";
-  const amount = data.amount ?? data.paidAmount;
-  return {
-    amountCents: typeof amount === "number" && Number.isInteger(amount) && amount > 0 ? amount : null,
-    paymentMethod: method,
-    cardLast4: method === "card" && digits.length >= 4 ? digits.slice(-4) : null,
-    externalPaymentId: readString(data.id),
-    paidAt: readDate(data.paidAt) ?? now,
-  };
-}
-
-function readString(v: unknown): string | null {
-  return typeof v === "string" && v ? v : null;
-}
-function readDate(v: unknown): Date | null {
-  if (typeof v !== "string") return null;
-  const d = new Date(v);
-  return Number.isNaN(d.getTime()) ? null : d;
 }

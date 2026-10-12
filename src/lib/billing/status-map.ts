@@ -8,19 +8,20 @@ import { prisma } from "@/lib/prisma";
  * decide o valor é sempre esta função, nunca um `update` solto em outro arquivo.
  *
  * Mapeamento:
- * - `trialing`/`active`               -> `active`
+ * - `active`                          -> `active`
+ * - `trialing` (LEGADO, SPEC-062 D-062-17): `active` so ate `trialEndsAt` (futuro); vencido ou sem data -> `suspended`
+ *   (nada novo cria trial; ha so orgs antigas). Honra a data existente, sem estender.
  * - `past_due` dentro do grace (7d)   -> `active` (com aviso; banner fica para SPEC-034)
  * - `past_due` fora do grace          -> `suspended`
  * - `canceled`/`incomplete`           -> `suspended` (soft-block imediato ao cancelar, D-33-4; dado nunca é apagado aqui)
  * - `cancelAtPeriodEnd` (SPEC-053, D-053-1): acesso até `currentPeriodEnd`, `suspended` a partir dele (substitui D-33-4 só p/ cancelamento voluntário)
  */
 export const PAST_DUE_GRACE_MS = 7 * 24 * 3600_000;
-export const TRIAL_DAYS = 14;
 /** D-33-4: retenção de 90 dias após cancelamento, depois o job de expurgo (`purge.ts`) anonimiza o dado. */
 export const CANCEL_RETENTION_MS = 90 * 24 * 3600_000;
 
 export function computeOrgStatus(
-  sub: (Pick<Subscription, "status" | "pastDueSince"> & Partial<Pick<Subscription, "cancelAtPeriodEnd" | "currentPeriodEnd">>) | null,
+  sub: (Pick<Subscription, "status" | "pastDueSince"> & Partial<Pick<Subscription, "cancelAtPeriodEnd" | "currentPeriodEnd" | "trialEndsAt">>) | null,
   now: Date,
 ): OrgStatus {
   if (!sub) return "active"; // org sem Subscription ainda (não deveria acontecer fora de testes/backfill) — nunca bloqueia por omissão.
@@ -29,6 +30,8 @@ export function computeOrgStatus(
   if (sub.cancelAtPeriodEnd && sub.status !== "canceled" && sub.currentPeriodEnd && now.getTime() >= sub.currentPeriodEnd.getTime()) return "suspended";
   switch (sub.status) {
     case "trialing":
+      // SPEC-062 (D-062-17): trial legado expira em `trialEndsAt` (antes valia para sempre). Sem data = expirado.
+      return sub.trialEndsAt && sub.trialEndsAt.getTime() > now.getTime() ? "active" : "suspended";
     case "active":
       return "active";
     case "past_due": {
@@ -59,7 +62,7 @@ export function computeOrgStatus(
  */
 export async function syncOrgStatuses(now: Date): Promise<number> {
   const subs = await prisma.subscription.findMany({
-    select: { orgId: true, status: true, pastDueSince: true, cancelAtPeriodEnd: true, currentPeriodEnd: true, org: { select: { status: true } } },
+    select: { orgId: true, status: true, pastDueSince: true, cancelAtPeriodEnd: true, currentPeriodEnd: true, trialEndsAt: true, org: { select: { status: true } } },
   });
   let changed = 0;
   for (const s of subs) {

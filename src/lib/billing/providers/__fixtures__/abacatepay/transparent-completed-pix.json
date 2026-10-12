@@ -1,0 +1,38 @@
+{
+  "event": "transparent.completed",
+  "apiVersion": 2,
+  "devMode": false,
+  "data": {
+    "transparent": {
+      "id": "char_xyz789",
+      "externalId": "pedido-456",
+      "amount": 5000,
+      "paidAmount": 5000,
+      "platformFee": 50,
+      "status": "PAID",
+      "frequency": "ONE_TIME",
+      "devMode": true,
+      "customerId": "cust_abc123",
+      "methods": [
+        "PIX"
+      ],
+      "receiptUrl": "https://app.abacatepay.com/receipt/...",
+      "createdAt": "2024-12-06T19:00:00.000Z",
+      "updatedAt": "2024-12-06T19:00:05.000Z"
+    },
+    "customer": {
+      "id": "cust_def456",
+      "name": "Maria Santos",
+      "email": "maria@exemplo.com",
+      "taxId": "12.***.***/0001-**"
+    },
+    "payerInformation": {
+      "method": "PIX",
+      "PIX": {
+        "name": "Maria Santos",
+        "taxId": "12.***.***/0001-**",
+        "isSameAsCustomer": true
+      }
+    }
+  }
+}

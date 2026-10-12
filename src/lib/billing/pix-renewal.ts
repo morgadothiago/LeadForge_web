@@ -20,7 +20,7 @@ import { AbacatePayPaymentProvider } from "./providers/abacatepay";
  * - Uma cobrança é considerada "resolvida" (paga OU irrelevante) quando `currentPeriodEnd` já avançou
  *   para depois de `pixChargeExpiresAt` — só acontece quando o webhook `transparent.completed`
  *   (`providers/abacatepay.ts`) já processou o pagamento e estendeu `currentPeriodEnd` por um ciclo
- *   inteiro (`CYCLE_MS`, sempre >> a validade curta de um PIX). Isso evita reintroduzir um campo
+ *   inteiro (1 ciclo de calendario, sempre >> a validade curta de um PIX). Isso evita reintroduzir um campo
  *   "pago"/"paid" paralelo: `currentPeriodEnd` (já mantido pelo `processBillingEvent` genérico, que este
  *   job NUNCA contorna) é a única fonte da verdade sobre "o ciclo atual está em dia".
  */
@@ -96,7 +96,7 @@ export async function runPixRenewalJob(now: Date, injectedProvider?: AbacatePayP
       // Nenhuma cobrança pendente válida e o ciclo está vencido -> gera uma nova cobrança PIX para este ciclo.
       const owner = sub.org.memberships[0]?.user.email;
       if (!owner) continue; // sem owner -> não há para quem mandar o PIX (não deveria acontecer fora de dado inconsistente de teste).
-      const charge = await provider.createPixCharge({ orgId: sub.orgId, planKey: sub.plan.key, cadence: sub.cadence, customerEmail: owner });
+      const charge = await provider.createPixCharge({ orgId: sub.orgId, planKey: sub.plan.key, cadence: sub.cadence, customerEmail: owner, periodEndMs: sub.currentPeriodEnd?.getTime() });
       await prisma.subscription.update({ where: { orgId: sub.orgId }, data: { pixChargeId: charge.chargeId, pixChargeExpiresAt: charge.expiresAt } });
       result.generated++;
     } catch (e) {

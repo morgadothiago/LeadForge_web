@@ -67,6 +67,8 @@ export interface ParsedBillingEvent {
   paymentMethod?: "card" | "pix" | null;
   /** So os 4 ultimos digitos do cartao (nunca o numero completo). */
   cardLast4?: string | null;
+  /** SPEC-063: bandeira do cartao (ex.: VISA), so para o recibo. */
+  cardBrand?: string | null;
   /** Identificador do pagamento/cobranca no provedor (numero do pedido do recibo). */
   externalPaymentId?: string | null;
   paidAt?: Date | null;
@@ -102,6 +104,9 @@ export interface PaymentProvider {
   resumeSubscription(input: ResumeSubscriptionInput): Promise<ResumeSubscriptionResult>;
   /** `false` = 401 no Route Handler. Mock: sempre `true` (sem assinatura externa a validar, D-33-5). */
   verifyWebhookSignature(rawBody: string, signatureHeader: string | null): boolean;
-  /** `null` = payload não reconhecido (ignorado, 200 "ignored" — nunca 500 por evento desconhecido). */
-  parseWebhookEvent(rawBody: string): ParsedBillingEvent | null;
+  /**
+   * `null` = payload não reconhecido (ignorado, 200 "ignored" — nunca 500 por evento desconhecido).
+   * SPEC-063 (D-063-12): pode ser assíncrono (AbacatePay correlaciona o pagamento à organização consultando o banco/API); o handler faz `await`.
+   */
+  parseWebhookEvent(rawBody: string): ParsedBillingEvent | null | Promise<ParsedBillingEvent | null>;
 }

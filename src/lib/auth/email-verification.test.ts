@@ -17,8 +17,8 @@ import { createTestOrg, purgeTestOrg, type TestOrg } from "@/lib/test-utils/org-
 import { signInAs, signOut, testHeaders } from "@/lib/auth/test-helpers";
 import { requireUser } from "@/lib/auth/require-user";
 import { hashPassword } from "@/lib/auth/password";
-import { hashInviteToken, newInviteToken } from "@/lib/org/tokens";
-import { signUpAndStartCheckout } from "@/lib/actions/billing";
+import { newInviteToken } from "@/lib/org/tokens";
+import { signUp } from "@/lib/actions/billing";
 import { signUpAndJoin } from "@/lib/actions/org";
 import { forgotPassword, resendVerificationEmail, resetPassword, verifyEmail } from "@/lib/actions/auth";
 import { dispatchDraft } from "@/lib/agents/drafts";
@@ -91,11 +91,11 @@ async function signup(email: string, name = "Fulana Teste") {
   }
 }
 async function signupRaw(email: string, name: string) {
-  return signUpAndStartCheckout({ name, email, password: "senha-forte-123456", orgName: `Org ${rid()}`, planKey: "starter" });
+  return signUp({ name, email, password: "senha-forte-123456", confirmPassword: "senha-forte-123456" });
 }
 
 describe("boas-vindas (#1)", () => {
-  it("signup novo envia 1 welcome (support, sem data de trial) e 1 e-mail de verificacao; usuario nasce NAO verificado", async () => {
+  it("signup novo envia 1 welcome (support, sem trial) e 1 e-mail de verificacao; usuario nasce NAO verificado", async () => {
     const email = newEmail("new");
     const r = await signup(email);
     expect(r.ok).toBe(true);
@@ -103,7 +103,10 @@ describe("boas-vindas (#1)", () => {
     expect(to(email, "email_verification")).toHaveLength(1);
     const w = to(email, "welcome")[0];
     expect(w.text).not.toMatch(/\d{2}\/\d{2}\/\d{4}/);
-    expect(w.html).toContain("/dashboard");
+    // SPEC-062: sem organizacao ainda — o proximo passo e escolher o plano; nenhuma mencao a trial.
+    expect(w.html).toContain("/assinar");
+    expect(w.text).toMatch(/escolha seu plano/);
+    expect(w.text).not.toMatch(/teste|gr[aá]tis|14 dias/i);
     const u = await prisma.user.findUniqueOrThrow({ where: { email } });
     expect(u.emailVerifiedAt).toBeNull();
     expect(await prisma.emailDispatchLog.count({ where: { dedupeKey: `welcome:${u.id}` } })).toBe(1);
@@ -141,7 +144,7 @@ describe("boas-vindas (#1)", () => {
     const email = newEmail("inv");
     const { token, hash } = newInviteToken();
     await prisma.orgInvite.create({ data: { orgId: org.orgId, email, orgRole: "member", tokenHash: hash, expiresAt: new Date(Date.now() + 86400_000) } });
-    const r = await signUpAndJoin({ name: "Convidada", password: PASS, token });
+    const r = await signUpAndJoin({ name: "Convidada", password: PASS, confirmPassword: PASS, token });
     expect(r.ok).toBe(true);
     const u = await prisma.user.findUniqueOrThrow({ where: { email } });
     expect(u.emailVerifiedAt).not.toBeNull();
@@ -149,23 +152,11 @@ describe("boas-vindas (#1)", () => {
     expect(to(email, "email_verification")).toHaveLength(0);
   });
 
-  it("signUpAndJoin por codigo: NAO verifica; envia welcome + verificacao", async () => {
-    const code = "ZZ055" + rid().toUpperCase().replace(/[^A-Z2-9]/g, "A").padEnd(15, "K");
-    await prisma.organization.update({ where: { id: org.orgId }, data: { joinCode: code.slice(0, 20), joinCodeExpiresAt: new Date(Date.now() + 86400_000), joinCodeMaxUses: 5, joinCodeUses: 0 } });
+  it("SPEC-062 (D-062-15): signUpAndJoin NAO aceita mais codigo (sem token => erro de validacao, nenhum usuario/e-mail)", async () => {
     const email = newEmail("code");
-    const r = await signUpAndJoin({ name: "Por Codigo", email, password: PASS, code: code.slice(0, 20) });
-    expect(r.ok).toBe(true);
-    const u = await prisma.user.findUniqueOrThrow({ where: { email } });
-    expect(u.emailVerifiedAt).toBeNull();
-    expect(to(email, "welcome")).toHaveLength(1);
-    expect(to(email, "email_verification")).toHaveLength(1);
-  });
-
-  it("signUpAndJoin com e-mail ja cadastrado (codigo): nenhum e-mail enviado", async () => {
-    const email = newEmail("codedup");
-    await prisma.user.create({ data: { name: "Ja existe", email } });
-    const r = await signUpAndJoin({ name: "X", email, password: PASS, code: "ZZZZZZZZZZZZZZZZZZZZ" });
+    const r = await signUpAndJoin({ name: "Por Codigo", email, password: PASS, confirmPassword: PASS, code: "ZZZZZZZZZZZZZZZZZZZZ" });
     expect(r.ok).toBe(false);
+    expect(await prisma.user.count({ where: { email } })).toBe(0);
     expect(sent).toHaveLength(0);
   });
 });
@@ -242,8 +233,8 @@ describe("resendVerificationEmail", () => {
     const email = newEmail(tag);
     await signup(email);
     sent.length = 0;
-    const u = await prisma.user.findUniqueOrThrow({ where: { email }, include: { memberships: true } });
-    await signInAs(u.id, { orgId: u.memberships[0].orgId, platformRole: "provider" });
+    const u = await prisma.user.findUniqueOrThrow({ where: { email } });
+    await signInAs(u.id, { orgId: null, platformRole: "provider" }); // SPEC-062: cadastro novo nao tem organizacao
     return { email, userId: u.id };
   }
 
@@ -326,18 +317,18 @@ describe("password_changed (#15)", () => {
   it("resetPassword envia aviso ao proprio e-mail, uma vez, sem link de acesso direto", async () => {
     const email = newEmail("pw");
     const { token } = await resetFlow(email);
-    expect((await resetPassword({ token, password: PASS })).ok).toBe(true);
+    expect((await resetPassword({ token, password: PASS, confirmPassword: PASS })).ok).toBe(true);
     const mails = to(email, "password_changed");
     expect(mails).toHaveLength(1);
     expect(mails[0].html).toMatch(/Não foi você/);
     expect(mails[0].html).not.toContain(token);
     expect(mails[0].html).toContain("/esqueci-senha");
-    expect((await resetPassword({ token, password: PASS })).ok).toBe(false);
+    expect((await resetPassword({ token, password: PASS, confirmPassword: PASS })).ok).toBe(false);
     expect(to(email, "password_changed")).toHaveLength(1);
   });
 
   it("token invalido: nenhum aviso", async () => {
-    const r = await resetPassword({ token: "inexistente-inexistente", password: PASS });
+    const r = await resetPassword({ token: "inexistente-inexistente", password: PASS, confirmPassword: PASS });
     expect(r.ok).toBe(false);
     expect(sent.filter((s) => s.scenario === "password_changed")).toHaveLength(0);
   });
@@ -346,7 +337,7 @@ describe("password_changed (#15)", () => {
     const email = newEmail("pwfail");
     const { token, u } = await resetFlow(email);
     hoisted.fail = true;
-    expect((await resetPassword({ token, password: PASS })).ok).toBe(true);
+    expect((await resetPassword({ token, password: PASS, confirmPassword: PASS })).ok).toBe(true);
     expect((await prisma.user.findUniqueOrThrow({ where: { id: u.id } })).sessionsInvalidatedAt).not.toBeNull();
   });
 

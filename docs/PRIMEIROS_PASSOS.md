@@ -24,7 +24,8 @@ conversa com elas por você e organiza tudo num quadro. Assim você não se perd
 - 🎬 **Criar vídeos e criativos:** fazer vídeos de apresentação com avatar (hoje é de mentirinha, só para testar).
 - 👨‍👩‍👧 **Organizações com várias pessoas:** como uma sala de aula. Cada organização é uma sala, e você convida
   amigos para entrar.
-- 💳 **Planos e cobrança:** planos como "pequeno" e "grande", teste grátis (trial) e cobrança.
+- 💳 **Planos e cobrança:** planos como "pequeno" e "grande". Para criar a sua organização você escolhe um plano e paga.
+  Não existe teste grátis.
 - 📧 **E-mails automáticos:** o sistema avisa sozinho: "bem-vindo", "pagamento falhou", "recibo", "convite".
 
 ### Palavras que vão aparecer (o dicionário rápido)
@@ -159,30 +160,55 @@ Abra http://localhost:3000/login e use `ADMIN_EMAIL` e `ADMIN_PASSWORD` do seu `
 
 ### 2.1 Cobrança de mentirinha (mock): não precisa configurar nada
 
-- Sem `PAYMENT_PROVIDER`, o padrão é `mock`. Checkout e trial funcionam do começo ao fim, sem conta e sem chaves.
+- Sem `PAYMENT_PROVIDER`, o padrão é `mock`. O checkout funciona do começo ao fim, sem conta e sem chaves.
+- ⚠️ O mock **ativa o plano só de clicar**. Por isso, em produção ele é recusado (aparece "Pagamento indisponível no
+  momento"), a não ser que você escreva `ALLOW_MOCK_BILLING=true` de propósito. No seu computador (desenvolvimento) não precisa.
 - A Stripe é só um "esqueleto" (stub). O adaptador da AbacatePay (SPEC-047) existe, mas pede conta e chaves
-  `ABACATEPAY_*`. Ele **não foi testado com conta de verdade**.
+  `ABACATEPAY_*`. Ele foi corrigido na SPEC-063a e **validado no modo de teste (dev mode)** do AbacatePay, mas ainda falta você
+  pagar um checkout de teste com o cartão `4242 4242 4242 4242` (9.7).
 - `MOCK_WEBHOOK_SECRET` só serve para chamar a rota do carteiro `POST /api/billing/webhook` na mão. Sem ele, a rota
   responde 503. O checkout interno não precisa dele.
-- **O que você deve ver na tela:** o cadastro de uma conta nova chega num checkout de faz de conta, **sem pedir cartão**.
+- **O que você deve ver na tela:** depois de criar a conta, você escolhe um plano e cai num pagamento de faz de conta.
 
-### 2.2 Criar uma conta nova
+### 2.2 Criar uma conta nova (SPEC-062: primeiro o plano, depois a organização)
 
-Vá em `/signup` e crie uma conta.
+Imagine um clubinho. Primeiro você **entra no portão** (cria a conta), depois **paga a mensalidade** (escolhe o plano) e
+só então **ganha a sua salinha** (dá nome à organização). Quem já tem sala pode chamar você para entrar na dela, e aí não
+precisa pagar: quem paga é a sala.
 
-- **O que você deve ver na tela:** você cai numa organização nova (outra sala).
-- Com o Mailpit aberto (Fase 3), chega o e-mail **"início do trial"** para o dono da conta (SPEC-052a; só um por
-  organização).
-- No checkout de mentirinha, o e-mail "Assinatura confirmada" é esperado.
+1. Vá em `/signup`. Só pede **nome, e-mail e senha**. Não pergunta nome de empresa nem fala de teste grátis. A senha precisa de
+   **pelo menos 6 caracteres** e você **digita duas vezes** (campo "Confirmar senha"). Embaixo do campo há uma **barrinha de força**:
+   vermelha e "Muito fraca" para coisas como `123456`, até verde e "Forte". A barrinha só **aconselha**: com 6 ou mais caracteres
+   você consegue criar a conta mesmo com senha fraca. A mesma regra vale ao aceitar um convite e ao redefinir a senha.
+2. Você vai para **/assinar**, a tela de escolher o plano (mensal ou anual, só cartão). O plano "Business" é "Falar com vendas".
+3. **Confirme seu e-mail** antes de pagar: o botão "Assinar" fica cinza até você clicar no link que chegou no Mailpit
+   (http://localhost:8025). Dá para pedir o link de novo na própria tela.
+4. Clique em **Assinar** no plano. No mock, o pagamento é de mentirinha. Você volta para **/assinar/retorno**, que mostra
+   "Confirmando seu pagamento..." e muda sozinho quando o pagamento é confirmado.
+5. Aparece **/organizacao/nova**: escreva o nome da sua organização. Pronto: você é o dono e o painel abre.
+
+- **O que você deve ver na tela:** nenhuma página do painel abre antes de pagar. Se você tentar `/dashboard` sem plano, o sistema
+  te leva de volta para escolher o plano.
+- Pagou e ainda não deu nome à organização? Ao entrar de novo você cai direto em **/organizacao/nova**. O plano pago não some.
+- Desistiu do pagamento? Volte em **/assinar** e tente de novo (a tela mostra "Pagamento cancelado. Nenhuma cobrança foi feita").
+- Não quer pagar porque recebeu um **código** ou um **convite**? Em **/entrar-em-organizacao** você digita o código; o convite
+  abre pelo link do e-mail. Entra sem pagar.
+- **/minha-conta** é a sua conta enquanto você ainda não tem organização: confirmar e-mail e excluir a conta.
+- Quer uma **segunda organização**? Em "Criar organização" (no seletor) o sistema leva para **/assinar?nova=1**: cada
+  organização tem o seu próprio plano.
+- Com o Mailpit aberto (Fase 3), chegam o e-mail de **boas-vindas** (com o próximo passo: escolher o plano) e o de
+  **confirmação de e-mail**. No pagamento de mentirinha chega o e-mail "Assinatura confirmada".
 - O **recibo** só sai em renovação ou PIX pago, não no checkout de mentirinha.
-- Isso foi esperado pela leitura do código e **não foi verificado em navegador**.
+- Precisa da migration `20261017120000_cadastro_sem_trial` aplicada no seu banco (`npx prisma migrate deploy`; faça isso por
+  sua conta, o projeto não aplica sozinho no banco de dev).
+- Validação em navegador: veja o bloco P do `docs/ROTEIRO_DE_TESTES.md`.
 
 ### 2.3 Várias pessoas na mesma empresa (multi-tenant, SPEC-049, já entregue)
 
 Multi-tenant quer dizer: um prédio com vários apartamentos. Cada organização é um apartamento e ninguém vê o que
 é do vizinho.
 
-1. Crie uma 2ª organização em `/organizacoes`.
+1. Crie uma 2ª organização em `/organizacoes` (botão "Nova organização": escolhe o plano, paga e dá o nome).
 2. Convide um e-mail em `/configuracoes/equipe`.
 3. Aceite o convite em `/convite/[token]` (o e-mail chega no Mailpit).
 4. Troque de organização no seletor.
@@ -214,13 +240,13 @@ Agora dá para cancelar o plano sozinho, sem falar com ninguém. É como cancela
 2. Clique nele. Abre uma janelinha que diz até quando você ainda pode usar, que os seus dados ficam guardados por 90 dias
    e que não há devolução de dinheiro. Marque a caixinha "Entendi" e confirme.
 3. Você continua usando tudo até o último dia pago. Chega um e-mail com o pedido e a data final.
-   (Só vale "até o último dia" quando há plano pago ativo com período ainda em dia. Em trial, sem período, período já vencido
-   ou pagamento incompleto, o cancelamento vale **na hora**, e o aviso da janelinha diz isso.)
+   (Só vale "até o último dia" quando há plano pago ativo com período ainda em dia. Sem período, com período já vencido
+   ou com pagamento incompleto, o cancelamento vale **na hora**, e o aviso da janelinha diz isso.)
 4. Mudou de ideia antes do fim? Clique em **Manter assinatura**. Chega um e-mail confirmando. Só esse botão desfaz o
    cancelamento: um aviso vindo de fora (do provedor de pagamento) não desfaz sozinho um cancelamento já agendado.
 5. Passado o último dia, a conta fica pausada e chega um e-mail dizendo que o cancelamento valeu. Para voltar, clique em
    **Reassinar**. Os dados ficam guardados por 90 dias; depois disso são apagados.
-6. Se você ainda está no teste grátis (trial), cancelar vale **na hora**.
+6. Se a assinatura ainda não tinha período pago (por exemplo, o pagamento nem foi concluído), cancelar vale **na hora**.
 7. A janelinha de cancelar não fecha enquanto o pedido está sendo enviado (Esc, clique fora e "Voltar" ficam travados).
 
 ✅ O que você deve ver: um e-mail por ação (mesmo clicando duas vezes) no Mailpit, http://localhost:8025. Quem não é dono não
@@ -371,7 +397,7 @@ docker run -d --name mailpit --restart unless-stopped -p 1025:1025 -p 8025:8025 
 - No `.env`: `SMTP_HOST=localhost`, `SMTP_PORT=1025`, `ALLOW_PRIVATE_SMTP_HOSTS=true`. Reinicie o app ao mudar.
 - **O que você deve ver na tela:** em http://localhost:8025, uma caixa de entrada. As mensagens somem se a caixinha for
   recriada.
-- Quem manda o e-mail de sistema (reset de senha, convite, trial, cobrança)? O sistema tenta nesta ordem:
+- Quem manda o e-mail de sistema (reset de senha, convite, cobrança)? O sistema tenta nesta ordem:
   1. ACS (`EMAIL_PROVIDER=acs`)
   2. Resend (se houver `RESEND_API_KEY`)
   3. o SMTP do `.env`
@@ -379,7 +405,7 @@ docker run -d --name mailpit --restart unless-stopped -p 1025:1025 -p 8025:8025 
   Sem os dois primeiros, cai no Mailpit.
 
 **E-mails automáticos das SPECs 052a/052b que você vê aqui:**
-- início do trial (no cadastro ou numa organização nova)
+- boas-vindas (no cadastro, com o próximo passo: escolher o plano) e lembretes "seu plano está pago, falta criar a organização"
 - "Assinatura confirmada"
 - recibo (renovação ou PIX)
 - **falha de pagamento imediata**
@@ -751,12 +777,21 @@ produção só quando for abrir ao público.
    da 9.3 para gerar em arquivo). **Não cole a chave no chat nem no GitHub.**
 2. Na Vercel: `PAYMENT_PROVIDER=abacatepay`, `ABACATEPAY_API_KEY` e `ABACATEPAY_WEBHOOK_SECRET` (o mesmo segredo do passo 1). Faça um
    novo deploy (`vercel deploy --prod`).
-3. No painel do AbacatePay, cadastre o webhook (o carteiro) apontando para `https://SEU-ENDERECO/api/billing/webhook`
-   com o segredo, como o provedor pedir.
-4. Faça **um pagamento de teste** (PIX de valor baixo ou o modo de teste do provedor) antes de abrir ao público.
+3. No painel do AbacatePay (ou pela API `POST /webhooks/create`), cadastre o webhook (o carteiro): endereço **HTTPS público**
+   `https://SEU-ENDERECO/api/billing/webhook`, o **mesmo segredo** do passo 1 e estes eventos: `subscription.completed`,
+   `subscription.renewed`, `subscription.payment_failed`, `subscription.cancelled` e `transparent.completed`. Em casa (sem endereço
+   público) use um túnel (ex.: `cloudflared tunnel --url http://localhost:3000`). Webhook criado no modo de teste só recebe eventos de teste.
+4. A chave de API precisa das permissões de **produtos** (criar/ler), **assinaturas** (criar/ler/cancelar) e **cobrança PIX** (criar). Sem elas
+   o pagamento falha com "Pagamento indisponível" e o motivo aparece no log do servidor (linha `[abacatepay] ... -> 401/403`, sem segredos).
+5. Faça **um pagamento de teste** antes de abrir ao público. No modo de teste: escolha um plano, abra o pagamento, use o cartão
+   `4242 4242 4242 4242`, validade futura e CVV `123`. Cartões que o teste recusa: final `0002`, `0069` (vencido) e `0127` (CVV).
+   Quando o pagamento passar, a tela segue sozinha para "criar organização" e chegam "Assinatura confirmada" e o recibo, **1 vez cada**.
 
-⚠️ Ainda **não validado** com o AbacatePay real: o formato do recibo e o aviso de **falha de cartão** (a documentação não tem
-esse evento, Q-052-5). O cancelamento de cartão vale só dentro do LeadForge; cancele também no painel do AbacatePay. **Não** use
+O LeadForge cria os **produtos** (um por plano, mensal/anual e preço) no AbacatePay sozinho, na primeira compra; os que começam com `lf-`
+são dele. Se você mudar o preço de um plano, nasce um produto novo (quem já assina continua no preço antigo).
+
+⚠️ O que **ainda não** está pronto (SPEC-063b): cancelar no app **não** cancela a cobrança do cartão no AbacatePay (cancele também no
+painel); reativar depois de cancelar; troca de plano; conferência automática se o webhook demorar. **Não** use
 `PAYMENT_PROVIDER=stripe` (é só um esqueleto).
 
 ### 9.8 O despertador (tick) e o plano da Vercel
@@ -866,7 +901,7 @@ TEST_DATABASE_URL=postgresql://leadforge:<senha>@localhost:5434/leadforge_clean_
   `mailpit`? Reinicie o `npm run dev`.
 - **A busca de leads diz "indisponível" ou não acha nada.** `LEAD_SEARCH_ENABLED` não está ligada, a chave `places`
   não foi cadastrada ou a campanha está inativa. Veja a Fase 8.
-- **O e-mail de trial ou de recibo não chega depois de uma migration nova.** O `npm run dev` antigo ainda segura o
+- **O e-mail de recibo ou de assinatura não chega depois de uma migration nova.** O `npm run dev` antigo ainda segura o
   Prisma Client velho e falha em silêncio. Pare e reinicie o `npm run dev`.
 - **O criativo fica em "Na fila".** O despertador não tocou. Rode `npm run dev:tick` em outro terminal (passo 7.3).
 - **`/criativos` dá erro de tabela.** A migration dos criativos não foi aplicada. Passo 1.3.

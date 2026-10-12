@@ -146,6 +146,10 @@ model Organization {
   joinCodeExpiresAt DateTime?
   joinCodeMaxUses   Int?
   joinCodeUses      Int                 @default(0)
+  /// SPEC-062 (D-062-5): "casca de cobranca". Nao nulo = org tecnica criada ao iniciar o checkout (pagamento ligado por orgId),
+  /// ainda NAO finalizada como organizacao do usuario (invisivel em listas/seletor/convite/scheduler). Nulo = org normal.
+  /// Finalizada (volta a nulo) por `completeOrganizationSetup`.
+  setupPendingSince DateTime?
 
   subscription         Subscription?
   memberships          Membership[]
@@ -175,6 +179,7 @@ model Organization {
   creativeJobs         CreativeJob[]
 
   @@index([status])
+  @@index([setupPendingSince])
 }
 
 /// SPEC-030: liga User a Organization com papel dentro do tenant. N:N no schema (hoje so 1 membro/org na pratica; convite multi-membro e SPEC futura, D-30-4).
@@ -203,7 +208,7 @@ model User {
   /// emitida ANTES deste timestamp (compara com o `iat` do token) — mecanismo de invalidação em massa das
   /// sessões antigas, já que a sessão web é JWT stateless (sem tabela de sessões para revogar diretamente).
   sessionsInvalidatedAt   DateTime?
-  /// SPEC-055 (D-055-3/D-055-6): e-mail verificado em. DEFAULT now() de proposito: usuarios existentes (backfill na migration), criados pelo admin, seed e fixtures de teste nascem verificados; SOMENTE o cadastro self-service (`signUpAndStartCheckout`, `signUpAndJoin` por codigo) grava `null` explicitamente. Nao-verificado nao pode ENVIAR mensagens (D-055-7).
+  /// SPEC-055 (D-055-3/D-055-6): e-mail verificado em. DEFAULT now() de proposito: usuarios existentes (backfill na migration), criados pelo admin, seed e fixtures de teste nascem verificados; SOMENTE o cadastro self-service (`signUp`, que cria so o usuario; a casca de cobranca nasce depois, em `startPlanCheckout`) grava `null` explicitamente. Nao-verificado nao pode ENVIAR mensagens (D-055-7).
   emailVerifiedAt         DateTime?                @default(now())
   emailVerificationTokens EmailVerificationToken[]
   createdAt               DateTime                 @default(now())
@@ -1032,6 +1037,7 @@ model Plan {
   createdAt            DateTime       @default(now())
   updatedAt            DateTime       @updatedAt
   subscriptions        Subscription[]
+  billingProducts      BillingProduct[]
 }
 
 /// SPEC-033: 1 assinatura ativa por Organization (orgId unico). `status` e espelho do provedor (Stripe,
@@ -1043,11 +1049,11 @@ model Subscription {
   org                    Organization       @relation(fields: [orgId], references: [id], onDelete: Cascade)
   planId                 String
   plan                   Plan               @relation(fields: [planId], references: [id], onDelete: Restrict)
-  status                 SubscriptionStatus @default(trialing)
+  status                 SubscriptionStatus @default(incomplete)
   cadence                BillingCadence     @default(monthly)
   currentPeriodEnd       DateTime?
   cancelAtPeriodEnd      Boolean            @default(false)
-  /// D-33-3: trial de 14 dias sem cartao. null fora do periodo de trial.
+  /// DESATIVADO (SPEC-062, D-062-2): nada novo cria trial; so orgs legadas em `trialing` usam (removido na 062c). null fora do periodo de trial.
   trialEndsAt            DateTime?
   /// D-33-3: inicio do `past_due` atual (ancora do grace period de 7 dias). null = em dia.
   pastDueSince           DateTime?
@@ -1069,11 +1075,36 @@ model Subscription {
   /// isto para decidir "venceu sem pagamento" (equivalente a cartao recusado, D-047-1) sem criar um
   /// mecanismo de bloqueio paralelo — a transicao em si e sempre feita via processBillingEvent/status-map.ts.
   pixChargeExpiresAt     DateTime?
+  /// SPEC-063 (D-063-7): id do CHECKOUT de assinatura no AbacatePay (`bill_...`, `POST /subscriptions/create`). Elo do
+  /// pagamento -> organizacao (D-063-11); a assinatura em si (`subs_...`) so existe apos o pagamento (`externalSubscriptionId`).
+  externalCheckoutId     String?
   createdAt              DateTime           @default(now())
   updatedAt              DateTime           @updatedAt
 
   @@index([status])
   @@index([pixManaged, status])
+  @@index([externalCheckoutId])
+  @@index([externalSubscriptionId])
+}
+
+/// SPEC-063 (D-063-1/2/3): catalogo de PRODUTOS do AbacatePay (assinatura exige produto com `cycle`; produto nao tem update).
+/// 1 linha por plano x cadencia x PRECO x chave de API (`keyFingerprint` = 8 hex de sha256(chave): dev e producao nao se misturam).
+/// `externalId` deterministico `lf-{planKey}-{cadence}-{priceCents}`; `providerProductId` = `prod_...`. Cache; a verdade e o provedor.
+model BillingProduct {
+  id                String         @id @default(uuid())
+  provider          String
+  keyFingerprint    String
+  planId            String
+  plan              Plan           @relation(fields: [planId], references: [id], onDelete: Cascade)
+  cadence           BillingCadence
+  priceCents        Int
+  externalId        String
+  providerProductId String
+  devMode           Boolean
+  createdAt         DateTime       @default(now())
+
+  @@unique([provider, keyFingerprint, externalId])
+  @@index([provider, keyFingerprint, providerProductId])
 }
 
 /// SPEC-039 (D-039-2): "aviso ja enviado" por episodio de cobranca — idempotencia dos e-mails de

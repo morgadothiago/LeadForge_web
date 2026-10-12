@@ -6,18 +6,18 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: vi.fn(), push: vi.fn(), replace: vi.fn() }), usePathname: () => "/dashboard" }));
 vi.mock("@/hooks/use-mobile", () => ({ useIsMobile: () => false }));
 vi.mock("@/lib/actions/org", () => ({
-  switchActiveOrganization: vi.fn(), createOrganization: vi.fn(), leaveOrganization: vi.fn(), acceptInvite: vi.fn(), signUpAndJoin: vi.fn(),
+  switchActiveOrganization: vi.fn(), leaveOrganization: vi.fn(), acceptInvite: vi.fn(), signUpAndJoin: vi.fn(),
   inviteMember: vi.fn(), revokeInvite: vi.fn(), changeMemberRole: vi.fn(), removeMember: vi.fn(), generateJoinCode: vi.fn(), disableJoinCode: vi.fn(), previewInvite: vi.fn(),
 }));
 vi.mock("@/lib/actions/auth", () => ({ logout: vi.fn() }));
-vi.mock("@/lib/actions/billing", () => ({ signUpAndStartCheckout: vi.fn(), createCheckoutSession: vi.fn() }));
+vi.mock("@/lib/actions/billing", () => ({ signUp: vi.fn(), createCheckoutSession: vi.fn() }));
 
 import { SidebarProvider } from "@/components/ui/sidebar";
 import { OrgSwitcher } from "./OrgSwitcher";
 import { InviteLanding } from "./InviteLanding";
 import { TeamPanel } from "./TeamPanel";
 import { MyOrganizations } from "./MyOrganizations";
-import { SignupFlow } from "@/components/auth/SignupFlow";
+import { SignupForm } from "@/components/auth/SignupForm";
 import type { MyOrganization, TeamView } from "@/lib/actions/org";
 
 const orgs: MyOrganization[] = [
@@ -49,9 +49,8 @@ describe("OrgSwitcher", () => {
 });
 
 describe("MyOrganizations", () => {
-  const plans = [{ key: "starter", name: "Starter", priceMonthlyCents: 9700 }];
   it("lista com selo de ativa/suspensa e ações por linha", () => {
-    const html = renderToStaticMarkup(<MyOrganizations organizations={orgs} plans={plans} />);
+    const html = renderToStaticMarkup(<MyOrganizations organizations={orgs} />);
     expect(html).toContain("Ativa agora");
     expect(html).toContain("Suspensa");
     expect(html).toContain("Usar esta organização");
@@ -60,24 +59,24 @@ describe("MyOrganizations", () => {
   });
   it("owner: Convidar e Equipe só na linha ativa; Gerenciar equipe nas outras que é owner", () => {
     const two = [orgs[0], { ...orgs[1], status: "active", orgRole: "owner" as const }];
-    const html = renderToStaticMarkup(<MyOrganizations organizations={two} plans={plans} />);
+    const html = renderToStaticMarkup(<MyOrganizations organizations={two} />);
     expect((html.match(/Convidar/g) ?? []).length).toBe(1);
     expect(html).toContain('href="/configuracoes/equipe"');
     expect(html).toContain("Gerenciar equipe");
   });
   it("member: sem Convidar/Equipe/Gerenciar equipe", () => {
-    const html = renderToStaticMarkup(<MyOrganizations organizations={[{ ...orgs[0], orgRole: "member" }, orgs[1]]} plans={plans} />);
+    const html = renderToStaticMarkup(<MyOrganizations organizations={[{ ...orgs[0], orgRole: "member" }, orgs[1]]} />);
     expect(html).not.toContain("Convidar");
     expect(html).not.toContain("Gerenciar equipe");
     expect(html).not.toContain("/configuracoes/equipe");
   });
   it("org única: Sair desabilitado + explicação", () => {
-    const html = renderToStaticMarkup(<MyOrganizations organizations={[orgs[0]]} plans={plans} />);
+    const html = renderToStaticMarkup(<MyOrganizations organizations={[orgs[0]]} />);
     expect(html).toContain("não pode sair da sua única organização");
     expect(html).toMatch(/disabled[^>]*aria-describedby="leave-hint"|aria-describedby="leave-hint"[^>]*disabled/);
   });
   it("estado vazio", () => {
-    expect(renderToStaticMarkup(<MyOrganizations organizations={[]} plans={plans} />)).toContain("ainda não participa");
+    expect(renderToStaticMarkup(<MyOrganizations organizations={[]} />)).toContain("ainda não participa");
   });
 });
 
@@ -143,20 +142,13 @@ describe("TeamPanel", () => {
   });
 });
 
-describe("SignupFlow", () => {
-  const props = { planKey: "starter", planName: "Starter", planPriceCents: 9700, cadence: "monthly" as const, intentCheckout: false };
+describe("SignupForm (SPEC-062: so usuario)", () => {
   beforeEach(() => vi.clearAllMocks());
-  it("padrão: escolha com 2 radios e fluxo atual de criação", () => {
-    const html = renderToStaticMarkup(<SignupFlow {...props} />);
-    expect(html).toContain("Criar uma organização");
-    expect(html).toContain("Participar de uma organização");
-    expect((html.match(/type="radio"/g) ?? []).length).toBe(2);
-    expect(html).toContain("Nome da empresa");
-  });
-  it("modo participar: campo de código/link, sem nome da empresa/plano", () => {
-    const html = renderToStaticMarkup(<SignupFlow {...props} initialMode="join" />);
-    expect(html).toContain("Código de entrada ou link do convite");
+  it("3 campos (nome, e-mail, senha); sem empresa, plano, trial nem escolha de organizacao", () => {
+    const html = renderToStaticMarkup(<SignupForm />);
+    for (const label of ["Nome", "E-mail", "Senha"]) expect(html).toContain(label);
     expect(html).not.toContain("Nome da empresa");
-    expect(html).not.toContain("14 dias grátis, sem cartão");
+    expect(html).not.toContain('type="radio"');
+    expect(html).not.toMatch(/14 dias|grátis|sem cartão|Participar de uma organização/);
   });
 });

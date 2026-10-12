@@ -11,8 +11,8 @@ const ALLOWLIST: Record<string, string> = {
   // login/logout: ações de autenticação, não exigem sessão prévia (login cria; logout é idempotente e apenas remove a sessão).
   login: "src/lib/actions/auth.ts",
   logout: "src/lib/actions/auth.ts",
-  // SPEC-033/D-35-1: signup self-service, cria a própria sessão (como login) — não há sessão prévia a exigir.
-  signUpAndStartCheckout: "src/lib/actions/billing.ts",
+  // SPEC-062 (D-062-7): signup SO com usuario, cria a própria sessão (orgId=null, como login) — não há sessão prévia a exigir.
+  signUp: "src/lib/actions/billing.ts",
   // SPEC-038: "esqueci/redefinir senha" — o usuário, por definição, ainda não tem sessão (ou a perdeu).
   forgotPassword: "src/lib/actions/auth.ts",
   resetPassword: "src/lib/actions/auth.ts",
@@ -74,7 +74,7 @@ function allAsyncFns(src: string): Fn[] {
  * org/papel de plataforma. O grep original só procurava `requireUser(` literal.
  */
 // SPEC-049: `requireOrgMember()`/`requireOrgOwner()` (`src/lib/org/guards.ts`) chamam `requireProviderOrg()` por dentro.
-const SESSION_GUARD_RE = /\brequireUser\s*\(|\brequireOrgMember\s*\(|\brequireOrgOwner\s*\(|\brequireProviderOrg\s*\(|\brequireActiveProviderOrg\s*\(|\brequirePlatformAdmin\s*\(/;
+const SESSION_GUARD_RE = /\brequireUser\s*\(|\brequireOrgMember\s*\(|\brequireOrgOwner\s*\(|\brequireProviderOrg\s*\(|\brequireProviderUser\s*\(|\brequireActiveProviderOrg\s*\(|\brequirePlatformAdmin\s*\(/;
 
 // Funções de queries/actions (exportadas ou helpers locais como setStatus) que exigem sessão (delegáveis).
 const guarded = new Set<string>();
@@ -103,7 +103,7 @@ describe("estático: todo arquivo 'use server' exige sessão", () => {
     });
   }
 
-  it("allowlist só contém login/logout/forgotPassword/resetPassword de auth.ts, signUpAndStartCheckout de billing.ts, signUpAndJoin/previewInvite de org.ts e as 4 actions publicas de account-deletion.ts (SPEC-054a) e verifyEmail de auth.ts (SPEC-055)", () => {
-    expect(Object.keys(ALLOWLIST).sort()).toEqual(["cancelAccountDeletionByToken", "cancelAccountDeletionWithPassword", "confirmAccountDeletion", "forgotPassword", "login", "logout", "previewAccountDeletionToken", "previewInvite", "resetPassword", "signUpAndJoin", "signUpAndStartCheckout", "verifyEmail"]);
+  it("allowlist só contém login/logout/forgotPassword/resetPassword de auth.ts, signUp de billing.ts (SPEC-062), signUpAndJoin/previewInvite de org.ts e as 4 actions publicas de account-deletion.ts (SPEC-054a) e verifyEmail de auth.ts (SPEC-055)", () => {
+    expect(Object.keys(ALLOWLIST).sort()).toEqual(["cancelAccountDeletionByToken", "cancelAccountDeletionWithPassword", "confirmAccountDeletion", "forgotPassword", "login", "logout", "previewAccountDeletionToken", "previewInvite", "resetPassword", "signUp", "signUpAndJoin", "verifyEmail"]);
   });
 });

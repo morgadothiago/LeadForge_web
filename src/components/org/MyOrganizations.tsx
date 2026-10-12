@@ -1,7 +1,7 @@
 "use client";
 import Link from "next/link";
 import * as React from "react";
-import { Building2, Check, LogOut } from "lucide-react";
+import { Building2, Check, LogOut, Plus } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
@@ -10,7 +10,6 @@ import { ConfirmDialog } from "@/components/campaigns/ConfirmDialog";
 import { getFormError } from "@/components/campaigns/form-utils";
 import { leaveOrganization, switchActiveOrganization, type MyOrganization } from "@/lib/actions/org";
 import { InviteMemberDialog } from "./InviteMemberDialog";
-import { CreateOrganizationDialog, type PlanOption } from "./CreateOrganizationDialog";
 import { orgStatusLabel, roleLabel } from "./org-format";
 
 /**
@@ -18,7 +17,7 @@ import { orgStatusLabel, roleLabel } from "./org-format";
  * age na org ATIVA (contrato do backend), então "Sair" só aparece na linha ativa; as demais oferecem "Ativar".
  * Sair da única organização é bloqueado pelo servidor — a UI só orienta (botão desabilitado com explicação).
  */
-export function MyOrganizations({ organizations, plans }: { organizations: MyOrganization[]; plans: PlanOption[] }) {
+export function MyOrganizations({ organizations }: { organizations: MyOrganization[] }) {
   const [pendingId, setPendingId] = React.useState<string | null>(null);
   const [leaveOpen, setLeaveOpen] = React.useState(false);
   const [leaving, setLeaving] = React.useState(false);
@@ -57,14 +56,22 @@ export function MyOrganizations({ organizations, plans }: { organizations: MyOrg
           <h2 className="font-heading text-lg font-semibold">Minhas organizações</h2>
           <p className="text-sm text-muted-foreground">Organizações das quais você faz parte. Os dados de cada uma ficam totalmente separados.</p>
         </div>
-        <CreateOrganizationDialog plans={plans} />
+        {/* SPEC-062 (D-062-14): cada organização tem a sua assinatura — escolher plano, pagar e só então nomear. */}
+        <div className="flex flex-wrap gap-2">
+          <Link href="/entrar-em-organizacao" className={buttonVariants({ variant: "outline" })}>
+            Entrar com código
+          </Link>
+          <Link href="/assinar?nova=1" className={buttonVariants()}>
+            <Plus aria-hidden="true" /> Nova organização
+          </Link>
+        </div>
       </div>
 
       {organizations.length === 0 ? (
         <Card className="flex flex-col items-center gap-2 p-10 text-center">
           <Building2 aria-hidden="true" className="size-8 text-muted-foreground" />
           <p className="font-heading font-semibold">Você ainda não participa de nenhuma organização</p>
-          <p className="text-sm text-muted-foreground">Crie uma organização para começar.</p>
+          <p className="text-sm text-muted-foreground">Escolha um plano para criar uma organização ou entre em uma com um código.</p>
         </Card>
       ) : (
         <ul className="grid gap-3" aria-label="Lista de organizações">

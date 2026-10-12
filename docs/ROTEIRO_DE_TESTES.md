@@ -17,7 +17,7 @@ para a linha do roteiro abaixo. Marque `[x]` lá quando passar.
 | 2 | **E-mail real** (Resend ou ACS) num Gmail seu: cadastro, confirmar e-mail, esqueci a senha, convite | Sem e-mail ninguém entra nem paga. Confira se cai na caixa de entrada e se os links apontam para o endereço de produção | B9, J12, 9.10 itens 3 a 6 |
 | 3 | **Isolamento entre clientes**: tenant B abre por URL a campanha e a assinatura do tenant A | Vazamento de dados de cliente é o pior erro possível | G7, H8 |
 | 4 | **Busca real no Google Places**: 1 busca manual, depois conferir o custo no Google Cloud | Gasta dinheiro de verdade; o SKU cobrado ainda não foi confirmado. Ponha teto de gasto antes | G1 a G3, G8, N4 |
-| 5 | **Cadastro limpo**: janela anônima, `/signup` com e-mail novo, checkout, dashboard | É a porta de entrada de todo cliente | B1, B2, B4 |
+| 5 | **Cadastro limpo (SPEC-062)**: janela anônima, `/signup` com e-mail novo, confirmar e-mail, assinar, nomear a organização, dashboard | É a porta de entrada de todo cliente | B1, B2, B4, bloco P |
 | 6 | **Suspender uma org**: admin suspende, o tenant tenta usar o app, depois reativa | Se falhar, cliente inadimplente continua usando (ou cliente em dia fica bloqueado) | A4, B10 |
 | 7 | **E-mail não confirmado não envia mensagem**: aprovar rascunho e deixar o tick tentar | Proteção contra spam e contra cadastro falso; o envio deve ser adiado, não perdido | J5, J6 |
 | 8 | **Cancelar a assinatura**: agendado (acesso até o fim) x imediato, e evento externo não desfazer | Mexe em cobrança e em acesso | H9, H10 |
@@ -37,7 +37,7 @@ Decisão pendente de produto que aparece nos testes: **J11** (cadastro com e-mai
   - Verificar: `npx prisma migrate status` não lista migration pendente. Em um banco com o drift `20260928*` ele também lista 5
     migrations "não encontradas localmente" (investigado, ver `docs/RETOMAR.md` 3b); isso não impede o `migrate deploy`.
 - [ ] **0.3** Reiniciar o `npm run dev` depois da migration (o Prisma Client novo é carregado na subida).
-- [ ] **0.4** Cobrança: nada a fazer. `PAYMENT_PROVIDER` ausente = `mock` (checkout sem cartão).
+- [ ] **0.4** Cobrança: nada a fazer. `PAYMENT_PROVIDER` ausente = `mock` (checkout de faz de conta). Em produção o mock é recusado, salvo `ALLOW_MOCK_BILLING=true`.
 - [ ] **0.5** E-mail sem enviar: Mailpit (`docker run -d --name mailpit --restart unless-stopped -p 1025:1025 -p 8025:8025 -e MP_SMTP_AUTH_ACCEPT_ANY=1 -e MP_SMTP_AUTH_ALLOW_INSECURE=1 axllent/mailpit`),
   `ALLOW_PRIVATE_SMTP_HOSTS=true`, e conferir as mensagens em http://localhost:8025.
 - [ ] **0.6** Use **janelas anônimas / navegadores diferentes** para duas sessões ao mesmo tempo (cookie é por navegador).
@@ -66,7 +66,7 @@ Rotas do admin: `/admin/organizacoes` e `/admin/organizacoes/[id]`.
 |---|---|---|---|---|
 | A1 | Login em `/login` | Entra e vai para a área de admin/dashboard | [x] | login admin cai em /admin/organizacoes (Claude, navegador automatizado) |
 | A2 | Abrir `/admin/organizacoes` | Lista **todas** as organizações (6 hoje), não só a sua | [x] | lista mostra orgs de todos os tenants (Claude, navegador automatizado) |
-| A3 | Abrir o detalhe de uma org de tenant (`/admin/organizacoes/[id]`) | Vê plano/assinatura (`trialing` / `active`) e status | [x] | detalhe com plano, contagens (campanhas, leads) e "Suspender organização" (Claude, navegador automatizado) |
+| A3 | Abrir o detalhe de uma org de tenant (`/admin/organizacoes/[id]`) | Vê plano/assinatura (`active`; orgs antigas podem estar `trialing`) e status | [x] | detalhe com plano, contagens (campanhas, leads) e "Suspender organização" (Claude, navegador automatizado) |
 | A4 | Suspender e reativar uma org de teste | Status muda; a org suspensa não consegue usar o app (ver B7) | [ ] | |
 | A5 | Criar org de cortesia (SPEC-040), se a tela oferecer | Nasce sem cobrança; e-mail de boas-vindas no Mailpit | [ ] | |
 | A6 | Ações do admin geram registro de auditoria | Conferir no detalhe da org / log da plataforma | [ ] | |
@@ -78,14 +78,14 @@ Crie **dois tenants** para testar isolamento: **Tenant A** e **Tenant B**.
 
 | # | Passo | Esperado | OK | Observado |
 |---|---|---|---|---|
-| B1 | `/signup` como Tenant A (e-mail novo) | Cria org + usuário e segue para o checkout (mock) | [ ] | |
-| B2 | Concluir o checkout mock | Org fica `trialing`; cai no `/dashboard` | [ ] | |
+| B1 | `/signup` como Tenant A (e-mail novo): só nome, e-mail e senha | Cria **só o usuário** e vai para `/assinar` (escolher plano). Sem escolha de organização, sem "Nome da empresa", sem texto de teste grátis (SPEC-062) | [ ] | |
+| B2 | Confirmar o e-mail (Mailpit), assinar um plano (mock), nomear a organização em `/organizacao/nova` | Org nasce `active` e cai no `/dashboard`; nenhum dashboard abre antes de pagar. Roteiro completo: bloco P | [ ] | |
 | B3 | Repetir B1 em outra janela anônima para Tenant B | Segunda org independente | [ ] | |
 | B4 | Tenant A: criar um lead, uma sequence e uma campanha | Aparecem em `/leads`, `/sequences`, `/campanhas` | [ ] | |
 | B5 | **Isolamento**: logado como B, abrir `/leads`, `/sequences`, `/campanhas` | **Nada do Tenant A aparece** | [x] | B não vê nada de A em leads/pipeline/campanhas/sequences/calendário/dashboard (Claude, navegador automatizado) |
 | B6 | **Isolamento por URL**: copie `/leads/<id>` do lead de A e abra como B | 404/erro, nunca mostra o lead | [x] | URL direta do lead e da campanha de A: B recebe 404 (HTTP 200 do Next com página "404"), sem vazar dado (Claude, navegador automatizado) |
 | B7 | **Tenant não acessa admin**: como A, abrir `/admin/organizacoes` | Redireciona/nega | [x] | tenant em /admin/organizacoes é redirecionado ao /dashboard (Claude, navegador automatizado) |
-| B8 | `/configuracoes/assinatura` | Mostra plano e trial da própria org | [ ] | |
+| B8 | `/configuracoes/assinatura` | Mostra o plano e o status da própria org | [ ] | |
 | B9 | `/esqueci-senha` com o e-mail de A | Mensagem genérica; e-mail no Mailpit; link abre `/redefinir-senha` | [ ] | |
 | B10 | Org suspensa pelo admin (A4): tentar usar o app como esse tenant | Acesso bloqueado com aviso claro | [ ] | |
 
@@ -96,14 +96,14 @@ Rotas previstas: `/organizacoes`, `/configuracoes/equipe`, `/convite/[token]`.
 
 | # | Passo | Esperado | OK | Observado |
 |---|---|---|---|---|
-| C1 | Tenant A em `/organizacoes`: criar uma 2ª organização | Vira owner da nova; ela abre trial próprio | [x] | criar 2ª org: vira owner e entra nela (trial próprio) (Claude, navegador automatizado) |
+| C1 | Tenant A em `/organizacoes`: **Nova organização** | Leva a `/assinar?nova=1` (cada organização tem o seu plano): escolher plano, pagar e nomear (bloco P) | [ ] | substitui o teste antigo de "trial próprio" |
 | C2 | Seletor de organização aparece (agora com 2 orgs) e trocar | Dados mudam para a org escolhida; **nada da outra** aparece | [x] | troca de org pelo seletor OK; dados por org separados (Claude, navegador automatizado) |
 | C3 | Sair e logar de novo | Abre a **última org usada** | [ ] | |
 | C4 | `/configuracoes/equipe`: convidar o e-mail de B | E-mail de convite no Mailpit | [x] | convite por e-mail chega no Mailpit com link absoluto (Claude, navegador automatizado) |
 | C5 | B abre o link `/convite/<token>` já logado e aceita | B passa a ter 2 orgs e vê o seletor | [x] | B aceita e passa a ter 2 orgs (Membro na de A) (Claude, navegador automatizado) |
 | C6 | Reusar o mesmo link de convite | Rejeitado (uso único) | [x] | link reusado: "Convite inválido ou expirado" (Claude, navegador automatizado) |
 | C7 | Convite com e-mail diferente do logado | Rejeitado | [x] | e-mail diferente: "Este convite é para outro e-mail", sem aceitar (Claude, navegador automatizado) |
-| C8 | Gerar **código de entrada** e usá-lo num signup novo ("participar de uma organização") | Entra como `member`, sem checkout | [ ] | |
+| C8 | Gerar **código de entrada** e usá-lo **logado** em `/entrar-em-organizacao` (o cadastro não tem mais campo de código) | Entra como `member`, sem checkout | [ ] | |
 | C9 | `member` tenta convidar/remover/mudar papel | Telas só leitura / ação negada | [x] | member vê /configuracoes/equipe só leitura e sem "Convidar pessoas" (Claude, navegador automatizado) |
 | C10 | Único owner tenta sair ou ser removido | Bloqueado ("nunca sem owner") | [x] | único owner: "Tornar membro" desabilitado e sem "Remover" em si mesmo (Claude, navegador automatizado) |
 | C11 | Owner remove B da org; B ainda com a sessão aberta nessa org | Perde acesso **na hora** àquela org (as outras seguem) | [x] | owner remove B; B com sessão aberta vai para /login na hora (não cai na org própria: ver RETOMAR) (Claude, navegador automatizado) |
@@ -121,9 +121,9 @@ Rotas previstas: `/organizacoes`, `/configuracoes/equipe`, `/convite/[token]`.
 
 | # | Passo | Esperado | OK | Observado |
 |---|---|---|---|---|
-| E1 | `/signup` com e-mail novo | Chega "início do trial" (1 só) | [x] | chega "Seu teste do plano Starter começou" (1 só). Exige reiniciar o dev server depois da migration (Claude, navegador automatizado) |
+| E1 | `/signup` com e-mail novo | Chegam "Bem-vindo" (com o próximo passo: escolher o plano) e "Confirme seu e-mail"; **não** chega e-mail de trial (SPEC-062) | [ ] | |
 | E2 | Concluir o checkout mock | Chega "Assinatura confirmada" (1 só) | [x] | chega "Assinatura confirmada" (chamando processBillingEvent direto, sem webhook HTTP) (Claude, navegador automatizado) |
-| E3 | Criar 2ª organização em `/organizacoes` | Chega outro "início do trial" para essa org | [x] | 2ª org gera outro e-mail de trial (Claude, navegador automatizado) |
+| E3 | Criar 2ª organização (`/assinar?nova=1`, pagar e nomear) | Chega "Assinatura confirmada" para essa org; sem e-mail de trial | [ ] | |
 | E4 | Conferir o texto | PT-BR, links absolutos, sem dado sensível; recibo (se aparecer) com rodapé "não é nota fiscal" e só 4 dígitos do cartão | [x] | PT-BR, links absolutos, recibo com "Este e-mail não é nota fiscal" (Claude, navegador automatizado) |
 | E5 | Recibo/renovação/PIX | **Não testável em local** sem webhook real do AbacatePay (só testes com mock) | — | |
 | E6 | Falha de pagamento imediata (052b): `POST /api/billing/webhook` com `Authorization: Bearer <MOCK_WEBHOOK_SECRET>` (provedor mock) e JSON `{"eventId":"x1","type":"payment.failed","orgId":"<id>","planKey":"starter","cadence":"monthly","status":"past_due"}` (eventId novo a cada chamada) | Chega "Não conseguimos processar seu pagamento" (1 só, mesmo repetindo com outro eventId; reenviar o mesmo eventId também não duplica) | [x] | falha: 1 e-mail; 2ª falha com outro eventId não duplica (processBillingEvent direto) (Claude, navegador automatizado) |
@@ -131,7 +131,8 @@ Rotas previstas: `/organizacoes`, `/configuracoes/equipe`, `/convite/[token]`.
 | E8 | Recuperação (052b): mesmo webhook com `"type":"payment.recovered","status":"active"` (eventId novo) | Chega "Pagamento regularizado"; régua para de enviar | [x] | "Pagamento regularizado" e régua para (Claude, navegador automatizado) |
 | E9 | Troca de plano (052b): webhook `subscription.updated`, `status:"active"`, `planKey` diferente do atual (org já ativa) | Chega "Seu plano foi alterado para …" com plano anterior e novo | [x] | "Seu plano foi alterado para Pro" com anterior e novo (Claude, navegador automatizado) |
 | E10 | Próxima cobrança (052b): org `active` com ciclo anual (ou `pixManaged`) e `currentPeriodEnd` daqui a <= 7 dias + `npm run dev:tick` | Chega "Sua assinatura renova em breve" (1 por ciclo) | [x] | "Sua assinatura renova em breve" (anual) com valor e data (Claude, navegador automatizado) |
-| E11 | Falha/recuperação de **cartão** AbacatePay | **Não existe** (Q-052-5 aberta) e só testável com provedor real; só a régua por estado/grace (job) cobre cartão. PIX vencido real (`abacatepay_pix_expired_*`) idem: só com AbacatePay real | — | |
+| E11 | Falha/recuperação de **cartão** AbacatePay | **Existe desde a SPEC-063a** (Q-052-5 fechada): evento `subscription.payment_failed` -> `past_due` + régua D+0; `subscription.cancelled` (`max_payment_retries_exceeded`) suspende. Não dá para forçar no modo de teste: reenviar as fixtures de `src/lib/billing/providers/__fixtures__/abacatepay/` com `curl -X POST "http://localhost:3000/api/billing/webhook?webhookSecret=$ABACATEPAY_WEBHOOK_SECRET" -d @arquivo.json`, trocando `subscription.id` (e `checkout.id`) pelos ids reais gravados na `Subscription` (`externalSubscriptionId`/`externalCheckoutId`) e o `id` do evento (`log_...`) a cada envio | [ ] | |
+| E12 | **Pagamento real em modo de teste (SPEC-063a)**: `PAYMENT_PROVIDER=abacatepay` + chave de dev + webhook (túnel) cadastrado (PRIMEIROS_PASSOS 9.7); `/assinar`, plano mensal, abrir o pagamento, cartão `4242 4242 4242 4242` | Sem erro 422; no banco 1 linha em `BillingProduct` e `Subscription.externalCheckoutId = bill_...`; após pagar, `/assinar/retorno` segue para "criar organização"; `Subscription` fica `active` com `externalSubscriptionId = subs_...`; chega "Assinatura confirmada" 1 vez. **Antes**, aplicar a migration `20261018120000_abacatepay_v2_catalogo` no banco de dev (`npx prisma migrate deploy`, nunca `migrate dev`) | [ ] | |
 
 ## F. Sidebar agrupada (SPEC-057) e seletor de organização (SPEC-049b D-049-16/17)
 
@@ -203,7 +204,7 @@ Os e-mails aparecem no Mailpit (http://localhost:8025). Antes: `npx prisma migra
 
 | # | O que fazer | O que deve acontecer | OK? | Observado |
 |---|---|---|---|---|
-| J1 | `/signup` com e-mail novo | Chegam 2 e-mails para ele: boas-vindas (1 só) e "Confirme seu e-mail" com link `/verificar-email?token=...`; o "início do trial" continua separado | [x] | chegaram 3 e-mails: "Seu teste do plano Starter começou", "Confirme seu e-mail" e "Bem-vindo à LeadForge" (Claude, navegador automatizado) |
+| J1 | `/signup` com e-mail novo | Chegam 2 e-mails para ele: boas-vindas (1 só) e "Confirme seu e-mail" com link `/verificar-email?token=...`; nenhum e-mail de trial (SPEC-062) | [ ] | |
 | J2 | Entrar com a conta recém-criada (sem confirmar) | Entra e navega normalmente; faixa no topo pedindo para confirmar, **sem botão de fechar** | [x] | entra no /dashboard com a faixa "Verifique seu e-mail para poder enviar mensagens" e só o botão "Reenviar e-mail" (sem fechar) (Claude, navegador automatizado) |
 | J3 | Na faixa, clicar **Reenviar e-mail** | Chega novo e-mail; clicar de novo em seguida mostra contagem regressiva (cooldown 60s) | [x] | logo após o cadastro o reenvio é recusado e o botão mostra "Reenviar em 52s" (cooldown); com o cooldown vencido o reenvio chega (3→4 e-mails) (Claude, navegador automatizado) |
 | J4 | Reenviar mais de 5 vezes em 1 hora (esperando o cooldown) | Mensagem de limite com tempo de espera; limite por usuário (5/h) e por IP (20/h) | [x] | no 6º pedido: "Muitas tentativas. Aguarde antes de pedir um novo e-mail." e o botão passa a "Reenviar em 3548s" (Claude, navegador automatizado) |
@@ -301,6 +302,49 @@ Mudou só o jeito de validar e mostrar erro nos formulários; as regras são as 
 | O10 | `/configuracoes/whatsapp` > Nova instância com teto 0 ou 41 | Mensagens de limite (1 a 40); número inválido mostra erro no campo | [ ] | |
 | O11 | Admin da plataforma: detalhe da organização > Suspender | Botão do diálogo só habilita com motivo de 3+ caracteres; suspende e Reativar volta ao normal | [ ] | |
 | O12 | Tab/Enter em todos os diálogos acima | Foco vai ao primeiro campo com erro; Enter envia; leitor de tela lê o erro do campo | [ ] | |
+
+## P. Plano obrigatório antes da organização (SPEC-062b). Precisa da migration `20261017120000_cadastro_sem_trial` no dev (`npx prisma migrate deploy`)
+
+Para testar sem gastar nada: `PAYMENT_PROVIDER=mock` (padrão) em `npm run dev`. Deixe o Mailpit aberto (http://localhost:8025). Use janela anônima e e-mail novo. **Teste cada tela também em 390px de largura e só com o teclado (Tab, Enter, Esc), em claro e escuro.**
+
+| # | O que fazer | O que deve acontecer | OK? | Observado |
+|---|---|---|---|---|
+| P1 | `/signup` | Só **Nome, E-mail, Senha (mínimo 6) e Confirmar senha**, com barra de força. Nada de "Nome da empresa", escolha de organização, plano, "grátis" ou "14 dias" | [ ] | |
+| P2 | Criar a conta | Cai em `/assinar`. No Mailpit: "Bem-vindo" (com o próximo passo) e "Confirme seu e-mail". Nenhum e-mail de trial | [ ] | |
+| P3 | Em `/assinar` (e-mail **ainda não confirmado**) | Aviso "Confirme seu e-mail para assinar" com **Reenviar e-mail** (espera de 60 s) e **Já confirmei, atualizar**; todos os botões "Assinar" cinza; o plano Business diz "Falar com vendas" | [ ] | |
+| P4 | Abrir o link de confirmação do Mailpit e voltar a `/assinar` (atualizar) | Aviso some; "Assinar" habilita. Mensal/Anual muda o preço (os valores são provisórios) | [ ] | |
+| P5 | Tentar `/dashboard`, `/leads` na barra de endereço sem pagar | Volta para `/assinar`. Nada do painel abre | [ ] | |
+| P6 | Clicar **Assinar** num plano | Abre o checkout de mentirinha; ao concluir cai em `/assinar/retorno` com "Confirmando seu pagamento..." e muda para "Pagamento confirmado!" e vai a `/organizacao/nova` | [ ] | |
+| P7 | Abrir `/assinar/retorno?checkout=success` com uma conta **sem** pagamento | Não libera nada: mostra "Não encontramos um pagamento em andamento" (ou continua confirmando). O parâmetro da URL não vale | [ ] | |
+| P8 | Em `/organizacao/nova`, enviar vazio, depois um nome | Vazio: "Nome da organização é obrigatório." no campo. Com nome: abre o `/dashboard` como dono. Clicar duas vezes rápido não cria 2 organizações | [ ] | |
+| P9 | Conta paga sem nome (feche a aba em P6 antes de nomear), entre de novo | Cai direto em `/organizacao/nova` (o plano pago não some). `/assinar` não abre um 2º checkout: volta para `/organizacao/nova`. Em `/organizacao/nova` há "Cancelar assinatura" com janelinha de confirmação | [ ] | |
+| P10 | Abandono: em P6, desistir no checkout (`?checkout=cancel`) | `/assinar` mostra "Pagamento cancelado. Nenhuma cobrança foi feita." e dá para escolher de novo (a mesma conta, sem duplicar nada) | [ ] | |
+| P11 | Pagamento indisponível (apague as chaves ou use um provedor sem chave, ou rode com `NODE_ENV=production` sem `ALLOW_MOCK_BILLING`) | Alerta "Pagamento indisponível no momento. Nenhuma cobrança foi feita"; o foco vai para o alerta | [ ] | |
+| P12 | Convite sem pagar: dono convida um e-mail novo; a pessoa abre o link e cria a conta; e, em outro caso, usa um **código** em `/entrar-em-organizacao` já logada | Entra na organização como membro, **sem passar por `/assinar`** e sem checkout. Código errado: mensagem genérica "código inválido ou expirado" | [ ] | |
+| P13 | Quem já tem organização: banner **"Finalize sua organização"** | Aparece no topo do painel quando existe um plano pago sem nome (casca paga). "Finalizar agora" leva a `/organizacao/nova`. "Criar organização" no seletor e "Nova organização" em `/organizacoes` levam a `/assinar?nova=1` | [ ] | |
+| P14 | `/minha-conta` sem organização | Mostra o e-mail (confirmado ou com reenvio) e **Excluir minha conta** (mesma tela de Configurações > Conta). Quem já tem organização é levado para `/configuracoes/conta` | [ ] | |
+| P15 | Admin em `/admin/organizacoes` | Organização paga e ainda sem nome aparece com o selo **Em configuração** | [ ] | |
+| P16 | Org antiga em trial vencido (se existir no seu banco) | Faixa vermelha "Seu período de teste terminou. Escolha um plano..." com o botão "Escolher um plano" (leva a Configurações > Assinatura) | [ ] | |
+| P17 | Landing `/` (claro, escuro, 390px) | Nenhum "grátis", "14 dias" ou "sem cartão". Botões "Criar conta" levam a `/signup`; nos preços, "Assinar {plano}" leva a `/signup?plan=...&cadence=...`; Business "Falar com vendas". Depois de criar a conta, `/assinar` já destaca o plano escolhido ("Escolhido por você") | [ ] | |
+| P18 | Teclado e leitor de tela em `/assinar`, `/assinar/retorno`, `/organizacao/nova` | Tab chega em tudo na ordem certa, foco visível; erro do campo é lido; "Confirmando..." é anunciado; sem barra de rolagem lateral em 390px | [ ] | |
+
+### P-064. Senha: mínimo 6, confirmar senha e barra de força (SPEC-064). Sem migration; só interface e validação
+
+Testar em `/signup`, em `/convite/[token]` (usuário novo) e em `/redefinir-senha?token=...`. **Em 390px, só com teclado e em claro e escuro.**
+
+| # | O que fazer | O que deve acontecer | OK? | Observado |
+|---|---|---|---|---|
+| S1 | Digitar senha de 5 caracteres e enviar | Erro no campo: "Senha deve ter ao menos 6 caracteres."; dica "Mínimo de 6 caracteres." visível (não diz 12) | [ ] | |
+| S2 | Senha `abc123` (6) e a mesma em "Confirmar senha" | Envia e cria a conta (senha fraca não bloqueia) | [ ] | |
+| S3 | Confirmar diferente e enviar | "As senhas não coincidem." no campo Confirmar senha; foco vai para ele; nada é criado | [ ] | |
+| S4 | Digitar `123456`, `senha123`, o próprio e-mail, `aaaaaa` | Barra com 1 segmento, texto "Força: Muito fraca." com a dica do que evitar | [ ] | |
+| S5 | Digitar `bolo42`, depois `Laranja8`, depois `Tr0ca-Esta-Chave!` | Sobe de nível: Fraca, Razoável e Forte (4 segmentos). O texto muda, não só a cor; o leitor de tela anuncia sem repetir a cada letra de forma confusa | [ ] | |
+| S6 | Botão do olho em cada campo; Tab entre os campos | Cada campo mostra/oculta o seu texto; foco visível; ordem: senha, olho, confirmar, olho, botão | [ ] | |
+| S7 | Chamar a action sem `confirmPassword` (ou diferente) por fora da tela | O servidor também rejeita com o erro no campo `confirmPassword` | [ ] | |
+| S8 | Entrar (login) com uma conta antiga de senha com 12+ caracteres | Continua entrando; o login não tem mínimo novo | [ ] | |
+| S9 | Redefinir senha com link do e-mail (6+ e confirmar igual) | Redefine; avisa e leva ao login | [ ] | |
+
+Cortesia e admin da plataforma **não mudam**: entram direto, sem `/assinar`.
 
 ## Se algo falhar, me mande
 

@@ -24,7 +24,6 @@ import { login } from "./auth";
 import {
   acceptInvite,
   changeMemberRole,
-  createOrganization,
   disableJoinCode,
   generateJoinCode,
   inviteMember,
@@ -470,7 +469,7 @@ describe("papéis: changeMemberRole / removeMember / leaveOrganization (nunca se
   });
 });
 
-describe("org ativa: listMyOrganizations / switchActiveOrganization / createOrganization / login", () => {
+describe("org ativa: listMyOrganizations / switchActiveOrganization / login", () => {
   it("switch reemite o JWT, grava lastOrgId e recusa org onde não é membro (mesma resposta p/ inexistente)", async () => {
     const u = await mkUser("sw", { orgId: A.orgId, role: "member" });
     await prisma.membership.create({ data: { userId: u.id, orgId: B.orgId, orgRole: "owner" } });
@@ -512,31 +511,7 @@ describe("org ativa: listMyOrganizations / switchActiveOrganization / createOrga
     expect(err(await switchActiveOrganization({ orgId: A.orgId }))).toMatch(/Sessão expirada/);
     await signInAs(A.userId, { orgId: null, platformRole: "platform_admin" });
     expect(err(await switchActiveOrganization({ orgId: A.orgId }))).toMatch(/Sem permissão/);
-    expect(err(await createOrganization({ name: "x", planKey: "starter" }))).toMatch(/Sem permissão/);
     expect(err(await inviteMember({ email: "a@b.co" }))).toMatch(/Sem permissão/);
-  });
-
-  it("createOrganization: vira owner, trial próprio, org ativa, auditoria; plano inválido é recusado", async () => {
-    const u = await mkUser("co", { orgId: A.orgId, role: "member" });
-    await signInAs(u.id, { orgId: A.orgId, platformRole: "provider" });
-    expect(err(await createOrganization({ name: "Minha 2a org", planKey: "inexistente" }))).toMatch(/plano/i);
-    const r = await createOrganization({ name: "Minha 2a org", planKey: "starter" });
-    expect(r.ok).toBe(true);
-    if (!r.ok) return;
-    createdOrgs.push(r.data.orgId);
-    expect(await sessionOrg()).toBe(r.data.orgId);
-    const m = await prisma.membership.findUniqueOrThrow({ where: { userId_orgId: { userId: u.id, orgId: r.data.orgId } } });
-    expect(m.orgRole).toBe("owner");
-    const sub = await prisma.subscription.findUniqueOrThrow({ where: { orgId: r.data.orgId } });
-    expect(sub.status).toBe("trialing");
-    expect(sub.trialEndsAt).not.toBeNull();
-    // a org original continua intacta (membro, sem subscription alterada)
-    expect(await prisma.membership.count({ where: { userId: u.id } })).toBe(2);
-    expect(await prisma.orgAuditLog.count({ where: { orgId: r.data.orgId, action: "org_created" } })).toBe(1);
-    // slug duplicado de nome igual não colide
-    const r2 = await createOrganization({ name: "Minha 2a org", planKey: "starter" });
-    expect(r2.ok).toBe(true);
-    if (r2.ok) createdOrgs.push(r2.data.orgId);
   });
 
   it("login abre lastOrgId (se ainda membro), senão a primeira org; backfill idempotente", async () => {
@@ -569,7 +544,7 @@ describe("signUpAndJoin (sem checkout)", () => {
     await inviteMember({ email, orgRole: "member" });
     const token = tokenFromLastEmail();
     signOut();
-    const r = await signUpAndJoin({ name: "Novo", password: "uma-senha-bem-longa-1", token });
+    const r = await signUpAndJoin({ name: "Novo", password: "uma-senha-bem-longa-1", confirmPassword: "uma-senha-bem-longa-1", token });
     expect(r.ok).toBe(true);
     expect(await sessionOrg()).toBe(A.orgId);
     const u = await prisma.user.findUniqueOrThrow({ where: { email }, include: { memberships: true } });
@@ -579,7 +554,7 @@ describe("signUpAndJoin (sem checkout)", () => {
     expect(await prisma.organization.count({ where: { memberships: { some: { userId: u.id } } } })).toBe(1);
     // reutilizar o token falha
     signOut();
-    expect(err(await signUpAndJoin({ name: "Outro", password: "uma-senha-bem-longa-1", token }))).toMatch(/inválido/);
+    expect(err(await signUpAndJoin({ name: "Outro", password: "uma-senha-bem-longa-1", confirmPassword: "uma-senha-bem-longa-1", token }))).toMatch(/inválido/);
   });
 
   it("convite para e-mail já cadastrado: orienta login/aceite", async () => {
@@ -587,30 +562,19 @@ describe("signUpAndJoin (sem checkout)", () => {
     await signInAs(A.userId, { orgId: A.orgId, platformRole: "provider" });
     await inviteMember({ email: g.email });
     signOut();
-    expect(err(await signUpAndJoin({ name: "X", password: "uma-senha-bem-longa-1", token: tokenFromLastEmail() }))).toMatch(/já possui cadastro/);
+    expect(err(await signUpAndJoin({ name: "X", password: "uma-senha-bem-longa-1", confirmPassword: "uma-senha-bem-longa-1", token: tokenFromLastEmail() }))).toMatch(/já possui cadastro/);
   });
 
-  it("código: cria conta e entra; e-mail existente => erro genérico sem consumir uso; sem convite nem código => erro", async () => {
+  it("SPEC-062 (D-062-15): o ramo por CODIGO saiu do signUpAndJoin — com `code` (sem token) e recusado, sem criar usuario nem consumir uso", async () => {
     await signInAs(A.userId, { orgId: A.orgId, platformRole: "provider" });
     const g = await generateJoinCode({ maxUses: 5 });
     if (!g.ok) throw new Error("gen");
     signOut();
     const email = `zz-signup-code-${randomUUID().slice(0, 8)}@test.local`;
-    createdEmails.push(email);
-    expect((await signUpAndJoin({ name: "C", email, password: "uma-senha-bem-longa-1", code: g.data.code })).ok).toBe(true);
-    expect(await sessionOrg()).toBe(A.orgId);
     const uses = (await prisma.organization.findUniqueOrThrow({ where: { id: A.orgId } })).joinCodeUses;
-    signOut();
-    const dup = await signUpAndJoin({ name: "C", email, password: "uma-senha-bem-longa-1", code: g.data.code });
-    expect(err(dup)).toMatch(/Não foi possível concluir o cadastro/);
+    expect((await signUpAndJoin({ name: "C", email, password: "uma-senha-bem-longa-1", confirmPassword: "uma-senha-bem-longa-1", code: g.data.code })).ok).toBe(false);
+    expect((await signUpAndJoin({ name: "C", email, password: "uma-senha-bem-longa-1", confirmPassword: "uma-senha-bem-longa-1" })).ok).toBe(false);
+    expect(await prisma.user.count({ where: { email } })).toBe(0);
     expect((await prisma.organization.findUniqueOrThrow({ where: { id: A.orgId } })).joinCodeUses).toBe(uses);
-    expect((await signUpAndJoin({ name: "C", email: "q@test.local", password: "uma-senha-bem-longa-1" })).ok).toBe(false);
-    // D-049-11: código inválido + e-mail novo === código inválido + e-mail existente === código válido + e-mail existente
-    const badNew = err(await signUpAndJoin({ name: "C", email: "q@test.local", password: "uma-senha-bem-longa-1", code: "AAAAAAAAAAAAAAAAAAAA" }));
-    const badExisting = err(await signUpAndJoin({ name: "C", email, password: "uma-senha-bem-longa-1", code: "AAAAAAAAAAAAAAAAAAAA" }));
-    expect(badNew).toMatch(/Não foi possível concluir o cadastro/);
-    expect(badNew).toBe(badExisting);
-    expect(badNew).toBe(err(dup));
-    expect(await prisma.user.count({ where: { email: "q@test.local" } })).toBe(0);
   });
 });

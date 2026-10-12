@@ -204,7 +204,7 @@ export async function sweepAlerts(now: Date = new Date()): Promise<{ raised: num
   let raised = 0;
   const deferred: PushAlert[] = [];
   try {
-    const orgs = await prisma.organization.findMany({ where: { status: "active" }, select: { id: true } });
+    const orgs = await prisma.organization.findMany({ where: { status: "active", setupPendingSince: null }, select: { id: true } }); // SPEC-062: nunca varre casca de cobranca
     for (const { id: orgId } of orgs) {
       try {
         raised += await sweepOrg(orgId, now, deferred);

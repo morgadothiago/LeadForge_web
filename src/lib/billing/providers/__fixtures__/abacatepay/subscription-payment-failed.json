@@ -1,0 +1,28 @@
+{
+  "id": "log_abc123xyz",
+  "event": "subscription.payment_failed",
+  "apiVersion": 2,
+  "devMode": false,
+  "data": {
+    "subscription": {
+      "id": "subs_tAFqDWBhcEYTjQh2K0ZYDHau",
+      "amount": 2990,
+      "currency": "BRL",
+      "method": "CARD",
+      "status": "ACTIVE",
+      "frequency": "MONTHLY",
+      "retryPolicy": {
+        "maxRetry": 3,
+        "retryEvery": 2
+      },
+      "createdAt": "2024-12-06T20:00:00.000Z",
+      "updatedAt": "2025-01-06T20:00:05.000Z",
+      "canceledAt": null,
+      "cancelPolicy": null,
+      "cancelledDueTo": null
+    },
+    "installmentId": "intl_abc123xyz",
+    "installmentNumber": 2,
+    "retryNumber": 1
+  }
+}

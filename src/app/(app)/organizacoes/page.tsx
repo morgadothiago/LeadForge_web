@@ -2,14 +2,13 @@ import { Card } from "@/components/ui/card";
 import { Lock } from "lucide-react";
 import { MyOrganizations } from "@/components/org/MyOrganizations";
 import { listMyOrganizations } from "@/lib/actions/org";
-import { listActivePlans } from "@/lib/billing/plans";
 import { getFormError } from "@/components/campaigns/form-utils";
 
 export const dynamic = "force-dynamic";
 
 /** SPEC-049b — "Minhas organizações" (provider). platform_admin não tem org: a action recusa e a página explica. */
 export default async function OrganizacoesPage() {
-  const [res, plans] = await Promise.all([listMyOrganizations(), listActivePlans()]);
+  const res = await listMyOrganizations();
   if (!res.ok) {
     return (
       <Card role="alert" className="flex flex-col items-center gap-2 p-10 text-center">
@@ -19,6 +18,5 @@ export default async function OrganizacoesPage() {
       </Card>
     );
   }
-  const selfService = plans.filter((p) => p.selfServiceCheckout).map((p) => ({ key: p.key, name: p.name, priceMonthlyCents: p.priceMonthlyCents }));
-  return <MyOrganizations organizations={res.data.organizations} plans={selfService} />;
+  return <MyOrganizations organizations={res.data.organizations} />;
 }

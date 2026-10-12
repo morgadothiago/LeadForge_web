@@ -102,14 +102,14 @@ Linhas: G1 a G3, G8, N2 a N4.
 
 **Por quê:** é a porta de entrada de todo cliente.
 
-**Como:** janela **anônima**, abra `/signup`, use um e-mail novo, escolha o plano, conclua o checkout e chegue no dashboard.
+**Como:** janela **anônima**, abra `/signup`, use um e-mail novo (só nome, e-mail e senha), confirme o e-mail no Mailpit, escolha o plano em `/assinar`, conclua o pagamento, dê um nome à organização em `/organizacao/nova` e chegue no dashboard.
 
 **Deve ver:**
-- ✅ Cria usuário e organização, vai ao checkout e depois cai em `/dashboard`.
-- ✅ A organização aparece como em teste grátis (trial).
+- ✅ O cadastro cria **só o usuário**; o painel só abre depois de pagar e nomear a organização (não existe mais teste grátis).
+- ✅ O botão "Assinar" só habilita com o e-mail confirmado.
 - ✅ Você consegue criar um lead, uma sequência e uma campanha.
 
-Linhas: B1, B2, B4.
+Linhas: B1, B2, B4, bloco P.
 
 ---
 

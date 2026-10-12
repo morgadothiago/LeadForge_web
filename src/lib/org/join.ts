@@ -25,8 +25,9 @@ async function addMember(
   tx: Prisma.TransactionClient,
   p: { orgId: string; userId: string; orgRole: OrgRole; via: JoinVia; actorUserId: string | null },
 ): Promise<void> {
-  const org = await tx.organization.findUnique({ where: { id: p.orgId }, select: { status: true } });
-  if (!org || org.status === "cancelled") throw new JoinInvalidError();
+  const org = await tx.organization.findUnique({ where: { id: p.orgId }, select: { status: true, setupPendingSince: true } });
+  // SPEC-062 (D-062-15): casca de cobranca nao recebe membros (nem por convite nem por codigo).
+  if (!org || org.status === "cancelled" || org.setupPendingSince) throw new JoinInvalidError();
   const exists = await tx.membership.findUnique({ where: { userId_orgId: { userId: p.userId, orgId: p.orgId } }, select: { id: true } });
   if (exists) throw new AlreadyMemberError();
   await tx.membership.create({ data: { userId: p.userId, orgId: p.orgId, orgRole: p.orgRole } });
@@ -56,7 +57,7 @@ export async function joinWithCode(
 ): Promise<{ orgId: string; orgRole: OrgRole }> {
   const rows = await tx.$queryRaw<{ id: string }[]>`
     UPDATE "Organization" SET "joinCodeUses" = "joinCodeUses" + 1
-    WHERE "joinCode" = ${p.code} AND "joinCodeExpiresAt" > ${p.now} AND "joinCodeUses" < "joinCodeMaxUses" AND "status" <> 'cancelled'::"OrgStatus"
+    WHERE "joinCode" = ${p.code} AND "joinCodeExpiresAt" > ${p.now} AND "joinCodeUses" < "joinCodeMaxUses" AND "status" <> 'cancelled'::"OrgStatus" AND "setupPendingSince" IS NULL
     RETURNING "id"`;
   const orgId = rows[0]?.id;
   if (!orgId) throw new JoinInvalidError();
