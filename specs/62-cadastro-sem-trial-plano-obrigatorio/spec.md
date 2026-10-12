@@ -1,5 +1,5 @@
 # SPEC-062 — Cadastro so com usuario, sem trial: plano obrigatorio (checkout) antes de criar a organizacao
-- status: DRAFT (aguardando APROVAR SPEC-062) | domain: fullstack (062a backend / 062b frontend; `## Backend`, `## Frontend`) | depende de: 033, 034 (billing/checkout), 047 (AbacatePay), 049 (orgs, convite, codigo, org ativa), 052 (e-mails, `sendOnce`), 053 (cancelar/reativar), 054 (exclusao de conta), 055 (verificacao de e-mail), 040 (cortesia), 035 (landing) | tambem toca: 039 (lembretes), 061 (DRAFT, tela de conta)
+- status: APPROVED (usuario, 2026-10-11, `APROVAR SPEC-062`; Q-062-2 segue aberta: conferir trials reais em producao, vale a politica A ate la) | domain: fullstack (062a backend / 062b frontend; `## Backend`, `## Frontend`) | depende de: 033, 034 (billing/checkout), 047 (AbacatePay), 049 (orgs, convite, codigo, org ativa), 052 (e-mails, `sendOnce`), 053 (cancelar/reativar), 054 (exclusao de conta), 055 (verificacao de e-mail), 040 (cortesia), 035 (landing) | tambem toca: 039 (lembretes), 061 (DRAFT, tela de conta)
 - A **decisao de produto veio do usuario (2026-10-11)**: D-062-1..4 abaixo. Todo o resto e **INFERRED** (premissa minha, revisavel) ou pergunta aberta Q-062-n. Nada aqui e parecer juridico/fiscal. NENHUM codigo foi escrito, nenhuma migration rodada.
 
 ## Objetivo
