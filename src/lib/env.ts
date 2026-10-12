@@ -24,8 +24,8 @@ export const envSchema = z.object({
   REDIS_URL: z.string().optional(),
   SCHEDULER_TIME_BUDGET_MS: z.string().optional(),
   SCHEDULER_MAX_SENDS: z.string().optional(),
-  /** SPEC-033 (D-33-5): "mock" (default) ou "stripe". Stripe real exige STRIPE_SECRET_KEY/STRIPE_WEBHOOK_SECRET (sem conta ainda). */
-  PAYMENT_PROVIDER: z.enum(["mock", "stripe"]).optional(),
+  /** SPEC-033 (D-33-5) / SPEC-047: "mock" (default), "stripe" ou "abacatepay". Stripe exige STRIPE_SECRET_KEY/STRIPE_WEBHOOK_SECRET; AbacatePay exige ABACATEPAY_API_KEY/ABACATEPAY_WEBHOOK_SECRET (validados na provider-factory). */
+  PAYMENT_PROVIDER: z.enum(["mock", "stripe", "abacatepay"]).optional(),
   STRIPE_SECRET_KEY: z.string().min(1).optional(),
   STRIPE_WEBHOOK_SECRET: z.string().min(1).optional(),
   /** SPEC-033 QA fix (achado crítico): segredo compartilhado (32+ chars) que autentica POST /api/billing/webhook quando PAYMENT_PROVIDER=mock (Bearer). Ausente => rota responde 503 (nunca aceita evento não autenticado). Validado em runtime (billing/config), não aqui, para não derrubar o app. */

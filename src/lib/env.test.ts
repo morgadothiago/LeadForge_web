@@ -17,6 +17,15 @@ describe("parseEnv", () => {
   it("coage SMTP_PORT", () => {
     expect(parseEnv({ DATABASE_URL: "x", AUTH_SECRET: SECRET, SMTP_PORT: "587" }).SMTP_PORT).toBe(587);
   });
+  describe("PAYMENT_PROVIDER (SPEC-033/047)", () => {
+    const base = { DATABASE_URL: "x", AUTH_SECRET: SECRET };
+    it.each(["mock", "stripe", "abacatepay"])("aceita %s", (provider) => {
+      expect(parseEnv({ ...base, PAYMENT_PROVIDER: provider }).PAYMENT_PROVIDER).toBe(provider);
+    });
+    it("rejeita provedor desconhecido", () => {
+      expect(() => parseEnv({ ...base, PAYMENT_PROVIDER: "paypal" })).toThrow();
+    });
+  });
   describe("TRUSTED_PROXY_IP_HEADER (SPEC-049, D-049-14)", () => {
     const base = { DATABASE_URL: "x", AUTH_SECRET: SECRET };
     it("é obrigatória em produção", () => {
