@@ -46,10 +46,15 @@ describe("org-format (SPEC-049b)", () => {
   });
   it("schemas de formulário (zod) validam o que a UI envia", () => {
     // SPEC-062: signUpAndJoin so por convite (token + nome + senha)
-    expect(signupJoinSchema.safeParse({ name: "A", password: "123456789012", token: " tok " }).data?.token).toBe("tok");
-    expect(signupJoinSchema.safeParse({ name: "A", password: "curta", token: "x" }).success).toBe(false);
-    expect(signupJoinSchema.safeParse({ name: "A", password: "123456789012" }).success).toBe(false);
-    expect(inviteSignupFormSchema.safeParse({ name: "", password: "123456789012" }).success).toBe(false);
+    const pw = { password: "abc123", confirmPassword: "abc123" };
+    expect(signupJoinSchema.safeParse({ name: "A", ...pw, token: " tok " }).data?.token).toBe("tok");
+    expect(signupJoinSchema.safeParse({ name: "A", password: "12345", confirmPassword: "12345", token: "x" }).success).toBe(false);
+    expect(signupJoinSchema.safeParse({ name: "A", ...pw }).success).toBe(false);
+    expect(inviteSignupFormSchema.safeParse({ name: "", ...pw }).success).toBe(false);
+    expect(inviteSignupFormSchema.safeParse({ name: "A", ...pw }).success).toBe(true);
+    const mism = inviteSignupFormSchema.safeParse({ name: "A", password: "abc123", confirmPassword: "abc124" });
+    expect(mism.success).toBe(false);
+    expect(!mism.success && mism.error.issues[0].path).toEqual(["confirmPassword"]);
     expect(joinCodeFormSchema.safeParse({ expiresInDays: "7", maxUses: "10" }).data).toEqual({ expiresInDays: 7, maxUses: 10 });
     expect(joinCodeFormSchema.safeParse({ expiresInDays: "31", maxUses: "10" }).success).toBe(false);
     expect(joinCodeFormSchema.safeParse({ expiresInDays: "7", maxUses: "0" }).success).toBe(false);

@@ -97,7 +97,7 @@ describe("SPEC-056: e-mails de eventos de equipe aos owners", () => {
     const { token, hash } = newInviteToken();
     await prisma.orgInvite.create({ data: { orgId: A.orgId, email, orgRole: "member", tokenHash: hash, expiresAt: new Date(Date.now() + 86400_000) } });
     signOut();
-    const r = await signUpAndJoin({ name: "Novo Membro", password: "Senha-Forte-123!", token });
+    const r = await signUpAndJoin({ name: "Novo Membro", password: "Senha-Forte-123!", confirmPassword: "Senha-Forte-123!", token });
     expect(r.ok).toBe(true);
     const ev = byScenario("org_member_joined");
     expect(ev.map((e) => e.to).sort()).toEqual((await ownerEmails()).sort());

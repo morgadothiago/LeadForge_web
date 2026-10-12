@@ -175,7 +175,7 @@ describe("convite/codigo entram SEM checkout (D-062-4/15)", () => {
     const { token, hash } = newInviteToken();
     await prisma.orgInvite.create({ data: { orgId: A.orgId, email, orgRole: "member", tokenHash: hash, expiresAt: new Date(Date.now() + 86400_000) } });
     const subsBefore = await subCount();
-    const r = await signUpAndJoin({ name: "Novo", password: "uma-senha-bem-longa-1", token });
+    const r = await signUpAndJoin({ name: "Novo", password: "uma-senha-bem-longa-1", confirmPassword: "uma-senha-bem-longa-1", token });
     expect(r.ok).toBe(true);
     expect((await prisma.user.findUniqueOrThrow({ where: { email } })).emailVerifiedAt).not.toBeNull();
     expect(await sessionOrg()).toBe(A.orgId);

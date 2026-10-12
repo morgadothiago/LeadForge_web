@@ -176,7 +176,10 @@ Imagine um clubinho. Primeiro você **entra no portão** (cria a conta), depois 
 só então **ganha a sua salinha** (dá nome à organização). Quem já tem sala pode chamar você para entrar na dela, e aí não
 precisa pagar: quem paga é a sala.
 
-1. Vá em `/signup`. Só pede **nome, e-mail e senha**. Não pergunta nome de empresa nem fala de teste grátis.
+1. Vá em `/signup`. Só pede **nome, e-mail e senha**. Não pergunta nome de empresa nem fala de teste grátis. A senha precisa de
+   **pelo menos 6 caracteres** e você **digita duas vezes** (campo "Confirmar senha"). Embaixo do campo há uma **barrinha de força**:
+   vermelha e "Muito fraca" para coisas como `123456`, até verde e "Forte". A barrinha só **aconselha**: com 6 ou mais caracteres
+   você consegue criar a conta mesmo com senha fraca. A mesma regra vale ao aceitar um convite e ao redefinir a senha.
 2. Você vai para **/assinar**, a tela de escolher o plano (mensal ou anual, só cartão). O plano "Business" é "Falar com vendas".
 3. **Confirme seu e-mail** antes de pagar: o botão "Assinar" fica cinza até você clicar no link que chegou no Mailpit
    (http://localhost:8025). Dá para pedir o link de novo na própria tela.

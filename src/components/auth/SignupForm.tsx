@@ -1,14 +1,16 @@
 "use client";
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { useForm } from "react-hook-form";
+import { useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Eye, EyeOff, Loader2 } from "lucide-react";
+import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Field } from "@/components/campaigns/Field";
 import { getFormError } from "@/components/campaigns/form-utils";
+import { PasswordInput } from "@/components/auth/PasswordInput";
+import { PasswordStrength } from "@/components/auth/PasswordStrength";
 import { signUp } from "@/lib/actions/billing";
 import { signupSchema, type SignupInput } from "@/lib/schemas/billing";
 
@@ -18,18 +20,20 @@ import { signupSchema, type SignupInput } from "@/lib/schemas/billing";
  */
 export function SignupForm({ plan, cadence }: { plan?: string; cadence?: "monthly" | "yearly" }) {
   const router = useRouter();
-  const [show, setShow] = React.useState(false);
   const [pending, startTransition] = React.useTransition();
   const {
     register,
     handleSubmit,
     setError,
     setFocus,
+    control,
     formState: { errors },
   } = useForm<SignupInput>({
     resolver: zodResolver(signupSchema),
-    defaultValues: { name: "", email: "", password: "", plan, cadence },
+    defaultValues: { name: "", email: "", password: "", confirmPassword: "", plan, cadence },
   });
+
+  const [pw, nm, em] = useWatch({ control, name: ["password", "name", "email"] });
 
   const onSubmit = handleSubmit((values) => {
     startTransition(async () => {
@@ -64,21 +68,12 @@ export function SignupForm({ plan, cadence }: { plan?: string; cadence?: "monthl
       <Field id="email" label="E-mail" error={errors.email?.message}>
         {(a) => <Input {...a} {...register("email")} type="email" inputMode="email" autoComplete="email" required />}
       </Field>
-      <Field id="password" label="Senha" hint="Mínimo de 12 caracteres." error={errors.password?.message}>
-        {(a) => (
-          <div className="relative">
-            <Input {...a} {...register("password")} type={show ? "text" : "password"} autoComplete="new-password" required className="pr-11" />
-            <button
-              type="button"
-              onClick={() => setShow((s) => !s)}
-              aria-label={show ? "Ocultar senha" : "Mostrar senha"}
-              aria-pressed={show}
-              className="absolute right-1 top-1/2 flex size-8 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary/40"
-            >
-              {show ? <EyeOff size={16} aria-hidden="true" /> : <Eye size={16} aria-hidden="true" />}
-            </button>
-          </div>
-        )}
+      <Field id="password" label="Senha" hint="Mínimo de 6 caracteres." error={errors.password?.message}>
+        {(a) => <PasswordInput {...a} {...register("password")} required />}
+      </Field>
+      <PasswordStrength password={pw ?? ""} personal={[nm ?? "", em ?? ""]} />
+      <Field id="confirmPassword" label="Confirmar senha" error={errors.confirmPassword?.message}>
+        {(a) => <PasswordInput {...a} {...register("confirmPassword")} required />}
       </Field>
       <Button type="submit" size="lg" className="w-full" disabled={pending} aria-busy={pending}>
         {pending && <Loader2 className="animate-spin" aria-hidden="true" />}

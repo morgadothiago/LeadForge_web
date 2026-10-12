@@ -1,7 +1,7 @@
 "use client";
 import * as React from "react";
 import Link from "next/link";
-import { useForm } from "react-hook-form";
+import { useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Loader2, MailCheck, TriangleAlert } from "lucide-react";
 import { toast } from "sonner";
@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Field } from "@/components/campaigns/Field";
 import { getFormError } from "@/components/campaigns/form-utils";
 import { PasswordInput } from "@/components/auth/PasswordInput";
+import { PasswordStrength } from "@/components/auth/PasswordStrength";
 import { LogoutButton } from "@/components/auth/LogoutButton";
 import { acceptInvite, signUpAndJoin } from "@/lib/actions/org";
 import { inviteSignupFormSchema, type InviteSignupFormInput } from "@/lib/schemas/org";
@@ -145,7 +146,7 @@ function AcceptPanel({ token, orgName, orgRole }: { token: string; orgName: stri
   );
 }
 
-const FIELDS = ["name", "password"] as const;
+const FIELDS = ["name", "password", "confirmPassword"] as const;
 
 export function InviteSignupForm({ token, email }: { token: string; email: string }) {
   const [pending, startTransition] = React.useTransition();
@@ -154,12 +155,14 @@ export function InviteSignupForm({ token, email }: { token: string; email: strin
     handleSubmit,
     setError,
     setFocus,
+    control,
     formState: { errors },
-  } = useForm<InviteSignupFormInput>({ resolver: zodResolver(inviteSignupFormSchema), defaultValues: { name: "", password: "" } });
+  } = useForm<InviteSignupFormInput>({ resolver: zodResolver(inviteSignupFormSchema), defaultValues: { name: "", password: "", confirmPassword: "" } });
+  const [pw, nm] = useWatch({ control, name: ["password", "name"] });
 
   const onSubmit = handleSubmit((values) => {
     startTransition(async () => {
-      const res = await signUpAndJoin({ name: values.name, password: values.password, token });
+      const res = await signUpAndJoin({ name: values.name, password: values.password, confirmPassword: values.confirmPassword, token });
       if (res.ok) {
         window.location.assign(res.data.redirectTo);
         return;
@@ -181,8 +184,12 @@ export function InviteSignupForm({ token, email }: { token: string; email: strin
       <Field id="invite-name" label="Nome" error={errors.name?.message}>
         {(a) => <Input {...a} {...register("name")} type="text" autoComplete="name" autoFocus required />}
       </Field>
-      <Field id="invite-password" label="Senha" hint="Mínimo de 12 caracteres." error={errors.password?.message}>
+      <Field id="invite-password" label="Senha" hint="Mínimo de 6 caracteres." error={errors.password?.message}>
         {(a) => <PasswordInput {...a} {...register("password")} required />}
+      </Field>
+      <PasswordStrength password={pw ?? ""} personal={[nm ?? "", email]} />
+      <Field id="invite-confirm-password" label="Confirmar senha" error={errors.confirmPassword?.message}>
+        {(a) => <PasswordInput {...a} {...register("confirmPassword")} required />}
       </Field>
       <Button type="submit" size="lg" className="w-full" disabled={pending} aria-busy={pending}>
         {pending && <Loader2 className="animate-spin" aria-hidden="true" />}

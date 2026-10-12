@@ -291,7 +291,7 @@ describe("forgotPassword / resetPassword (SPEC-038)", async () => {
   });
 
   it("token inválido/inexistente é rejeitado com erro genérico", async () => {
-    const r = await resetPassword({ token: "token-que-nunca-existiu", password: NEW_PASS });
+    const r = await resetPassword({ token: "token-que-nunca-existiu", password: NEW_PASS, confirmPassword: NEW_PASS });
     expect(r).toEqual({ ok: false, errors: { _form: ["Link de redefinição inválido ou expirado. Solicite um novo link."] } });
   });
 
@@ -300,18 +300,18 @@ describe("forgotPassword / resetPassword (SPEC-038)", async () => {
     await prisma.passwordResetToken.create({
       data: { userId: pwUserId, tokenHash: hash, expiresAt: new Date(Date.now() - (RESET_TOKEN_TTL_MS + 60_000)) },
     });
-    const r = await resetPassword({ token, password: NEW_PASS });
+    const r = await resetPassword({ token, password: NEW_PASS, confirmPassword: NEW_PASS });
     expect(r.ok).toBe(false);
     const record = await prisma.passwordResetToken.findUnique({ where: { tokenHash: hash } });
     expect(record!.usedAt).toBeNull();
   });
 
-  it("senha nova fraca é rejeitada (mesma validação Zod do signup, 12+ caracteres); token permanece não usado", async () => {
+  it("senha nova fraca é rejeitada (mesma validação Zod do signup, 6+ caracteres, SPEC-064); token permanece não usado", async () => {
     const { token, hash } = newResetToken();
     await prisma.passwordResetToken.create({ data: { userId: pwUserId, tokenHash: hash, expiresAt: new Date(Date.now() + RESET_TOKEN_TTL_MS) } });
-    const r = await resetPassword({ token, password: "curta123" });
+    const r = await resetPassword({ token, password: "12345", confirmPassword: "12345" });
     expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.errors.password?.[0]).toBe("Senha deve ter ao menos 12 caracteres.");
+    if (!r.ok) expect(r.errors.password?.[0]).toBe("Senha deve ter ao menos 6 caracteres.");
     const record = await prisma.passwordResetToken.findUnique({ where: { tokenHash: hash } });
     expect(record!.usedAt).toBeNull();
   });
@@ -328,7 +328,7 @@ describe("forgotPassword / resetPassword (SPEC-038)", async () => {
     const content = vi.mocked(sendSystemEmail).mock.calls.at(-1)![2];
     const token = extractToken(content.text);
 
-    const reset = await resetPassword({ token, password: NEW_PASS });
+    const reset = await resetPassword({ token, password: NEW_PASS, confirmPassword: NEW_PASS });
     expect(reset).toEqual({ ok: true, data: { redirectTo: "/login" } });
 
     // D-038-2: a sessão antiga (emitida ANTES da redefinição) deixa de valer.
@@ -349,9 +349,9 @@ describe("forgotPassword / resetPassword (SPEC-038)", async () => {
   it("token já usado (reuso bloqueado): a 2ª chamada com o mesmo token falha", async () => {
     const { token, hash } = newResetToken();
     await prisma.passwordResetToken.create({ data: { userId: pwUserId, tokenHash: hash, expiresAt: new Date(Date.now() + RESET_TOKEN_TTL_MS) } });
-    const first = await resetPassword({ token, password: "Outra-Senha-Forte-789" });
+    const first = await resetPassword({ token, password: "Outra-Senha-Forte-789", confirmPassword: "Outra-Senha-Forte-789" });
     expect(first.ok).toBe(true);
-    const second = await resetPassword({ token, password: "Mais-Uma-Senha-000" });
+    const second = await resetPassword({ token, password: "Mais-Uma-Senha-000", confirmPassword: "Mais-Uma-Senha-000" });
     expect(second.ok).toBe(false);
     if (!second.ok) expect(second.errors._form?.[0]).toMatch(/inválido ou expirado/);
   });

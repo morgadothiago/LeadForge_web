@@ -1,6 +1,6 @@
 # Para retomar: o que está pronto, o que depende de você e o que vem depois
 
-Atualizado em 2026-10-12 (**SPEC-063a implementada na branch `feat/spec-063a-abacatepay-v2`, SEM commit, aguarda QA; migration `20261018120000_abacatepay_v2_catalogo` NAO aplicada no dev; ver seção 7**; emenda D-062-25 da SPEC-062 registrada, so documentacao; SPEC-062a commitada em `dd2ce4e` na branch `feat/spec-062a-backend`; 062b implementada, sem commit, ver seção 7). **Tudo o que está commitado está na `main`** (PR #2 mergeado em 2026-10-11, commit `0943fa0`): SPECs 048 a 060, E2E e Fase 9. A SPEC-045 (react-hook-form em Configurações/Admin) está implementada, aprovada no QA e mergeada (PR #8, `48175e5`). Produção já está no ar em https://lead-forge-web-omega.vercel.app (seção 7). Repo: git@github.com:morgadothiago/LeadForge_web.git.
+Atualizado em 2026-10-12 (**SPEC-064 senha 6+ confirmar+força implementada na branch feat/spec-064-senha-cadastro, SEM commit, ver seção 7**; **SPEC-063a implementada na branch `feat/spec-063a-abacatepay-v2`, SEM commit, aguarda QA; migration `20261018120000_abacatepay_v2_catalogo` NAO aplicada no dev; ver seção 7**; emenda D-062-25 da SPEC-062 registrada, so documentacao; SPEC-062a commitada em `dd2ce4e` na branch `feat/spec-062a-backend`; 062b implementada, sem commit, ver seção 7). **Tudo o que está commitado está na `main`** (PR #2 mergeado em 2026-10-11, commit `0943fa0`): SPECs 048 a 060, E2E e Fase 9. A SPEC-045 (react-hook-form em Configurações/Admin) está implementada, aprovada no QA e mergeada (PR #8, `48175e5`). Produção já está no ar em https://lead-forge-web-omega.vercel.app (seção 7). Repo: git@github.com:morgadothiago/LeadForge_web.git.
 
 ## 1. Como conferir o estado em 1 minuto
 
@@ -176,6 +176,8 @@ Contas de teste no banco de dev: `claude.a*@testes-claude.local` (senha de teste
 "Empresa A ...", "Segunda Org Teste", criativos e o lead "Lead Secreto do Tenant A". Podem ser apagados.
 
 ## 7. Próximo trabalho (plano para continuar)
+
+**SPEC-064 (senha do cadastro: mínimo 6, confirmar senha, barra de força) — `specs/64-senha-cadastro/spec.md`, IMPLEMENTED em 2026-10-12, branch `feat/spec-064-senha-cadastro`, SEM commit, aguarda QA em navegador (bloco S do ROTEIRO).** Política de senha mudou de 12 para 6 por decisão do usuário. Regra única em `src/lib/schemas/password.ts`; `scorePassword` em `src/lib/password-strength.ts`; componente `PasswordStrength`. `confirmPassword` validado no cliente e no servidor (signUp, signUpAndJoin, resetPassword). `next.config.ts` tem mudança local que NÃO é desta SPEC (não commitar junto).
 
 **Onde estamos (2026-10-11):** `main` com as SPECs 048 a 060 e a 045 (react-hook-form; QA APPROVED, `next build` ok, vitest 2055 verde),
 E2E em navegador real e Fase 9. **Produção no ar na Vercel** (`https://lead-forge-web-omega.vercel.app`, sem domínio próprio): `/` e

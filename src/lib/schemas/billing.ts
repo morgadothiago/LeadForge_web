@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { confirmPasswordRule, newPasswordRule, withPasswordConfirmation } from "./password";
 
 const cadenceSchema = z.enum(["monthly", "yearly"]);
 const planKeySchema = z.string().trim().min(1, "Plano é obrigatório.").max(50);
@@ -10,17 +11,18 @@ export const checkoutSchema = z.object({
 export type CheckoutInput = z.input<typeof checkoutSchema>;
 
 /**
- * SPEC-062 (D-062-1/7): cadastro SO com o usuario (nome, e-mail, senha 12+). `plan`/`cadence` sao a INTENCAO vinda da landing
+ * SPEC-062 (D-062-1/7): cadastro SO com o usuario (nome, e-mail, senha 6+ e confirmacao, SPEC-064). `plan`/`cadence` sao a INTENCAO vinda da landing
  * (`/signup?plan=&cadence=`): opcionais e tolerantes — valor invalido vira `undefined` (nunca erro de cadastro); o servidor ainda
  * valida o plano contra os planos self-service ativos.
  */
-export const signupSchema = z.object({
+export const signupSchema = withPasswordConfirmation(z.object({
   name: z.string({ error: "Nome é obrigatório." }).trim().min(1, "Nome é obrigatório.").max(120),
   email: z.string({ error: "E-mail é obrigatório." }).trim().toLowerCase().min(1, "E-mail é obrigatório.").email("E-mail inválido."),
-  password: z.string({ error: "Senha é obrigatória." }).min(12, "Senha deve ter ao menos 12 caracteres.").max(256, "Senha muito longa."),
+  password: newPasswordRule,
+  confirmPassword: confirmPasswordRule,
   plan: planKeySchema.optional().catch(undefined),
   cadence: cadenceSchema.optional().catch(undefined),
-});
+}));
 export type SignupInput = z.input<typeof signupSchema>;
 
 /** SPEC-062 (D-062-13): nomear a organizacao ja paga (casca). */

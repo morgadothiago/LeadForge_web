@@ -544,7 +544,7 @@ describe("signUpAndJoin (sem checkout)", () => {
     await inviteMember({ email, orgRole: "member" });
     const token = tokenFromLastEmail();
     signOut();
-    const r = await signUpAndJoin({ name: "Novo", password: "uma-senha-bem-longa-1", token });
+    const r = await signUpAndJoin({ name: "Novo", password: "uma-senha-bem-longa-1", confirmPassword: "uma-senha-bem-longa-1", token });
     expect(r.ok).toBe(true);
     expect(await sessionOrg()).toBe(A.orgId);
     const u = await prisma.user.findUniqueOrThrow({ where: { email }, include: { memberships: true } });
@@ -554,7 +554,7 @@ describe("signUpAndJoin (sem checkout)", () => {
     expect(await prisma.organization.count({ where: { memberships: { some: { userId: u.id } } } })).toBe(1);
     // reutilizar o token falha
     signOut();
-    expect(err(await signUpAndJoin({ name: "Outro", password: "uma-senha-bem-longa-1", token }))).toMatch(/inválido/);
+    expect(err(await signUpAndJoin({ name: "Outro", password: "uma-senha-bem-longa-1", confirmPassword: "uma-senha-bem-longa-1", token }))).toMatch(/inválido/);
   });
 
   it("convite para e-mail já cadastrado: orienta login/aceite", async () => {
@@ -562,7 +562,7 @@ describe("signUpAndJoin (sem checkout)", () => {
     await signInAs(A.userId, { orgId: A.orgId, platformRole: "provider" });
     await inviteMember({ email: g.email });
     signOut();
-    expect(err(await signUpAndJoin({ name: "X", password: "uma-senha-bem-longa-1", token: tokenFromLastEmail() }))).toMatch(/já possui cadastro/);
+    expect(err(await signUpAndJoin({ name: "X", password: "uma-senha-bem-longa-1", confirmPassword: "uma-senha-bem-longa-1", token: tokenFromLastEmail() }))).toMatch(/já possui cadastro/);
   });
 
   it("SPEC-062 (D-062-15): o ramo por CODIGO saiu do signUpAndJoin — com `code` (sem token) e recusado, sem criar usuario nem consumir uso", async () => {
@@ -572,8 +572,8 @@ describe("signUpAndJoin (sem checkout)", () => {
     signOut();
     const email = `zz-signup-code-${randomUUID().slice(0, 8)}@test.local`;
     const uses = (await prisma.organization.findUniqueOrThrow({ where: { id: A.orgId } })).joinCodeUses;
-    expect((await signUpAndJoin({ name: "C", email, password: "uma-senha-bem-longa-1", code: g.data.code })).ok).toBe(false);
-    expect((await signUpAndJoin({ name: "C", email, password: "uma-senha-bem-longa-1" })).ok).toBe(false);
+    expect((await signUpAndJoin({ name: "C", email, password: "uma-senha-bem-longa-1", confirmPassword: "uma-senha-bem-longa-1", code: g.data.code })).ok).toBe(false);
+    expect((await signUpAndJoin({ name: "C", email, password: "uma-senha-bem-longa-1", confirmPassword: "uma-senha-bem-longa-1" })).ok).toBe(false);
     expect(await prisma.user.count({ where: { email } })).toBe(0);
     expect((await prisma.organization.findUniqueOrThrow({ where: { id: A.orgId } })).joinCodeUses).toBe(uses);
   });

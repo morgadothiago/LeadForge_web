@@ -105,7 +105,7 @@ describe("signUp (SPEC-062, D-062-1/7) — so o usuario, sem organizacao nem tri
     created.push(email);
     const orgsBefore = await prisma.organization.count();
     const subsBefore = await prisma.subscription.count();
-    const r = await signUp({ name: "Fulano", email, password: "senha-forte-123456" });
+    const r = await signUp({ name: "Fulano", email, password: "senha-forte-123456", confirmPassword: "senha-forte-123456" });
     expect(r.ok).toBe(true);
     if (!r.ok) return;
     expect(r.data.redirectTo).toBe("/assinar");
@@ -120,7 +120,7 @@ describe("signUp (SPEC-062, D-062-1/7) — so o usuario, sem organizacao nem tri
   it("e-mail já cadastrado -> erro genérico (sem confirmar existência da conta)", async () => {
     const email = `zz-signup-dup-${randomUUID().slice(0, 8)}@test.local`;
     created.push(email);
-    const input = { name: "Fulano", email, password: "senha-forte-123456" };
+    const input = { name: "Fulano", email, password: "senha-forte-123456", confirmPassword: "senha-forte-123456" };
     expect((await signUp(input)).ok).toBe(true);
     const r2 = await signUp(input);
     expect(r2.ok).toBe(false);
@@ -130,10 +130,16 @@ describe("signUp (SPEC-062, D-062-1/7) — so o usuario, sem organizacao nem tri
     }
   });
 
-  it("senha curta -> erro de validação (e nenhum usuario)", async () => {
-    const email = `zz-signup-weak-${randomUUID().slice(0, 8)}@test.local`;
-    const r = await signUp({ name: "Fulano", email, password: "curta" });
+  it("SPEC-064: senha de exatamente 6 caracteres e aceita; confirmação diferente é rejeitada no servidor (erro no campo confirmPassword)", async () => {
+    // rate limit do signUp = 5 por 10 min neste arquivo: aqui so 2 chamadas (senha de 5 e coberta no servidor por resetPassword e em schemas/password.test.ts)
+    const bad = `zz-signup-cf-${randomUUID().slice(0, 8)}@test.local`;
+    const r = await signUp({ name: "Fulano", email: bad, password: "abc123", confirmPassword: "abc124" });
     expect(r.ok).toBe(false);
-    expect(await prisma.user.findUnique({ where: { email } })).toBeNull();
+    if (!r.ok) expect(r.errors.confirmPassword?.[0]).toBe("As senhas não coincidem.");
+    expect(await prisma.user.findUnique({ where: { email: bad } })).toBeNull();
+    // (confirmação ausente: coberto em schemas/password.test.ts; o rate limit do signUp é 5 por 10 min neste arquivo)
+    const ok = `zz-signup-6-${randomUUID().slice(0, 8)}@test.local`;
+    created.push(ok);
+    expect((await signUp({ name: "Fulano", email: ok, password: "abc123", confirmPassword: "abc123" })).ok).toBe(true);
   });
 });

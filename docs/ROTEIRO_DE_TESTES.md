@@ -309,7 +309,7 @@ Para testar sem gastar nada: `PAYMENT_PROVIDER=mock` (padrão) em `npm run dev`.
 
 | # | O que fazer | O que deve acontecer | OK? | Observado |
 |---|---|---|---|---|
-| P1 | `/signup` | Só **Nome, E-mail e Senha** (mínimo 12). Nada de "Nome da empresa", escolha de organização, plano, "grátis" ou "14 dias" | [ ] | |
+| P1 | `/signup` | Só **Nome, E-mail, Senha (mínimo 6) e Confirmar senha**, com barra de força. Nada de "Nome da empresa", escolha de organização, plano, "grátis" ou "14 dias" | [ ] | |
 | P2 | Criar a conta | Cai em `/assinar`. No Mailpit: "Bem-vindo" (com o próximo passo) e "Confirme seu e-mail". Nenhum e-mail de trial | [ ] | |
 | P3 | Em `/assinar` (e-mail **ainda não confirmado**) | Aviso "Confirme seu e-mail para assinar" com **Reenviar e-mail** (espera de 60 s) e **Já confirmei, atualizar**; todos os botões "Assinar" cinza; o plano Business diz "Falar com vendas" | [ ] | |
 | P4 | Abrir o link de confirmação do Mailpit e voltar a `/assinar` (atualizar) | Aviso some; "Assinar" habilita. Mensal/Anual muda o preço (os valores são provisórios) | [ ] | |
@@ -327,6 +327,22 @@ Para testar sem gastar nada: `PAYMENT_PROVIDER=mock` (padrão) em `npm run dev`.
 | P16 | Org antiga em trial vencido (se existir no seu banco) | Faixa vermelha "Seu período de teste terminou. Escolha um plano..." com o botão "Escolher um plano" (leva a Configurações > Assinatura) | [ ] | |
 | P17 | Landing `/` (claro, escuro, 390px) | Nenhum "grátis", "14 dias" ou "sem cartão". Botões "Criar conta" levam a `/signup`; nos preços, "Assinar {plano}" leva a `/signup?plan=...&cadence=...`; Business "Falar com vendas". Depois de criar a conta, `/assinar` já destaca o plano escolhido ("Escolhido por você") | [ ] | |
 | P18 | Teclado e leitor de tela em `/assinar`, `/assinar/retorno`, `/organizacao/nova` | Tab chega em tudo na ordem certa, foco visível; erro do campo é lido; "Confirmando..." é anunciado; sem barra de rolagem lateral em 390px | [ ] | |
+
+### P-064. Senha: mínimo 6, confirmar senha e barra de força (SPEC-064). Sem migration; só interface e validação
+
+Testar em `/signup`, em `/convite/[token]` (usuário novo) e em `/redefinir-senha?token=...`. **Em 390px, só com teclado e em claro e escuro.**
+
+| # | O que fazer | O que deve acontecer | OK? | Observado |
+|---|---|---|---|---|
+| S1 | Digitar senha de 5 caracteres e enviar | Erro no campo: "Senha deve ter ao menos 6 caracteres."; dica "Mínimo de 6 caracteres." visível (não diz 12) | [ ] | |
+| S2 | Senha `abc123` (6) e a mesma em "Confirmar senha" | Envia e cria a conta (senha fraca não bloqueia) | [ ] | |
+| S3 | Confirmar diferente e enviar | "As senhas não coincidem." no campo Confirmar senha; foco vai para ele; nada é criado | [ ] | |
+| S4 | Digitar `123456`, `senha123`, o próprio e-mail, `aaaaaa` | Barra com 1 segmento, texto "Força: Muito fraca." com a dica do que evitar | [ ] | |
+| S5 | Digitar `bolo42`, depois `Laranja8`, depois `Tr0ca-Esta-Chave!` | Sobe de nível: Fraca, Razoável e Forte (4 segmentos). O texto muda, não só a cor; o leitor de tela anuncia sem repetir a cada letra de forma confusa | [ ] | |
+| S6 | Botão do olho em cada campo; Tab entre os campos | Cada campo mostra/oculta o seu texto; foco visível; ordem: senha, olho, confirmar, olho, botão | [ ] | |
+| S7 | Chamar a action sem `confirmPassword` (ou diferente) por fora da tela | O servidor também rejeita com o erro no campo `confirmPassword` | [ ] | |
+| S8 | Entrar (login) com uma conta antiga de senha com 12+ caracteres | Continua entrando; o login não tem mínimo novo | [ ] | |
+| S9 | Redefinir senha com link do e-mail (6+ e confirmar igual) | Redefine; avisa e leva ao login | [ ] | |
 
 Cortesia e admin da plataforma **não mudam**: entram direto, sem `/assinar`.
 

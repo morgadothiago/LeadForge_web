@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { confirmPasswordRule, newPasswordRule, withPasswordConfirmation } from "./password";
 
 const email = z.string({ error: "E-mail é obrigatório." }).trim().toLowerCase().min(1, "E-mail é obrigatório.").email("E-mail inválido.").max(254);
 const orgRole = z.enum(["owner", "member"], { error: "Papel inválido." });
@@ -19,18 +20,20 @@ export const generateJoinCodeSchema = z.object({
 });
 
 /** Signup por CONVITE (SPEC-062 D-062-15: o ramo por codigo saiu): token do link + nome + senha; o e-mail vem do convite. */
-export const signupJoinSchema = z.object({
+export const signupJoinSchema = withPasswordConfirmation(z.object({
   name: z.string({ error: "Nome é obrigatório." }).trim().min(1, "Nome é obrigatório.").max(120),
-  password: z.string({ error: "Senha é obrigatória." }).min(12, "Senha deve ter ao menos 12 caracteres.").max(256, "Senha muito longa."),
+  password: newPasswordRule,
+  confirmPassword: confirmPasswordRule,
   token,
-});
+}));
 export type SignupJoinInput = z.input<typeof signupJoinSchema>;
 
 /** Convite por link (aceite de usuário novo, `/convite/[token]`): só nome e senha; o e-mail vem do convite. */
-export const inviteSignupFormSchema = z.object({
+export const inviteSignupFormSchema = withPasswordConfirmation(z.object({
   name: z.string({ error: "Nome é obrigatório." }).trim().min(1, "Nome é obrigatório.").max(120),
-  password: z.string({ error: "Senha é obrigatória." }).min(12, "Senha deve ter ao menos 12 caracteres.").max(256, "Senha muito longa."),
-});
+  password: newPasswordRule,
+  confirmPassword: confirmPasswordRule,
+}));
 export type InviteSignupFormInput = z.input<typeof inviteSignupFormSchema>;
 
 /** Convite por e-mail na aba Equipe (campos do form). */
