@@ -8,6 +8,15 @@ import { cn } from "@/lib/utils";
 import { OrgStatusBadge } from "./OrgStatusBadge";
 import { buildOrgsQuery, type RawParams } from "./org-format";
 
+/** SPEC-062 (Q-062-9): casca de cobrança paga que ainda não foi nomeada pelo dono — suporte precisa enxergar "pago sem organização". */
+export function SetupPendingBadge() {
+  return (
+    <span title="Plano pago, aguardando o dono dar nome à organização" className="inline-flex items-center rounded-full bg-warning/15 px-2.5 py-0.5 text-xs font-medium text-warning">
+      Em configuração
+    </span>
+  );
+}
+
 function Counters({ activeCampaigns, totalLeads, connectedWhatsapp }: { activeCampaigns: number; totalLeads: number; connectedWhatsapp: number }) {
   return (
     <span className="text-xs text-muted-foreground">
@@ -71,7 +80,10 @@ export function OrganizationsList({ items, total, page, pageSize, totalPages, pa
                   <p className="text-xs text-muted-foreground">{o.slug}</p>
                 </td>
                 <td className="px-3 py-3">
-                  <OrgStatusBadge status={o.status} />
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <OrgStatusBadge status={o.status} />
+                    {o.setupPendingSince && <SetupPendingBadge />}
+                  </div>
                 </td>
                 <td className="max-w-[14rem] truncate px-3 py-3 text-muted-foreground">
                   {o.ownerName ? (
@@ -106,7 +118,10 @@ export function OrganizationsList({ items, total, page, pageSize, totalPages, pa
                 </Link>
                 <p className="truncate text-xs text-muted-foreground">{o.slug}</p>
               </div>
-              <OrgStatusBadge status={o.status} />
+              <div className="flex shrink-0 flex-col items-end gap-1">
+                <OrgStatusBadge status={o.status} />
+                {o.setupPendingSince && <SetupPendingBadge />}
+              </div>
             </div>
             <p className="mt-2 truncate text-xs text-muted-foreground">{o.ownerName ? `${o.ownerName} · ${o.ownerEmail}` : "Sem dono definido"}</p>
             <div className="mt-2">

@@ -16,6 +16,7 @@ export function PlanCard({
   plan,
   cadence,
   highlighted,
+  highlightLabel = "Mais popular",
   current,
   footer,
   className,
@@ -24,12 +25,15 @@ export function PlanCard({
   cadence: "monthly" | "yearly";
   /** Badge "Mais popular" — decisão de destaque de quem monta a grade, não do card. */
   highlighted?: boolean;
+  /** Texto do selo de destaque (SPEC-062b: "Escolhido por você" para o plano vindo da landing). */
+  highlightLabel?: string;
   /** "Seu plano atual" — realça a borda e desabilita o CTA por convenção do consumidor. */
   current?: boolean;
   footer: React.ReactNode;
   className?: string;
 }) {
-  const price = priceForCadence(plan, cadence);
+  // Plano sem checkout self-service (Business) é "sob consulta": o valor de tabela (placeholder) não é exibido.
+  const price = plan.selfServiceCheckout ? priceForCadence(plan, cadence) : null;
   return (
     <Card
       className={cn(
@@ -41,7 +45,7 @@ export function PlanCard({
     >
       {highlighted && (
         <Badge className="absolute -top-2.5 left-1/2 -translate-x-1/2" variant="default">
-          Mais popular
+          {highlightLabel}
         </Badge>
       )}
       <CardHeader className="gap-2 pb-0">

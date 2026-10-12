@@ -1,5 +1,5 @@
 # SPEC-062 — Cadastro so com usuario, sem trial: plano obrigatorio (checkout) antes de criar a organizacao
-- status: IN_PROGRESS — **062a (backend) IMPLEMENTED em 2026-10-11 (sem commit)**; 062b (frontend) pendente; aprovada pelo usuario em 2026-10-11 (`APROVAR SPEC-062`; Q-062-2 segue aberta: conferir trials reais em producao, vale a politica A ate la) | domain: fullstack (062a backend / 062b frontend; `## Backend`, `## Frontend`) | depende de: 033, 034 (billing/checkout), 047 (AbacatePay), 049 (orgs, convite, codigo, org ativa), 052 (e-mails, `sendOnce`), 053 (cancelar/reativar), 054 (exclusao de conta), 055 (verificacao de e-mail), 040 (cortesia), 035 (landing) | tambem toca: 039 (lembretes), 061 (DRAFT, tela de conta)
+- status: IN_PROGRESS — **062a (backend) IMPLEMENTED em 2026-10-11 (sem commit)**; **062b (frontend) IMPLEMENTED em 2026-10-11 (sem commit; aguarda QA)**; 062c (limpeza de schema) FUTURA; aprovada pelo usuario em 2026-10-11 (`APROVAR SPEC-062`; Q-062-2 segue aberta: conferir trials reais em producao, vale a politica A ate la) | domain: fullstack (062a backend / 062b frontend; `## Backend`, `## Frontend`) | depende de: 033, 034 (billing/checkout), 047 (AbacatePay), 049 (orgs, convite, codigo, org ativa), 052 (e-mails, `sendOnce`), 053 (cancelar/reativar), 054 (exclusao de conta), 055 (verificacao de e-mail), 040 (cortesia), 035 (landing) | tambem toca: 039 (lembretes), 061 (DRAFT, tela de conta)
 - A **decisao de produto veio do usuario (2026-10-11)**: D-062-1..4 abaixo. Todo o resto e **INFERRED** (premissa minha, revisavel) ou pergunta aberta Q-062-n. Nada aqui e parecer juridico/fiscal. NENHUM codigo foi escrito, nenhuma migration rodada.
 
 ## Objetivo
@@ -263,6 +263,56 @@ Dadas na conversa de 2026-10-11 ("sim, registra as respostas na SPEC-062"). **A 
 - Producao hoje esta em `PAYMENT_PROVIDER=mock`: com a trava, o checkout fica indisponivel (`billing_unavailable`) ate haver AbacatePay real ou `ALLOW_MOCK_BILLING=true`.
 - AbacatePay real/PIX/E2E em navegador: NOT VERIFIED (fora da 062a).
 - Documentacao de usuario (`PRIMEIROS_PASSOS.md`, `ROTEIRO_DE_TESTES.md`, `TESTES_PRIORITARIOS.md`) fica para a 062b (o fluxo visivel so existe com as telas).
+
+## Implementation Notes — 062b (frontend), 2026-10-11
+**Status 062b: IMPLEMENTED (nao commitado; aguarda QA independente).** 062c (limpeza de schema) NAO foi feita; Q-062-2 segue aberta.
+
+### Arquivos
+- **Rotas novas** (grupo `src/app/(onboarding)/`, layout proprio: logo, tema, nome, "Minha conta", "Sair"; exigem sessao via `proxy.ts`, lista publica inalterada): `assinar/page.tsx`, `assinar/retorno/page.tsx`, `organizacao/nova/page.tsx`, `entrar-em-organizacao/page.tsx`, `minha-conta/page.tsx`, `layout.tsx`.
+- **Guarda de estado:** `src/lib/auth/stage-guard.ts` (`stageGuardTarget` pura, `STAGE_RULES` = estados que renderizam cada tela, `requireStagePage`/`requireStageRoute`, `firstParam`). Teste de tabela "sem laco" (`stage-guard.test.ts`).
+- **Componentes** `src/components/onboarding/`: `PlanCheckoutSection` (cadencia, `PlanCard`, erros tipados, aviso de e-mail), `CheckoutReturn` (polling), `OrganizationSetupForm` e `JoinByCodeForm` (RHF + `zodResolver` do schema da action), `EmailVerificationNotice`, `CancelPendingSubscription`.
+- **Helpers puros:** `src/components/billing/plan-checkout-ui.ts` (`resolveCadence`, `resolveIntentPlan`, `checkoutErrorInfo`, `resolveReturnView`, `POLL_*`), `pendingBannerMessage/pendingBannerCta` em `billing-format.ts`, `sales-contact.ts`.
+- **Layout do app:** `(app)/layout.tsx` (sem `listActivePlans`; `PendingSetupBanner`), `PendingSetupBanner.tsx` (D-062-19), `SubscriptionPendingBanner.tsx` + `getOrgBannerState` em `queries/billing.ts` (ramo legado "Seu periodo de teste terminou"), `OrgSwitcher`/`MyOrganizations` (link `/assinar?nova=1`; "Entrar com codigo"), `AppSidebar` (sem `plans`), `CreateOrganizationDialog.tsx` REMOVIDO.
+- **Admin:** `OrganizationsList.tsx` (`SetupPendingBadge` "Em configuracao" quando `setupPendingSince`).
+- **Signup:** `signup/page.tsx` (texto "Voce escolhe o plano no proximo passo"; `?modo=participar` so mostra dica e abre o cadastro normal; `?plan&cadence` seguem ate `/assinar`); `SignupForm.tsx` ja era a de 3 campos (062a).
+- **Landing:** `HeroSection`, `FinalCtaSection`, `LandingNav` ("Criar conta"), `PricingSection` (subtitulo sem "gratis"; "Assinar {plano}"), `FeaturesSection` (lembrete so para o usuario). `PlanCard`: `highlightLabel`; plano sem checkout self-service mostra "Sob consulta" (nao o valor placeholder 0). `listActivePlans` agora ordena planos "sob consulta" por ultimo.
+- **Docs:** `PRIMEIROS_PASSOS.md` (2.1, 2.2 reescrita, 2.3, 2.5, e-mails), `ROTEIRO_DE_TESTES.md` (B1/B2/B8/C1/C8/E1/E3/J1 reescritos, bloco novo P, `0.4`), `TESTES_PRIORITARIOS.md` (teste 5), `CONFIGURACAO_POS_PROJETO.md`, `RETOMAR.md`, `specs/README.md`.
+
+### Decisoes de implementacao (dentro da SPEC)
+- `/assinar` para quem JA tem organizacao exige `?nova=1`; `membro_pago_sem_org` vai a `/organizacao/nova` (override) para nunca abrir 2o checkout. `/minha-conta` de quem tem organizacao redireciona a `/configuracoes/conta`.
+- `/assinar/retorno` NAO le `?checkout=...` (teste estatico); so o status da assinatura (polling 3 s ate 3 min) libera. Estado `none` mostra "Nao encontramos um pagamento em andamento" (sem redirect, sem laco).
+- `startPlanCheckout`: `email_unverified` desabilita "Assinar" (e o aviso de reenvio fica visivel); outros erros tipados aparecem em `role="alert"` com foco. Cancelar assinatura da casca: so em `/organizacao/nova` (paga) e em `/assinar` quando `past_due`.
+- Nenhuma acao/regra de backend alterada; unica mudanca fora da UI: ordem de `listActivePlans` (leitura).
+
+### Correcoes pos-QA (062b)
+- MEDIO-1: `resolveReturnView` agora da precedencia a `requestFailed` (vista `error` + "Verificar de novo" apos `incomplete` seguido de falha de consulta; sem spinner eterno; `?checkout=success` segue sem liberar nada). MEDIO-2: `withoutCodeKey` tira a chave `code` antes de `applyServerErrors` em `OrganizationSetupForm` (so o `_form` aparece; helper compartilhado intacto). BAIXO-1: `PlanCheckoutSection` mantem "Abrindo pagamento..." (`navigating`) ate a navegacao, com fallback em erro/excecao. BAIXO-2: `/assinar` so passa `another` a quem tem organizacao (`dono`/`membro`). Gates: tsc, eslint, vitest completo (173 arquivos / 2263 testes, banco `leadforge_062b_fix_test`), `next build` VERIFIED.
+
+### Testes (executados)
+- `npx tsc --noEmit`: VERIFIED (0 erros). `npx eslint` nos arquivos tocados: VERIFIED (0 erros; 1 warning ja existente de `watch()` do RHF em `OrganizationStatusActions`). `npx next build`: VERIFIED (rotas `/assinar`, `/assinar/retorno`, `/organizacao/nova`, `/entrar-em-organizacao`, `/minha-conta` listadas).
+- `npx vitest run` completo em banco novo `leadforge_062b_test` (senha lida do `.env`, nao impressa): VERIFIED, 173 arquivos / 2254 testes verdes.
+- Novos: `onboarding-ui.test.tsx` (SSR: /assinar estados e erros, retorno, org nova, codigo, conta, selo admin, varredura de textos proibidos na landing), `plan-checkout-ui.test.ts`, `stage-guard.test.ts`; ajustes em `org-ui.test.tsx` e `plans.test.ts`.
+- Navegador (Brave + Playwright, `next start` em :3100 contra o banco `leadforge_062b_test`, `PAYMENT_PROVIDER=mock`, `ALLOW_MOCK_BILLING=true`): VERIFIED o fluxo `/signup?plan&cadence` -> `/assinar` (e-mail nao verificado: botoes desabilitados) -> `/dashboard` e `/organizacao/nova` sem pagar voltam a `/assinar` -> `/assinar/retorno?checkout=success` sem pagamento nao libera -> verificar e-mail (UPDATE no banco de teste) -> `?checkout=cancel` -> Assinar (mock) -> `/organizacao/nova` -> nomear -> `/dashboard` (1 org, `active`, `setupPendingSince` nulo); `/assinar` pago volta a `/organizacao/nova`; 2a org (`/assinar?nova=1` -> pagar -> banner "Finalize sua organizacao" -> nomear -> banner some, 2 orgs); `/minha-conta` (dono -> `/configuracoes/conta`; sem org mostra e-mail + exclusao); codigo errado em `/entrar-em-organizacao` = "Codigo invalido ou expirado."; landing sem "gratis/14 dias/sem cartao". Larguras 390px (sem scroll horizontal) e 1280px; dark mode em `/assinar`, `/minha-conta`, `/entrar-em-organizacao`.
+- NAO verificado em navegador: link de confirmacao de e-mail real (Mailpit), reenvio com cooldown, polling com webhook assincrono real (mock ativa na hora), timeout de 3 min, "Cancelar assinatura" da casca, convite/codigo valido, label "Em configuracao" no admin, ramo "periodo de teste terminou", leitor de tela/teclado fino, AbacatePay real.
+
+### Criterios de aceitacao (062b)
+| Criterio | Status | Evidencia |
+|---|---|---|
+| `/signup` so nome/e-mail/senha, sem plano/empresa/trial | PASS | `org-ui.test.tsx`, `onboarding-ui.test.tsx` (landing), navegador |
+| Sem plano/sem org -> `/assinar`; tenant redireciona | PASS | `stage-guard.test.ts`, navegador (`/dashboard` -> `/assinar`) |
+| Pagar -> confirmando -> `/organizacao/nova` -> nomear -> dashboard | PASS (mock) | navegador; `plan-checkout-ui.test.ts` |
+| Sem duplicidade (pago sem org nao abre 2o checkout) | PASS | `stage-guard.test.ts`, navegador |
+| Abandono/falha: volta a `/assinar` | PASS (UI) | `onboarding-ui.test.tsx`, navegador (`?checkout=cancel`) |
+| Convite/codigo sem checkout | PASS (UI) / fluxo valido NOT VERIFIED em navegador | `JoinByCodeForm`, testes 062a |
+| Nenhum "14 dias/gratis/sem cartao" em landing/signup/dialogos | PASS | varredura em `onboarding-ui.test.tsx` + navegador |
+| Trials legados: banner vencido; regularizar em Assinatura | PASS (texto) | `plan-checkout-ui.test.ts` |
+| Admin ve casca paga "Em configuracao" | PASS (componente) | `onboarding-ui.test.tsx` |
+| `tsc`/lint/vitest/build | PASS | gates acima |
+
+### Limitacoes / pendencias
+- Achado da 062a continua: `src/proxy.ts` nao isenta `/api/billing/webhook` (webhook do provedor sem sessao tende a 307).
+- Valores de preco seguem PLACEHOLDER (D-33-2); e-mail comercial do Business (`contato@leadforge.com`) e placeholder.
+- Seed de dev sem os 2 usuarios opcionais de demonstracao (`sem-plano@...`, `pago-sem-org@...`); o roteiro usa contas criadas na hora.
+- QA independente, E2E com AbacatePay real/PIX e termos de uso seguem pendentes.
 
 ## Decisoes pendentes (perguntas abertas — dependem do usuario)
 - **Q-062-1 (bloqueante; recomendo a opcao A):** como ligar o pagamento a uma org que ainda nao existe? **A) casca de cobranca** (D-062-5: org tecnica invisivel criada ao iniciar o checkout, "nomeada" depois do pagamento; reaproveita todo o billing existente; custo baixo, risco no filtro de listagens/scheduler) ou **B) credito de compra por usuario** (`PlanPurchase`; a org criada depois consome o credito; exige reescrever correlacao de webhook/renovacoes; fiel ao literal "a org so existe depois", custo e risco bem maiores).

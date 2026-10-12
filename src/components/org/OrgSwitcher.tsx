@@ -8,21 +8,19 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSepara
 import { SidebarMenu, SidebarMenuButton, SidebarMenuItem, useSidebar } from "@/components/ui/sidebar";
 import { switchActiveOrganization, type MyOrganization } from "@/lib/actions/org";
 import { InviteMemberDialog } from "./InviteMemberDialog";
-import { CreateOrganizationDialog, type PlanOption } from "./CreateOrganizationDialog";
 import { filterOrganizations, orgInitials, orgStatusLabel, roleLabel } from "./org-format";
 
 /**
  * SPEC-049b — seletor de organização ativa na sidebar (estilo Cloudflare, D-049-16): trigger com avatar + nome,
- * busca por nome, lista com check na ativa, "Criar organização" no rodapé. Renderiza também com 1 org (para o
+ * busca por nome, lista com check na ativa, "Criar organização" no rodapé (link para `/assinar?nova=1`, SPEC-062). Renderiza também com 1 org (para o
  * usuário achar o "Criar organização"; supersede a parte "só com >1" do D-049-4). A troca chama
  * `switchActiveOrganization` (reemite o JWT) e faz navegação COMPLETA ao destino: recarrega layout, contadores e
  * todo o cache de cliente, para que nenhum dado da org anterior fique em tela.
  */
-export function OrgSwitcher({ organizations, plans = [] }: { organizations: MyOrganization[]; plans?: PlanOption[] }) {
+export function OrgSwitcher({ organizations }: { organizations: MyOrganization[] }) {
   const { isMobile } = useSidebar();
   const [pendingId, setPendingId] = React.useState<string | null>(null);
   const [menuOpen, setMenuOpen] = React.useState(false);
-  const [createOpen, setCreateOpen] = React.useState(false);
   const [inviteOpen, setInviteOpen] = React.useState(false);
   const [query, setQuery] = React.useState("");
   const searchRef = React.useRef<HTMLInputElement>(null);
@@ -108,7 +106,8 @@ export function OrgSwitcher({ organizations, plans = [] }: { organizations: MyOr
                 Convidar pessoas
               </DropdownMenuItem>
             )}
-            <DropdownMenuItem onClick={() => setCreateOpen(true)}>
+            {/* SPEC-062 (D-062-14): outra organização = outro plano; o fluxo é escolher plano, pagar e só então nomear. */}
+            <DropdownMenuItem render={<Link href="/assinar?nova=1" />}>
               <Plus aria-hidden="true" className="size-4" />
               Criar organização
             </DropdownMenuItem>
@@ -119,7 +118,6 @@ export function OrgSwitcher({ organizations, plans = [] }: { organizations: MyOr
           </DropdownMenuContent>
         </DropdownMenu>
         {active.orgRole === "owner" && <InviteMemberDialog open={inviteOpen} onOpenChange={setInviteOpen} />}
-        <CreateOrganizationDialog plans={plans} open={createOpen} onOpenChange={setCreateOpen} />
       </SidebarMenuItem>
     </SidebarMenu>
   );

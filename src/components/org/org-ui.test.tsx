@@ -49,9 +49,8 @@ describe("OrgSwitcher", () => {
 });
 
 describe("MyOrganizations", () => {
-  const plans = [{ key: "starter", name: "Starter", priceMonthlyCents: 9700 }];
   it("lista com selo de ativa/suspensa e ações por linha", () => {
-    const html = renderToStaticMarkup(<MyOrganizations organizations={orgs} plans={plans} />);
+    const html = renderToStaticMarkup(<MyOrganizations organizations={orgs} />);
     expect(html).toContain("Ativa agora");
     expect(html).toContain("Suspensa");
     expect(html).toContain("Usar esta organização");
@@ -60,24 +59,24 @@ describe("MyOrganizations", () => {
   });
   it("owner: Convidar e Equipe só na linha ativa; Gerenciar equipe nas outras que é owner", () => {
     const two = [orgs[0], { ...orgs[1], status: "active", orgRole: "owner" as const }];
-    const html = renderToStaticMarkup(<MyOrganizations organizations={two} plans={plans} />);
+    const html = renderToStaticMarkup(<MyOrganizations organizations={two} />);
     expect((html.match(/Convidar/g) ?? []).length).toBe(1);
     expect(html).toContain('href="/configuracoes/equipe"');
     expect(html).toContain("Gerenciar equipe");
   });
   it("member: sem Convidar/Equipe/Gerenciar equipe", () => {
-    const html = renderToStaticMarkup(<MyOrganizations organizations={[{ ...orgs[0], orgRole: "member" }, orgs[1]]} plans={plans} />);
+    const html = renderToStaticMarkup(<MyOrganizations organizations={[{ ...orgs[0], orgRole: "member" }, orgs[1]]} />);
     expect(html).not.toContain("Convidar");
     expect(html).not.toContain("Gerenciar equipe");
     expect(html).not.toContain("/configuracoes/equipe");
   });
   it("org única: Sair desabilitado + explicação", () => {
-    const html = renderToStaticMarkup(<MyOrganizations organizations={[orgs[0]]} plans={plans} />);
+    const html = renderToStaticMarkup(<MyOrganizations organizations={[orgs[0]]} />);
     expect(html).toContain("não pode sair da sua única organização");
     expect(html).toMatch(/disabled[^>]*aria-describedby="leave-hint"|aria-describedby="leave-hint"[^>]*disabled/);
   });
   it("estado vazio", () => {
-    expect(renderToStaticMarkup(<MyOrganizations organizations={[]} plans={plans} />)).toContain("ainda não participa");
+    expect(renderToStaticMarkup(<MyOrganizations organizations={[]} />)).toContain("ainda não participa");
   });
 });
 

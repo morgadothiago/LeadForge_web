@@ -40,5 +40,6 @@ export async function listActivePlans(): Promise<PlanView[]> {
     orderBy: { priceMonthlyCents: "asc" },
     select: { key: true, name: true, priceMonthlyCents: true, priceYearlyCents: true, limits: true, selfServiceCheckout: true },
   });
-  return rows.map((r) => ({ ...r, limits: parseLimits(r.limits) }));
+  // Planos "sob consulta" (sem checkout self-service) vão por último; dentro de cada grupo, do mais barato ao mais caro.
+  return rows.map((r) => ({ ...r, limits: parseLimits(r.limits) })).sort((a, b) => Number(!a.selfServiceCheckout) - Number(!b.selfServiceCheckout) || a.priceMonthlyCents - b.priceMonthlyCents);
 }

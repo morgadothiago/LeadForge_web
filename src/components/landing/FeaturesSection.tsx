@@ -49,7 +49,7 @@ const FEATURES: { icon: LucideIcon; title: string; description: string }[] = [
   {
     icon: CalendarClock,
     title: "Calendário de reuniões",
-    description: "Reuniões agendadas aparecem organizadas por dia, semana e mês, com lembrete automático para você e para o lead.",
+    description: "Reuniões agendadas aparecem organizadas por dia, semana e mês, com lembrete automático para você.",
   },
 ];
 

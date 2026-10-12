@@ -28,7 +28,6 @@ import { useNotifications } from "@/components/notifications/NotificationsProvid
 import { countFor, navNewText, navTooltip } from "@/lib/notifications/client-types";
 import { OrgSwitcher } from "@/components/org/OrgSwitcher";
 import type { MyOrganization } from "@/lib/actions/org";
-import type { PlanOption } from "@/components/org/CreateOrganizationDialog";
 import { Logo } from "./Logo";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { ADMIN_NAV_ITEMS, NAV_SECTIONS, aggregateFresh, hasActiveChild, isActivePath, type NavItem, type NavSection } from "./nav-items";
@@ -200,14 +199,11 @@ export function AppSidebar({
   user,
   platformRole = "provider",
   organizations = [],
-  plans = [],
 }: {
   user: { name: string; email: string };
   platformRole?: "provider" | "platform_admin";
   /** SPEC-049b: orgs do usuário (só provider). O seletor aparece com >=1 (D-049-16); vazio = sem seletor. */
   organizations?: MyOrganization[];
-  /** D-049-16: planos self-service para o "Criar organização" do seletor. */
-  plans?: PlanOption[];
 }) {
   const pathname = usePathname();
   const { setOpenMobile } = useSidebar();
@@ -227,7 +223,7 @@ export function AppSidebar({
         >
           L
         </Link>
-        {platformRole === "provider" && <OrgSwitcher organizations={organizations} plans={plans} />}
+        {platformRole === "provider" && <OrgSwitcher organizations={organizations} />}
       </SidebarHeader>
       <SidebarContent>
         {sections.map((section) => (

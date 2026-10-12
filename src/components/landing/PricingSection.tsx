@@ -7,6 +7,7 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { PlanCard } from "@/components/billing/PlanCard";
 import { cn } from "@/lib/utils";
 import type { PlanView } from "@/lib/billing/plans";
+import { SALES_CONTACT_HREF } from "@/components/billing/sales-contact";
 
 /**
  * SPEC-035 — pricing público, reaproveita `PlanCard` (SPEC-034) e `listActivePlans()` (chamado no
@@ -18,7 +19,6 @@ import type { PlanView } from "@/lib/billing/plans";
  * negócio antes do launch. O e-mail de contato comercial do plano Business é placeholder
  * (`contato@leadforge.com`) — trocar pelo canal comercial real antes do launch.
  */
-const SALES_CONTACT_HREF = "mailto:contato@leadforge.com?subject=Plano%20Business%20-%20LeadForge";
 
 export function PricingSection({ plans }: { plans: PlanView[] }) {
   const [cadence, setCadence] = React.useState<"monthly" | "yearly">("monthly");
@@ -29,7 +29,7 @@ export function PricingSection({ plans }: { plans: PlanView[] }) {
         <div className="mx-auto max-w-2xl text-center">
           <h2 className="font-heading text-3xl font-bold tracking-tight sm:text-4xl">Planos para todo tamanho de time</h2>
           <p className="mt-3 text-base text-muted-foreground sm:text-lg">
-            Comece grátis com o plano de entrada e cresça sem trocar de ferramenta.
+            Escolha o plano ideal e cresça sem trocar de ferramenta.
           </p>
         </div>
 
@@ -61,7 +61,7 @@ export function PricingSection({ plans }: { plans: PlanView[] }) {
                       href={`/signup?plan=${encodeURIComponent(plan.key)}&cadence=${cadence}`}
                       className={cn(buttonVariants({ pill: true }), "w-full")}
                     >
-                      Começar com {plan.name}
+                      Assinar {plan.name}
                     </Link>
                   ) : (
                     <a href={SALES_CONTACT_HREF} className={cn(buttonVariants({ variant: "outline", pill: true }), "w-full")}>

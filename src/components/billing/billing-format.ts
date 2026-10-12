@@ -61,3 +61,17 @@ export function purgeDateFor(sub: { canceledAt: Date | null; currentPeriodEnd: D
   if (state === "scheduled" && sub.currentPeriodEnd) return addDays(sub.currentPeriodEnd, RETENTION_DAYS);
   return null;
 }
+
+/**
+ * SPEC-062b — texto da faixa global "assinatura pendente" (`SubscriptionPendingBanner`). `trialExpired` = ramo LEGADO (D-062-17):
+ * org que estava em `trialing` e passou de `trialEndsAt` (nenhuma org nova entra em trial).
+ */
+export function pendingBannerMessage(status: OrgStatus, trialExpired: boolean): string {
+  if (status === "cancelled") return "Sua assinatura foi cancelada. Alguns recursos ficam bloqueados até regularizar.";
+  if (trialExpired) return "Seu período de teste terminou. Escolha um plano para continuar usando todos os recursos.";
+  return "Sua assinatura está com o pagamento pendente. Alguns recursos ficam bloqueados até regularizar.";
+}
+
+export function pendingBannerCta(trialExpired: boolean): string {
+  return trialExpired ? "Escolher um plano" : "Regularizar assinatura";
+}
