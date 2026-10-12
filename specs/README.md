@@ -1,5 +1,7 @@
 # LeadForge — Indice de SPECs (SDD)
 SPECs 000-008 APPROVED (usuario, 2026-09-19); todas APPROVED (014, 015, 019 com defaults conservadores, revisaveis). Aprovar com `APROVAR SPEC-XXX`. Uma SPEC por vez, na ordem. Toda SPEC de codigo Next 16: ler `node_modules/next/dist/docs/` antes (AGENTS.md).
+
+> **Escopo (decisao do usuario, 2026-10-11): este projeto e SO WEB.** O app movel nao faz parte do escopo atual. As SPECs 021, 022 e 023 (API `/api/mobile/v1`) e as 024-026 (numeros nunca usados, reservados ao app movel em outro repo) ficam **FORA DO ESCOPO**: o codigo ja existe e esta testado, mas nao recebe manutencao nem validacao em aparelho. Nenhuma SPEC nova depende dele.
 Fullstack = executa dev-backend primeiro, depois dev-frontend.
 
 | SPEC | Feature | Agente | Sessao | Status | Depende de |
@@ -25,9 +27,9 @@ Fullstack = executa dev-backend primeiro, depois dev-frontend.
 | 018 | Chaves de API e integracoes pelo painel (Configuracoes) | backend+frontend | 2 (depois de 017/013) | IMPLEMENTED | 009,010,011,016 |
 | 016 | Erros HTTP/axios em PT-BR (prerequisito de 011-015) | dev-backend | 2 | IMPLEMENTED | 000 |
 | 015 | Busca de leads por IA | backend+frontend | posterior | IMPLEMENTED (backend+frontend; e2e, cron e validacao em navegador pendentes) | 005,008,014 |
-| 021 | Mobile: contrato /api/mobile/v1 + auth (access/refresh/revogacao) | dev-backend | 4 | IMPLEMENTED (backend; validacao em aparelho pendente) | 009 |
-| 022 | Mobile: metricas do painel e saude (read-only) | dev-backend | 4 | IMPLEMENTED (backend; validacao em aparelho pendente) | 021 |
-| 023 | Mobile: alertas + push (polling primeiro, Expo Push opcional) | dev-backend | 4 | IMPLEMENTED (backend; push real e validacao em aparelho pendentes) | 021,022 |
+| 021 | Mobile: contrato /api/mobile/v1 + auth (access/refresh/revogacao) | dev-backend | 4 | IMPLEMENTED; FORA DO ESCOPO ATUAL (so web) (backend; validacao em aparelho pendente) | 009 |
+| 022 | Mobile: metricas do painel e saude (read-only) | dev-backend | 4 | IMPLEMENTED; FORA DO ESCOPO ATUAL (so web) (backend; validacao em aparelho pendente) | 021 |
+| 023 | Mobile: alertas + push (polling primeiro, Expo Push opcional) | dev-backend | 4 | IMPLEMENTED; FORA DO ESCOPO ATUAL (so web) (backend; push real e validacao em aparelho pendentes) | 021,022 |
 | 027 | Migracao da sidebar custom para shadcn `Sidebar` (icon-collapsible, cookie, Sheet mobile) | dev-frontend | 5 | IMPLEMENTED (2026-09-20; validacao visual pendente) | 003,009 |
 | 028 | Reunioes: backend (Meeting, lembretes via alertas, resumo/leitura de notificacoes por sessao) | dev-backend | 5 | IMPLEMENTED (2026-09-21; backend; push real e migrate no banco de dev pendentes) | 001,007,012,013,019,023 |
 | 029 | Calendario de reunioes + notificacoes (sino/Sheet, /notificacoes, bolinhas na sidebar, toasts, polling unico) | dev-frontend | 5 | IMPLEMENTED (2026-09-21; frontend; validacao visual/teclado/leitor de tela e migrate no banco de dev PENDENTES do usuario) | 028,027 |

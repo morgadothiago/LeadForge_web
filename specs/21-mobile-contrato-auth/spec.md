@@ -1,5 +1,5 @@
 # SPEC-021 — Mobile: contrato de API /api/mobile/v1 + auth mobile
-- status: IMPLEMENTED (backend; validacao em aparelho pendente, SPEC-024) | aprovada pelo usuario em 2026-09-19 | domain: backend | agente: dev-backend | depende de: SPEC-009 | bloqueia: 022, 023, 024
+- status: IMPLEMENTED; FORA DO ESCOPO ATUAL (projeto so web, decisao do usuario 2026-10-11; sem manutencao nem validacao em aparelho) (backend; validacao em aparelho pendente, SPEC-024) | aprovada pelo usuario em 2026-09-19 | domain: backend | agente: dev-backend | depende de: SPEC-009 | bloqueia: 022, 023, 024
 ## Objetivo
 Camada de API enxuta, versionada e read-mostly para o app de MONITORAMENTO. O mobile NAO e operacional: nada de CRUD pesado (sequencias, templates, integracoes/chaves, leads em massa) — fica no web.
 ## Diagnostico do codigo nao commitado (recomendacao de destino; nada apagado nesta etapa)

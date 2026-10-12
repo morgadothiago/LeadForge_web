@@ -126,6 +126,13 @@ importa uma feature sem SPEC e expande dados pessoais (LGPD/SPEC-054). Só faz s
   `TRUSTED_PROXY_IP_HEADER` (obrigatória em produção), além de envs de e-mail e storage; e `REDIS_URL` se houver mais de uma
   instância (senão o rate limit não é compartilhado). Sem `CRON_SECRET` nada avança (sequências, criativos, busca, purga de conta).
 
+## 4b. Fora do escopo: app móvel
+
+Decisão do usuário (2026-10-11): **o projeto é só web**. As SPECs 021, 022 e 023 (API `/api/mobile/v1`: login, métricas e alertas/push) já
+estão implementadas e testadas (`src/lib/mobile/`), mas ficam **fora do escopo atual**: sem manutenção e sem validação em aparelho. O app
+móvel mora em outro repositório (`../mobile`, que não existe neste ambiente). As SPECs 024 a 026 nunca existiram aqui. Nenhuma SPEC nova
+depende da API móvel. O item I5 do ROTEIRO (app móvel) não é mais pendência. Remover o código é uma decisão futura, não feita.
+
 ## 5. Riscos conhecidos atuais (não bloqueiam, mas não esqueça)
 
 - Sem `REDIS_URL` (ou com o Redis fora do ar) os limiters caem para **memória por processo**: zeram ao reiniciar e não valem entre
@@ -161,7 +168,7 @@ bloqueio salvo não valia logo após reiniciar; (2) "Aprovar em lote" sem e-mail
 conexão" aparecia para o Claude sem URL; (4) o roteiro dizia que o botão de cancelar fica desabilitado (na verdade valida e mostra erro).
 **Não testado** (precisa de chave/serviço real ou de preparo que não fiz): chamadas reais ao Google Places (N2-N7), Ollama/Gemini/Groq reais
 (L2, L5, L9), SMTP caído (J15, K9), convite com mesmo e-mail (J13), aprovar/enviar sem verificar (J5-J7, só testes automáticos), K2, K6-K8,
-H8-H12, I10, app móvel (I5), M1/M4/M6, dark mode e teclado das páginas públicas, leitor de tela.
+H8-H12, I10, M1/M4/M6, dark mode e teclado das páginas públicas, leitor de tela.
 **Atenção local:** se você tem um Redis instalado no Mac (Homebrew), ele pode ocupar `localhost:6379` no lugar do container
 `leadforge-redis-1`; confira com `lsof -nP -iTCP:6379 -sTCP:LISTEN`.
 
