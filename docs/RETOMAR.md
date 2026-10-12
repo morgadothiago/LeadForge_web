@@ -195,7 +195,12 @@ ROTEIRO à mão (desktop e 390px). Não há SPEC em aberto.
 **Etapa 2: produção no ar (em andamento)**
 1. ~~Postgres (Neon) e Redis (Upstash) na nuvem.~~ Feito. 2. **E-mail real com domínio verificado (9.5):** falta; confira se `SMTP_*`
 na Vercel não são o placeholder de dev. 3. **Arquivos:** `STORAGE_PROVIDER=azure` + Azure Blob (9.6); sem isso `/criativos` dá 503.
-4. **Cobrança real:** `PAYMENT_PROVIDER=abacatepay` + chaves + webhook em `/api/billing/webhook` (9.7); sem isso segue em **mock**.
+4. **Cobrança (AbacatePay, dev mode):** conferido em 2026-10-11: **não há** `PAYMENT_PROVIDER` nem `ABACATEPAY_*` na Vercel, então o
+checkout segue em **mock**. Falta: cadastrar o webhook no painel (`https://lead-forge-web-omega.vercel.app/api/billing/webhook`) com o
+segredo, gravar `PAYMENT_PROVIDER=abacatepay`, `ABACATEPAY_API_KEY` (chave de dev) e `ABACATEPAY_WEBHOOK_SECRET` na Vercel e redeploy
+(9.7). O segredo do webhook foi gerado em arquivo local (scratchpad da sessão; apague depois de usar). O PR #10 corrige o
+`envSchema`, que rejeitava `abacatepay` (bug latente, nada o chamava). Ainda não validado com o AbacatePay real: recibo
+(`amount`, `paidAt`, `card.lastDigits`) e falha de cartão (Q-052-5).
 5. Opcionais: Google Places (`LEAD_SEARCH_ENABLED=true`, 9.9) e chave de LLM no painel. 6. Roteiro de 12 itens (9.10).
 O WhatsApp (Evolution) e o avatar real continuam de fora.
 
