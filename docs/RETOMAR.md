@@ -180,7 +180,15 @@ Contas de teste no banco de dev: `claude.a*@testes-claude.local` (senha de teste
 **Onde estamos (2026-10-11):** `main` com as SPECs 048 a 060 e a 045 (react-hook-form; QA APPROVED, `next build` ok, vitest 2055 verde),
 E2E em navegador real e Fase 9. **Produção no ar na Vercel** (`https://lead-forge-web-omega.vercel.app`, sem domínio próprio): `/` e
 `/login` respondem 200; no build, "43 migrations found, no pending" e seed em modo produção (só planos e admin). Falta o bloco O do
-ROTEIRO à mão (desktop e 390px). Não há SPEC em aberto.
+ROTEIRO à mão (desktop e 390px). Não há SPEC em implementação; há SPECs em DRAFT (061 e 062, abaixo).
+
+**SPEC-062 em DRAFT (aguardando `APROVAR SPEC-062`)**: `specs/62-cadastro-sem-trial-plano-obrigatorio/spec.md`. **A decisão de produto veio do
+usuário (2026-10-11)**: (1) `/signup` cria só o usuário (nome, e-mail, senha); criar/participar de organização é ação interna da área logada;
+(2) **não existe trial de 14 dias** (remover a funcionalidade); (3) sem assinatura o usuário vai para escolher plano + checkout (AbacatePay) e só
+depois de pagar cria a organização; (4) convite ou código de org que já tem assinatura entra sem pagar. O resto da SPEC (casca de cobrança,
+estados, guards, migração dos trials existentes, limpeza) é INFERRED. Perguntas abertas que bloqueiam: Q-062-1 (como ligar o pagamento a uma org
+que ainda não existe), Q-062-2 (há trials reais? política dos existentes), Q-062-7 (cobrança `mock` em produção). Achado: hoje uma org em trial
+**nunca expira** (`computeOrgStatus` ignora `trialEndsAt`). Nada foi implementado, nenhuma migration criada.
 
 **Etapa 1: destravar o deploy (FEITA em 2026-10-11, com 3 pendências suas)**
 - Vercel (Production) com: `DATABASE_URL`, `DATABASE_URL_UNPOOLED`, `AUTH_SECRET`, `AUTH_URL`, `ENCRYPTION_KEY`, `CRON_SECRET`,
