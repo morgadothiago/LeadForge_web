@@ -379,6 +379,9 @@ Testar em `/signup`, em `/convite/[token]` (usuário novo) e em `/redefinir-senh
 
 Cortesia e admin da plataforma **não mudam**: entram direto, sem `/assinar`.
 
+## U. Efeito da caixa de atendimento no envio automático (SPEC-068a)
+Quando a caixa estiver no ar: o limite diário de cada número agora guarda cerca de 20% para respostas manuais (limite 30 -> o automático envia até 24; limite 10 -> até 8; abaixo de 5 não reserva). Confira que o envio automático segue respeitando a janela, a pausa e o aquecimento e que uma resposta manual recente (menos de 3 s) adia o automático.
+
 ## Se algo falhar, me mande
 
 1. O passo (ex.: `B5`), o e-mail logado e a URL.

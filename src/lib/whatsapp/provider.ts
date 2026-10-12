@@ -19,12 +19,27 @@ export interface InboundMessage {
   timestamp: Date;
 }
 
+/**
+ * SPEC-068a (D-068-2): eco de mensagem de TEXTO enviada pela NOSSA conta (API ou digitada no celular; Evolution: `messages.upsert` com `fromMe=true`).
+ * PENDENTE: o envio de `fromMe` pela Evolution v2.1.1 não foi verificado contra a instância real.
+ */
+export interface OutboundEchoMessage {
+  kind: "outbound_echo";
+  instanceName: string;
+  /** Telefone do DESTINATÁRIO em E.164 BR. */
+  to: string;
+  text: string;
+  /** Id da mensagem no provider (idempotência; igual ao `externalId` devolvido por `sendText` quando enviada pela API). */
+  externalId: string;
+  timestamp: Date;
+}
+
 export type StatusEvent =
   | { kind: "connection"; instanceName: string; status: ConnectionState; /** Logout real confirmado pelo provider (Evolution: statusReason 401/loggedOut). */ loggedOut?: boolean }
   | { kind: "qrcode"; instanceName: string; qrCode: string }
   | { kind: "message_status"; instanceName: string; externalId: string; status: "sent" | "delivered" | "read" | "failed" };
 
-export type WebhookEvent = InboundMessage | StatusEvent;
+export type WebhookEvent = InboundMessage | OutboundEchoMessage | StatusEvent;
 
 export interface CreateInstanceInput {
   instanceName: string;
@@ -77,7 +92,7 @@ export interface WhatsAppProvider {
   ping?(): Promise<void>;
   deleteInstance?(instanceName: string): Promise<void>;
   logoutInstance?(instanceName: string): Promise<void>;
-  /** null = evento ignorado (grupo, fromMe, tipo sem texto, evento desconhecido). Payload malformado -> AppError validation. */
+  /** null = evento ignorado (grupo, tipo sem texto, evento desconhecido). `fromMe` de texto vira `outbound_echo` (SPEC-068a). Payload malformado -> AppError validation. */
   parseWebhook(request: Request): Promise<WebhookEvent | null>;
   /** (Re)configura o webhook da instância no provider (rotação de token). Lança se o provider recusar. */
   configureWebhook(input: ConfigureWebhookInput): Promise<void>;

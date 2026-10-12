@@ -126,9 +126,15 @@ describe("EvolutionProvider webhook", () => {
     const r = await setup([]).p.parseWebhook(hook({ ...upsert({ key: { id: "M2", remoteJid: "5511988887777@s.whatsapp.net" }, message: { extendedTextMessage: { text: "oi" } } }), event: "MESSAGES_UPSERT" }));
     expect(r).toMatchObject({ kind: "inbound", text: "oi", pushName: null });
   });
-  it("ignora fromMe, grupos, sem texto, JID não-BR e eventos desconhecidos", async () => {
+  it("fromMe de texto vira evento neutro outbound_echo (SPEC-068a); sem texto ou de grupo = ignorado", async () => {
     const { p } = setup([]);
-    expect(await p.parseWebhook(hook(upsert({ key: { id: "1", remoteJid: "5511988887777@s.whatsapp.net", fromMe: true }, message: { conversation: "x" } })))).toBeNull();
+    const echo = await p.parseWebhook(hook(upsert({ key: { id: "E1", remoteJid: "5511988887777@s.whatsapp.net", fromMe: true }, message: { conversation: "resposta" }, messageTimestamp: 1781000000 })));
+    expect(echo).toMatchObject({ kind: "outbound_echo", to: "+5511988887777", text: "resposta", externalId: "E1", timestamp: new Date(1781000000 * 1000) });
+    expect(await p.parseWebhook(hook(upsert({ key: { id: "E2", remoteJid: "5511988887777@s.whatsapp.net", fromMe: true }, message: { imageMessage: {} } })))).toBeNull();
+    expect(await p.parseWebhook(hook(upsert({ key: { id: "E3", remoteJid: "1203630@g.us", fromMe: true }, message: { conversation: "x" } })))).toBeNull();
+  });
+  it("ignora grupos, sem texto, JID não-BR e eventos desconhecidos", async () => {
+    const { p } = setup([]);
     expect(await p.parseWebhook(hook(upsert({ key: { id: "1", remoteJid: "1203630@g.us" }, message: { conversation: "x" } })))).toBeNull();
     expect(await p.parseWebhook(hook(upsert({ key: { id: "1", remoteJid: "5511988887777@s.whatsapp.net" }, message: { imageMessage: {} } })))).toBeNull();
     expect(await p.parseWebhook(hook(upsert({ key: { id: "1", remoteJid: "14155550100@s.whatsapp.net" }, message: { conversation: "x" } })))).toBeNull();

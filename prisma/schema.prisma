@@ -177,6 +177,8 @@ model Organization {
   mobileAlerts         MobileAlert[]
   leadSourceBindings   LeadSourceBinding[]
   storedFiles          StoredFile[]
+  waConversations      WaConversation[]
+  waMessages           WaMessage[]
   creatives            Creative[]
   creativeJobs         CreativeJob[]
 
@@ -220,6 +222,7 @@ model User {
   memberships             Membership[]
   passwordResetTokens     PasswordResetToken[]
   storedFiles             StoredFile[]
+  waMessagesSent          WaMessage[]
   /// SPEC-049 (D-049-4): ultima org ativa do usuario (sem FK de proposito — validada contra Membership no login; backfill idempotente).
   lastOrgId               String?
   orgInvitesCreated       OrgInvite[]              @relation("OrgInviteCreatedBy")
@@ -343,9 +346,9 @@ model Campaign {
 }
 
 model Lead {
-  id                String         @id @default(uuid())
+  id                String           @id @default(uuid())
   campaignId        String
-  campaign          Campaign       @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  campaign          Campaign         @relation(fields: [campaignId], references: [id], onDelete: Cascade)
   name              String
   company           String?
   email             String?
@@ -353,33 +356,34 @@ model Lead {
   website           String?
   linkedin          String?
   source            String?
-  score             Float          @default(0)
+  score             Float            @default(0)
   tags              String[]
   rawData           Json?
-  sequenceStatus    SequenceStatus @default(not_started)
-  currentStepOrder  Int            @default(0)
+  sequenceStatus    SequenceStatus   @default(not_started)
+  currentStepOrder  Int              @default(0)
   nextTouchAt       DateTime?
   /// SPEC-013: instante do 1º toque da sequência (âncora de nextTouchAt = início + step.day). null = ainda não começou.
   sequenceStartedAt DateTime?
   repliedAt         DateTime?
   optedOutAt        DateTime?
-  possibleOptOut    Boolean        @default(false)
-  timezone          String         @default("America/Sao_Paulo")
+  possibleOptOut    Boolean          @default(false)
+  timezone          String           @default("America/Sao_Paulo")
   hasWhatsapp       Boolean?
   whatsappCheckedAt DateTime?
-  createdAt         DateTime       @default(now())
-  updatedAt         DateTime       @updatedAt
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
   touches           Touch[]
   opportunities     Opportunity[]
   meetings          Meeting[]
   notes             LeadNote[]
   /// SPEC-019: estado de agentes de IA por lead. handoffAt != null = agente parou (handoff ou humano assumiu).
-  agentTurns        Int            @default(0)
+  agentTurns        Int              @default(0)
   handoffAt         DateTime?
   handoffReason     String?
-  needsHuman        Boolean        @default(false)
+  needsHuman        Boolean          @default(false)
   agentRuns         AgentRun[]
   drafts            Draft[]
+  waConversations   WaConversation[]
 
   @@unique([campaignId, email])
   @@unique([campaignId, phone])
@@ -454,6 +458,7 @@ model Touch {
   whatsappInstance   WhatsAppInstance? @relation(fields: [whatsappInstanceId], references: [id], onDelete: SetNull)
   createdAt          DateTime          @default(now())
   updatedAt          DateTime          @default(now()) @updatedAt
+  waMessages         WaMessage[]
 
   @@unique([leadId, stepId])
   @@index([leadId, createdAt])
@@ -564,6 +569,8 @@ model WhatsAppInstance {
   campaigns       Campaign[]
   touches         Touch[]
   alerts          InstanceAlert[]
+  waConversations WaConversation[]
+  waMessages      WaMessage[]
 
   @@index([orgId])
 }
@@ -946,25 +953,25 @@ model Draft {
 
 /// SPEC-015: log de execução da busca de leads por IA/fonte oficial. Sem PII: só contadores.
 model SearchRun {
-  id         String    @id @default(uuid())
-  campaignId String
-  campaign   Campaign  @relation(fields: [campaignId], references: [id], onDelete: Cascade)
-  source     String
-  trigger    String    @default("manual")
-  status     String    @default("running")
-  requests   Int       @default(0)
-  found      Int       @default(0)
-  created    Int       @default(0)
-  duplicate  Int       @default(0)
-  suppressed Int       @default(0)
-  invalid    Int       @default(0)
-  error      String?
-  startedAt  DateTime  @default(now())
-  finishedAt DateTime?
+  id          String    @id @default(uuid())
+  campaignId  String
+  campaign    Campaign  @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  source      String
+  trigger     String    @default("manual")
+  status      String    @default("running")
+  requests    Int       @default(0)
+  found       Int       @default(0)
+  created     Int       @default(0)
+  duplicate   Int       @default(0)
+  suppressed  Int       @default(0)
+  invalid     Int       @default(0)
+  error       String?
+  startedAt   DateTime  @default(now())
+  finishedAt  DateTime?
   /// SPEC-060: cursor da paginacao (so em run `done`): proximo nextPageToken, query usada e indice da variacao.
   pageToken   String?
   searchQuery String?
-  variant     Int     @default(0)
+  variant     Int       @default(0)
 
   @@index([campaignId, startedAt])
 }
@@ -1021,23 +1028,23 @@ model MobileAlert {
 /// SPEC-033: catalogo de planos (gerido pelo platform_admin; sem endpoint de gestao nesta SPEC, cadastrado via seed).
 /// D-33-2: precos/limites sao PLACEHOLDER ate confirmacao explicita do usuario antes do launch.
 model Plan {
-  id                   String         @id @default(uuid())
+  id                   String           @id @default(uuid())
   /// Slug estavel usado no codigo (ex. "starter"/"pro"/"business"). Nunca muda depois de criado.
-  key                  String         @unique
+  key                  String           @unique
   name                 String
   priceMonthlyCents    Int
   priceYearlyCents     Int?
   /// PLACEHOLDER (D-33-2): ex. {"maxCampaigns":3,"maxWhatsappInstances":1,"maxLeadsPerMonth":500}. SPEC-065: chaves opcionais `maxEmailAccounts`/`maxSendsPerDay`; `null`/ausente = ilimitado; aplicado no codigo (`src/lib/billing/limits.ts`).
   limits               Json
   /// Permite descontinuar o plano sem apagar historico (assinaturas existentes continuam validas).
-  active               Boolean        @default(true)
+  active               Boolean          @default(true)
   /// null com PAYMENT_PROVIDER=mock (sem conta Stripe ainda, D-33-5); preenchido quando o adapter Stripe for ativado.
   stripePriceIdMonthly String?
   stripePriceIdYearly  String?
   /// D-33-2: Business e "sob consulta", sem checkout self-service (createCheckoutSession recusa este key).
-  selfServiceCheckout  Boolean        @default(true)
-  createdAt            DateTime       @default(now())
-  updatedAt            DateTime       @updatedAt
+  selfServiceCheckout  Boolean          @default(true)
+  createdAt            DateTime         @default(now())
+  updatedAt            DateTime         @updatedAt
   subscriptions        Subscription[]
   billingProducts      BillingProduct[]
 }
@@ -1246,6 +1253,7 @@ model StoredFile {
   deletedAt          DateTime?
   creativeVideos     Creative[]         @relation("CreativeVideoFile")
   creativeThumbnails Creative[]         @relation("CreativeThumbnailFile")
+  waMessages         WaMessage[]
 
   @@index([orgId, category, createdAt])
 }
@@ -1386,4 +1394,99 @@ model BillingCharge {
   @@unique([provider, externalId])
   @@index([orgId, createdAt(sort: Desc), id])
   @@index([orgId, status])
+}
+
+/// SPEC-068a (D-068-1): caixa de atendimento de WhatsApp. `Touch` continua sendo o motor da sequencia; estas duas tabelas sao a fonte da caixa.
+enum WaConversationStatus {
+  waiting
+  attending
+  closed
+}
+
+enum WaMessageDirection {
+  inbound
+  outbound
+}
+
+/// `device` = enviada pelo celular do dono (eco `fromMe` do provider).
+enum WaMessageOrigin {
+  lead
+  automation
+  manual
+  device
+}
+
+enum WaMessageKind {
+  text
+  image
+  audio
+  document
+  video
+  other
+}
+
+enum WaMessageStatus {
+  sending
+  sent
+  delivered
+  read
+  failed
+}
+
+/// 1 conversa por instancia + numero. `orgId` SEMPRE preenchido pelo servidor. `lastInboundAt` = base da politica de 24h do manual.
+model WaConversation {
+  id                   String               @id @default(uuid())
+  orgId                String
+  org                  Organization         @relation(fields: [orgId], references: [id], onDelete: Restrict)
+  whatsappInstanceId   String
+  whatsappInstance     WhatsAppInstance     @relation(fields: [whatsappInstanceId], references: [id], onDelete: Cascade)
+  leadId               String
+  lead                 Lead                 @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  contactPhone         String
+  status               WaConversationStatus @default(waiting)
+  unreadCount          Int                  @default(0)
+  lastMessageAt        DateTime
+  lastInboundAt        DateTime?
+  lastMessagePreview   String?
+  lastMessageDirection WaMessageDirection?
+  createdAt            DateTime             @default(now())
+  updatedAt            DateTime             @updatedAt
+  messages             WaMessage[]
+
+  @@unique([whatsappInstanceId, contactPhone])
+  @@index([orgId, status, lastMessageAt(sort: Desc)])
+  @@index([orgId, leadId])
+}
+
+model WaMessage {
+  id                 String             @id @default(uuid())
+  orgId              String
+  org                Organization       @relation(fields: [orgId], references: [id], onDelete: Restrict)
+  conversationId     String
+  conversation       WaConversation     @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  whatsappInstanceId String
+  whatsappInstance   WhatsAppInstance   @relation(fields: [whatsappInstanceId], references: [id], onDelete: Cascade)
+  direction          WaMessageDirection
+  origin             WaMessageOrigin
+  kind               WaMessageKind      @default(text)
+  body               String             @default("")
+  externalId         String?
+  clientMessageId    String?
+  status             WaMessageStatus
+  error              String?
+  sentByUserId       String?
+  sentBy             User?              @relation(fields: [sentByUserId], references: [id], onDelete: SetNull)
+  touchId            String?
+  touch              Touch?             @relation(fields: [touchId], references: [id], onDelete: SetNull)
+  attachmentFileId   String?
+  attachmentFile     StoredFile?        @relation(fields: [attachmentFileId], references: [id], onDelete: SetNull)
+  attachmentName     String?
+  attachmentMime     String?
+  attachmentSize     Int?
+  messageAt          DateTime
+  createdAt          DateTime           @default(now())
+
+  @@unique([whatsappInstanceId, externalId])
+  @@unique([orgId, clientMessageId])
+  @@index([conversationId, messageAt(sort: Desc), id(sort: Desc)])
 }

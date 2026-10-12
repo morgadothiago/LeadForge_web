@@ -58,6 +58,9 @@ const DIRECT_ORG_MODELS = [
   // SPEC-051: criativos de video com avatar IA (orgId obrigatorio; so org ativa da sessao).
   "creative",
   "creativeJob",
+  // SPEC-068a: caixa de atendimento de WhatsApp (orgId obrigatorio, preenchido pelo servidor).
+  "waConversation",
+  "waMessage",
 ] as const;
 
 /** Modelos sem `orgId` próprio: caminho de relação (nomes de campo do Prisma, não de tabela) até um modelo de DIRECT_ORG_MODELS. */

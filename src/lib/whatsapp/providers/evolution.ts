@@ -5,7 +5,7 @@ import { createHttpClient, type RetryOptions } from "@/lib/http";
 import { AppError } from "@/lib/errors";
 import { normalizeBrPhone } from "@/lib/domain/phone";
 import type {
-  ConfigureWebhookInput, ConnectionState, NumberCheck, CreateInstanceInput, CreateInstanceResult, InboundMessage, QrResult, SendTextInput, SendTextResult, StatusEvent,
+  ConfigureWebhookInput, ConnectionState, NumberCheck, CreateInstanceInput, CreateInstanceResult, InboundMessage, OutboundEchoMessage, QrResult, SendTextInput, SendTextResult, StatusEvent,
   WebhookEvent, WhatsAppProvider,
 } from "../provider";
 
@@ -187,7 +187,7 @@ export class EvolutionProvider implements WhatsAppProvider {
       const d = upsertData.safeParse(data);
       if (!d.success) throw badWebhook();
       const { key, message, pushName, messageTimestamp } = d.data;
-      if (key.fromMe || key.remoteJid.endsWith("@g.us")) return null;
+      if (key.remoteJid.endsWith("@g.us")) return null;
       const from = jidToE164(key.remoteJid);
       const text = message?.conversation || message?.extendedTextMessage?.text;
       if (!from || !text) return null;
@@ -201,10 +201,12 @@ export class EvolutionProvider implements WhatsAppProvider {
         ?? (hasTs
           ? `h_${sha(`${key.remoteJid}|${messageTimestamp}|${text}|${Math.floor(this.clock() / 2000)}`).toString("hex").slice(0, 32)}`
           : `r_${randomUUID()}`);
-      const msg: InboundMessage = {
-        kind: "inbound", instanceName, from, pushName: pushName ?? null, text, externalId,
-        timestamp: hasTs ? new Date(ts * 1000) : new Date(this.clock()),
-      };
+      const timestamp = hasTs ? new Date(ts * 1000) : new Date(this.clock());
+      if (key.fromMe) {
+        // SPEC-068a: eco do que enviamos (API ou celular). PENDENTE: `fromMe` em `messages.upsert` não verificado contra a v2.1.1 real.
+        return { kind: "outbound_echo", instanceName, to: from, text, externalId, timestamp } satisfies OutboundEchoMessage;
+      }
+      const msg: InboundMessage = { kind: "inbound", instanceName, from, pushName: pushName ?? null, text, externalId, timestamp };
       return msg;
     }
     if (event === "connection.update") {

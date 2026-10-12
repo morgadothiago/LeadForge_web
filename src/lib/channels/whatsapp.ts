@@ -5,6 +5,9 @@ import { renderTemplate } from "@/lib/templates/render";
 import { getWhatsAppProvider, type WhatsAppProvider } from "@/lib/whatsapp/provider";
 import { earliestInWindow, isWithinSendWindow, nextWindowStart, startOfLocalDay, startOfNextLocalDay } from "@/lib/whatsapp/send-window";
 import { nextAllowedSendAt } from "@/lib/whatsapp/rate";
+import { MANUAL_MIN_GAP_MS, manualReserve } from "@/lib/inbox/constants";
+import { inboxErrorForLog } from "@/lib/inbox/text";
+import { recordAutomationMessage } from "@/lib/inbox/record";
 import { findSuppression, SUPPRESSED_MESSAGE } from "@/lib/domain/suppression";
 import { expandSpintax } from "@/lib/templates/spintax";
 import { effectiveDailyLimit } from "@/lib/whatsapp/warmup";
@@ -185,20 +188,30 @@ async function doSend(touchId: string, now: Date, opts: SendWhatsAppOptions): Pr
   }
 
   const since = startOfDaySP(now);
-  const [count, recent] = await Promise.all([
+  const [count, manualToday, recent] = await Promise.all([
     prisma.touch.count({ where: { whatsappInstanceId: instance.id, channel: "whatsapp", direction: "outbound", sentAt: { gte: since, lt: new Date(since.getTime() + DAY_MS) } } }),
+    // SPEC-068a (D-068-5): respostas manuais da caixa também gastam o limite diário da instância (não são Touch).
+    prisma.waMessage.count({ where: { whatsappInstanceId: instance.id, origin: "manual", direction: "outbound", status: { not: "failed" }, messageAt: { gte: since, lt: new Date(since.getTime() + DAY_MS) } } }),
     prisma.touch.findMany({
       where: { whatsappInstanceId: instance.id, channel: "whatsapp", direction: "outbound", sentAt: { not: null, gte: new Date(now.getTime() - 3600_000) } },
       orderBy: { sentAt: "desc" }, take: 6, select: { sentAt: true },
     }),
   ]);
   // Aquecimento: efetivo = min(teto, rampa por idade da instância); excedente vai para o dia seguinte.
-  if (count >= effectiveDailyLimit(instance.dailyLimit, instance.warmupStartedAt, now, instance.health)) {
+  // SPEC-068a (D-068-5): o automático deixa ~20% do limite efetivo livre para respostas manuais e nunca passa do teto somando o manual.
+  const effLimit = effectiveDailyLimit(instance.dailyLimit, instance.warmupStartedAt, now, instance.health);
+  if (count >= effLimit - manualReserve(effLimit) || count + manualToday >= effLimit) {
     return defer(touchId, earliestInWindow(lead.timezone, nextSendWindow(now)), "daily_limit", "Limite diário da instância atingido; reagendado.");
   }
 
   const allowedAt = nextAllowedSendAt(recent.map((r) => r.sentAt!), now, opts.rng);
   if (allowedAt.getTime() > now.getTime()) return defer(touchId, earliestInWindow(lead.timezone, allowedAt), "min_interval");
+  // SPEC-068a (D-068-5): espaçamento mínimo de 3 s também entre uma resposta manual recente e o automático.
+  const lastManual = await prisma.waMessage.findFirst({
+    where: { whatsappInstanceId: instance.id, origin: "manual", direction: "outbound", messageAt: { gt: new Date(now.getTime() - MANUAL_MIN_GAP_MS) } },
+    orderBy: { messageAt: "desc" }, select: { messageAt: true },
+  });
+  if (lastManual) return defer(touchId, earliestInWindow(lead.timezone, new Date(lastManual.messageAt.getTime() + MANUAL_MIN_GAP_MS)), "min_interval");
 
   // Última checagem: inbound pode ter chegado entre a reserva e o envio. Relê o lead do banco; provider NÃO é chamado.
   if (await leadStopped(lead.id, touch.createdAt, closerBypass)) return skip("replied");
@@ -209,6 +222,12 @@ async function doSend(touchId: string, now: Date, opts: SendWhatsAppOptions): Pr
       where: { id: touchId },
       data: { status: "sent", sentAt: now, externalId: res.externalId, error: null, whatsappInstanceId: instance.id, content: body.text },
     });
+    // SPEC-068a (D-068-2): espelha na caixa. Best effort e FORA da escrita do Touch: falha aqui nunca falha nem reenvia o envio (a mensagem já saiu).
+    try {
+      await recordAutomationMessage(prisma, { id: instance.id, orgId: instance.orgId }, { leadId: lead.id, phone: phone.e164, touchId, text: body.text, externalId: res.externalId, at: now });
+    } catch (inboxErr) {
+      console.error(`[whatsapp] touch ${touchId}: falha ao gravar a caixa de atendimento (ignorada).`, inboxErrorForLog(inboxErr));
+    }
     await evaluateInstanceHealth(instance.id, now);
     return { status: "sent", externalId: res.externalId, instanceId: instance.id };
   } catch (e) {

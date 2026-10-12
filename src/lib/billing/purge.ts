@@ -40,6 +40,9 @@ export async function purgeCanceledOrgs(now: Date): Promise<PurgeResult> {
       await db.lead.updateMany({ data: { name: ANON_NAME, email: null, phone: null, website: null, linkedin: null, rawData: Prisma.DbNull } });
       await db.touch.updateMany({ data: { content: null, subject: null } });
       await db.leadNote.updateMany({ data: { body: ANON_NOTE } });
+      // SPEC-068a: a caixa de atendimento também guarda conteúdo de conversas (corpo e prévia): anonimiza junto.
+      await db.waMessage.updateMany({ data: { body: "", error: null, attachmentName: null } });
+      await db.waConversation.updateMany({ data: { lastMessagePreview: null } });
       // SPEC-050: remove tambem os blobs `orgs/{orgId}/`. Org com arquivos e storage indisponivel => erro (nao marca
       // purgedAt; o proximo tick tenta de novo). Org sem arquivos e storage nao configurado => segue normalmente.
       try {

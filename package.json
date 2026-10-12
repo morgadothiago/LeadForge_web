@@ -20,7 +20,8 @@
     "secrets:reencrypt": "tsx src/scripts/reencrypt-secrets.ts",
     "billing:purge": "tsx src/scripts/purge-canceled-orgs.ts",
     "billing:trials-report": "tsx src/scripts/legacy-trials-report.ts",
-    "org:backfill-last": "tsx src/scripts/backfill-last-org.ts"
+    "org:backfill-last": "tsx src/scripts/backfill-last-org.ts",
+    "inbox:backfill": "tsx src/scripts/inbox-backfill.ts"
   },
   "dependencies": {
     "@azure/communication-email": "^1.1.0",

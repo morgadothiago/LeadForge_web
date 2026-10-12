@@ -93,3 +93,6 @@ Sem garantia contra banimento; limites do WhatsApp nao sao publicos e podem muda
 ### Verificacao E2E 2026-09-19
 - `checkNumbers` real: NAO VERIFICAVEL (timeout com instancia nao pareada; ver SPEC-011). Formatos reais de logout/MESSAGES_UPDATE seguem PENDENTES.
 - Verificado com servicos reais: opt-out por WhatsApp grava `Suppression` (`opt_out_reply`) e encerra a sequencia; janela seg-sex fora do horario reagenda para 09:00 no fuso do lead; instancia desconectada bloqueia envio (`deferred_not_connected`) sem chamar sendText.
+
+## Nota (SPEC-068a, 2026-10-12): reserva para respostas manuais
+O limite diario efetivo da instancia (aquecimento + `dailyLimit`) agora e dividido: o envio automatico usa no maximo `limite - floor(0.2 x limite)` e nunca passa do teto somando as respostas manuais do dia (`WaMessage origin=manual`); para limite efetivo >= 5 isso reduz ~20% da capacidade automatica (6->5, 10->8, 30->24). Abaixo de 5 (dias 1-3 do aquecimento: 3/dia) nao ha reserva. Tambem ha espacamento minimo de 3 s entre uma resposta manual e o envio automatico. Janela, supressao, cadencia e demais regras desta SPEC nao mudaram.

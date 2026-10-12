@@ -174,7 +174,7 @@ describe("MESSAGES_UPSERT: resposta (D4)", () => {
     expect((await again.json()).result).toBe("duplicate");
     expect((await state(lead.id)).inbound).toHaveLength(1);
   });
-  it("fromMe e grupos são ignorados", async () => {
+  it("fromMe (eco) não é resposta de lead e grupos são ignorados", async () => {
     const { lead } = await mkLead();
     expect((await call(TOKEN, upsert("oi", {}, { fromMe: true }))).status).toBe(200);
     expect((await call(TOKEN, upsert("oi", {}, { remoteJid: "120363@g.us" }))).status).toBe(200);

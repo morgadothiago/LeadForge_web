@@ -11,7 +11,9 @@ export type OrgAuditAction =
   | "member_removed"
   | "role_changed"
   | "join_code_generated"
-  | "join_code_disabled";
+  | "join_code_disabled"
+  // SPEC-068a: resposta manual na caixa de atendimento (meta SEM texto e SEM telefone).
+  | "inbox_manual_sent";
 
 type Db = PrismaClient | Prisma.TransactionClient;
 
