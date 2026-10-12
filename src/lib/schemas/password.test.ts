@@ -3,7 +3,7 @@ import { signupSchema } from "./billing";
 import { resetPasswordSchema, loginSchema } from "./auth";
 import { signupJoinSchema, inviteSignupFormSchema } from "./org";
 
-const base = { name: "Ana", email: "ana@x.com" };
+const base = { name: "Ana", email: "ana@x.com", document: "529.982.247-25" };
 const msgs = (r: { success: boolean; error?: { issues: { path: PropertyKey[]; message: string }[] } }) => r.error?.issues.map((i) => `${String(i.path[0])}:${i.message}`) ?? [];
 
 describe("SPEC-064: regra unica de senha (min 6) + confirmacao", () => {

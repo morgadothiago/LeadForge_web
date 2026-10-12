@@ -1,6 +1,7 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { AppError } from "@/lib/errors";
+import { PlanLimitError, activateCampaignWithinLimit } from "@/lib/billing/limits";
 import { verifyPassword } from "@/lib/auth/password";
 import { dispatchDraft, rejectDraft } from "@/lib/agents/drafts";
 import { stopAgentOnManualReply } from "@/lib/agents/lead-state";
@@ -88,7 +89,17 @@ export async function setCampaignStatus(a: MobileAuth, id: string, status: "paus
   if (!c || c.orgId !== orgId) return bad(404, "not_found", "Campanha não encontrada.");
   if (c.status === "archived") return conflict("Campanha arquivada não pode ser pausada nem retomada.");
   // Retomar so muda o status: envios seguem decididos na hora pelo scheduler/politica de envio (SPEC-017: limites, aquecimento, janela).
-  if (c.status !== status) await prisma.campaign.update({ where: { id }, data: { status } });
+  if (c.status !== status) {
+    // SPEC-065 (D-065-18): retomar conta contra maxCampaigns (pausar nunca e barrado).
+    if (status === "active") {
+      try {
+        await activateCampaignWithinLimit(orgId, id, { status });
+      } catch (e) {
+        if (e instanceof PlanLimitError) return conflict(e.message);
+        throw e;
+      }
+    } else await prisma.campaign.update({ where: { id }, data: { status } });
+  }
   return good({ id, status });
 }
 

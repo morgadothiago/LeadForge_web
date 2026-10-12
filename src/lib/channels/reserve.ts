@@ -2,6 +2,9 @@ import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { findSuppression, SUPPRESSED_MESSAGE } from "@/lib/domain/suppression";
 import { EMAIL_NOT_VERIFIED_MESSAGE } from "@/lib/auth/email-verification";
+import { getOrgLimits } from "@/lib/billing/limits";
+import { dayKey, nextBrtDayStart, reserveUsage } from "@/lib/billing/usage";
+import { loadOrgAccess } from "@/lib/billing/org-access";
 import { allowSeedSends, isSeedSource, SEED_BLOCK_MESSAGE } from "@/lib/domain/seed-guard";
 
 /**
@@ -82,4 +85,33 @@ export async function deferUnverifiedBeforeReserve(touchId: string, where: Prism
   const nextAt = new Date(now.getTime() + EMAIL_NOT_VERIFIED_DEFER_MS);
   await prisma.touch.updateMany({ where, data: { status: "scheduled", scheduledAt: nextAt, error: EMAIL_NOT_VERIFIED_MESSAGE } });
   return nextAt;
+}
+
+/** SPEC-065 (D-065-18): mensagens de adiamento por plano (Touch volta a `scheduled`; nao queima tentativa nem encerra a sequencia). */
+export const PLAN_SEND_LIMIT_MESSAGE = "Limite diário de envios do plano atingido; o envio segue no próximo dia.";
+export const TRIAL_EXPIRED_SEND_MESSAGE = "Teste grátis expirado; os envios ficam pausados até assinar um plano.";
+export const TRIAL_EXPIRED_DEFER_MS = 6 * 60 * 60_000;
+
+/**
+ * SPEC-065 (D-065-13.5/18) — PONTO DE ESTRANGULAMENTO do plano, ao lado de `deferUnverifiedBeforeReserve`: todo caller de `sendEmail`/`sendWhatsApp`
+ * (scheduler, agentes, manual) passa aqui ANTES de reservar o Touch. (1) org com teste gratis expirado: NAO envia (adia). (2) `maxSendsPerDay`:
+ * `reserveUsage("sends", dia BRT)` atomico; estourou => ADIA para o proximo dia (nao e falha). A rampa de aquecimento (017) e o `dailyLimit` da conta
+ * continuam valendo depois (vale o MENOR). Devolve o instante da proxima tentativa ou `null` se pode enviar. Cortesia/admin/sem Subscription: sem limite.
+ */
+export async function deferOverPlanBeforeReserve(touchId: string, where: Prisma.TouchWhereInput, now: Date): Promise<{ nextAt: Date; reason: "plan_limit" | "trial_expired" } | null> {
+  const t = await prisma.touch.findUnique({ where: { id: touchId }, select: { lead: { select: { campaign: { select: { orgId: true } } } } } });
+  if (!t) return null;
+  const orgId = t.lead.campaign.orgId;
+  if ((await loadOrgAccess(prisma, orgId, now)) === "trial_expirado") {
+    const nextAt = new Date(now.getTime() + TRIAL_EXPIRED_DEFER_MS);
+    await prisma.touch.updateMany({ where, data: { status: "scheduled", scheduledAt: nextAt, error: TRIAL_EXPIRED_SEND_MESSAGE } });
+    return { nextAt, reason: "trial_expired" };
+  }
+  const limit = (await getOrgLimits(prisma, orgId)).maxSendsPerDay;
+  if (limit === null) return null;
+  const r = await reserveUsage(prisma, orgId, "sends", dayKey(now), 1, limit);
+  if (r.ok) return null;
+  const nextAt = nextBrtDayStart(now);
+  await prisma.touch.updateMany({ where, data: { status: "scheduled", scheduledAt: nextAt, error: PLAN_SEND_LIMIT_MESSAGE } });
+  return { nextAt, reason: "plan_limit" };
 }

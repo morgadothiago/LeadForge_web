@@ -174,7 +174,7 @@ describe("regra unica de cancelamento imediato (action x cancelModeFor, pos-QA 0
   for (const [name, status, end, expected] of cases) {
     it(`${name}: action devolve ${expected} e coincide com cancelModeFor`, async () => {
       const periodEnd = end();
-      await mkSub({ status, currentPeriodEnd: periodEnd, pastDueSince: status === "past_due" ? new Date() : null });
+      await mkSub({ status, currentPeriodEnd: periodEnd, pastDueSince: status === "past_due" ? new Date() : null, ...(status === "trialing" ? { trialEndsAt: new Date(Date.now() + 5 * DAY) } : {}) }); // trial VIGENTE (expirado e bloqueio total, SPEC-065)
       await signInOwner();
       expect(cancelModeFor({ status, currentPeriodEnd: periodEnd }, new Date())).toBe(expected);
       const r = await cancelSubscription();

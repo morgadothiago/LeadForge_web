@@ -17,7 +17,7 @@ import { filterOrganizations, orgInitials, orgStatusLabel, roleLabel } from "./o
  * `switchActiveOrganization` (reemite o JWT) e faz navegação COMPLETA ao destino: recarrega layout, contadores e
  * todo o cache de cliente, para que nenhum dado da org anterior fique em tela.
  */
-export function OrgSwitcher({ organizations }: { organizations: MyOrganization[] }) {
+export function OrgSwitcher({ organizations, restricted = false }: { organizations: MyOrganization[]; restricted?: boolean }) {
   const { isMobile } = useSidebar();
   const [pendingId, setPendingId] = React.useState<string | null>(null);
   const [menuOpen, setMenuOpen] = React.useState(false);
@@ -100,7 +100,7 @@ export function OrgSwitcher({ organizations }: { organizations: MyOrganization[]
               )}
             </div>
             <DropdownMenuSeparator />
-            {active.orgRole === "owner" && (
+            {active.orgRole === "owner" && !restricted && (
               <DropdownMenuItem onClick={() => setInviteOpen(true)}>
                 <UserPlus aria-hidden="true" className="size-4" />
                 Convidar pessoas
@@ -117,7 +117,7 @@ export function OrgSwitcher({ organizations }: { organizations: MyOrganization[]
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
-        {active.orgRole === "owner" && <InviteMemberDialog open={inviteOpen} onOpenChange={setInviteOpen} />}
+        {active.orgRole === "owner" && !restricted && <InviteMemberDialog open={inviteOpen} onOpenChange={setInviteOpen} />}
       </SidebarMenuItem>
     </SidebarMenu>
   );

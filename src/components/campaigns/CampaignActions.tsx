@@ -2,6 +2,8 @@
 import * as React from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
+import { notifyActionError } from "@/components/feedback/notify";
+import { actionErrorInfo } from "@/components/feedback/action-errors";
 import { Archive, Copy, MoreHorizontal, Pause, Play, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
@@ -18,8 +20,7 @@ import { ConfirmDialog } from "./ConfirmDialog";
 
 type Confirm = "archive" | "delete" | null;
 
-const firstError = (r: { ok: false; errors: Record<string, string[]> }): string =>
-  Object.values(r.errors).flat()[0] ?? "Não foi possível concluir a ação.";
+const firstError = (r: { ok: false; errors: Record<string, string[]> }): string => actionErrorInfo(r.errors, "Não foi possível concluir a ação.").message;
 
 export function CampaignActions({
   campaign,
@@ -46,7 +47,7 @@ export function CampaignActions({
       } else if (confirm) {
         setError(firstError(r));
       } else {
-        toast.error(firstError(r));
+        notifyActionError(r.errors, firstError(r));
       }
     });
   }

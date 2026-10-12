@@ -10,10 +10,12 @@ import { listEmailAccounts } from "@/lib/queries/email";
 import { listWhatsAppInstances } from "@/lib/queries/whatsapp";
 import { campaignStatusSchema } from "@/lib/schemas/campaign";
 import { cn } from "@/lib/utils";
+import { redirectIfTrialExpired } from "@/lib/auth/require-page";
 
 export const dynamic = "force-dynamic";
 
 export default async function Page({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
+  await redirectIfTrialExpired(); // SPEC-065 (D-065-13.3): trial expirado => redirect a /configuracoes/assinatura
   const raw = (await searchParams).status;
   const parsed = campaignStatusSchema.safeParse(Array.isArray(raw) ? raw[0] : raw);
   const status = parsed.success ? parsed.data : undefined;

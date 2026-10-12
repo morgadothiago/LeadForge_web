@@ -207,8 +207,9 @@ describe("admin: casca paga", () => {
   });
 });
 
-describe("landing sem trial / gratis / sem cartao (SPEC-062)", () => {
-  const FORBIDDEN = /14 dias|grátis|gratis|gratuit|sem cartão|teste grátis|período de teste|Comece grátis|Comece agora/i;
+describe("landing: teste gratis de 14 dias, sem promessa que nao existe (SPEC-065b, D-065-26)", () => {
+  // O teste TEM limites e acaba: nunca prometer "sem limites", "7 dias", gratis permanente ou o que so existe em mock.
+  const FORBIDDEN = /7 dias|sem limites|gratuit|para sempre|grátis para sempre|cancele quando quiser|Comece agora/i;
   const html = [
     renderToStaticMarkup(<HeroSection />),
     renderToStaticMarkup(<FinalCtaSection />),
@@ -221,11 +222,22 @@ describe("landing sem trial / gratis / sem cartao (SPEC-062)", () => {
   it("nenhum texto proibido", () => {
     expect(html).not.toMatch(FORBIDDEN);
   });
+  it("CTAs: 'Comece 14 dias grátis', sem cartão, limites reduzidos; o que acontece quando o teste acaba", () => {
+    expect(renderToStaticMarkup(<HeroSection />)).toContain("Comece 14 dias grátis");
+    expect(renderToStaticMarkup(<HeroSection />)).toContain("Sem cartão de crédito. Limites reduzidos no teste.");
+    expect(renderToStaticMarkup(<FinalCtaSection />)).toContain("Comece 14 dias grátis");
+    expect(renderToStaticMarkup(<LandingNav initialTheme="light" />)).toContain("Teste grátis");
+    expect(renderToStaticMarkup(<LandingFooter />)).toContain("Teste grátis");
+    const pricing = renderToStaticMarkup(<PricingSection plans={plans} />);
+    expect(pricing).toContain("Teste 14 dias grátis e escolha o plano quando precisar.");
+    expect(pricing).toContain("O que acontece quando o teste acaba?");
+    expect(pricing).toContain("acesso fica pausado");
+    expect(pricing).toContain("Começar 14 dias grátis");
+  });
   it("CTAs levam a /signup; precos levam a /signup?plan&cadence; Business = vendas", () => {
     expect(html).toContain('href="/signup"');
-    expect(html).toContain("Criar conta");
     expect(html).toContain("/signup?plan=starter&amp;cadence=monthly");
-    expect(html).toContain("Assinar Starter");
+    expect(html).toContain("no plano Starter");
     expect(html).toContain("Falar com vendas");
   });
   it("FeaturesSection nao promete lembrete automatico ao lead (SPEC-028 so lembra o usuario)", () => {

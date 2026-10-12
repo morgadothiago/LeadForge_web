@@ -77,10 +77,10 @@ export async function issueVerificationEmail(user: { id: string; email: string }
 }
 
 /** Boas-vindas (#1): idempotente por `welcome:<userId>`, pos-commit, best-effort (nunca lanca). Sem data de trial (D-055-2); SPEC-062: sem trial em lugar nenhum. */
-export async function sendWelcomeEmail(user: { id: string; name: string; email: string }, opts: { hasOrg?: boolean } = {}): Promise<void> {
+export async function sendWelcomeEmail(user: { id: string; name: string; email: string }, opts: { hasOrg?: boolean; trialEndsAt?: Date } = {}): Promise<void> {
   try {
     // SPEC-062: quem se cadastra so com usuario ainda nao tem organizacao => proximo passo = escolher o plano (/assinar).
-    const { subject, html, text } = welcomeTemplate({ name: user.name, link: absoluteAppUrl(opts.hasOrg ? "/dashboard" : "/assinar"), nextStep: opts.hasOrg ? "app" : "plan" });
+    const { subject, html, text } = welcomeTemplate({ name: user.name, link: absoluteAppUrl(opts.hasOrg ? "/dashboard" : "/assinar"), nextStep: opts.hasOrg ? "app" : "plan", trialEndsAt: opts.trialEndsAt });
     await sendOnce({ dedupeKey: `welcome:${user.id}`, scenario: "welcome", to: user.email, subject, html, text, userId: user.id });
   } catch (e) {
     console.error("[welcome] falha:", safeErrorForLog(e));
@@ -88,7 +88,7 @@ export async function sendWelcomeEmail(user: { id: string; name: string; email: 
 }
 
 /** Cadastro self-service novo: boas-vindas + e-mail de verificacao, ambos pos-commit e best-effort. */
-export async function sendSignupEmails(user: { id: string; name: string; email: string }, opts: { verify: boolean; hasOrg?: boolean }): Promise<void> {
-  await sendWelcomeEmail(user, { hasOrg: opts.hasOrg });
+export async function sendSignupEmails(user: { id: string; name: string; email: string }, opts: { verify: boolean; hasOrg?: boolean; trialEndsAt?: Date }): Promise<void> {
+  await sendWelcomeEmail(user, { hasOrg: opts.hasOrg, trialEndsAt: opts.trialEndsAt });
   if (opts.verify) await issueVerificationEmail(user);
 }

@@ -3,7 +3,7 @@
 import { headers } from "next/headers";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { requireProviderOrg, requireProviderUser } from "@/lib/auth/require-admin";
+import { requireProviderOrgAllowExpired, requireProviderUser } from "@/lib/auth/require-admin";
 import { createSession } from "@/lib/auth/session";
 import { hashPassword } from "@/lib/auth/password";
 import { getClientIpKey } from "@/lib/auth/client-ip";
@@ -99,7 +99,7 @@ export interface MyOrganization {
 /** Lista as organizações do usuário (para o seletor). Qualquer papel. */
 export async function listMyOrganizations(): Promise<ActionResult<{ organizations: MyOrganization[]; activeOrgId: string }>> {
   return safeAction(async () => {
-    const { user, orgId } = await requireProviderOrg();
+    const { user, orgId } = await requireProviderOrgAllowExpired(); // SPEC-065 (D-065-13.2): allowlist (o usuario precisa trocar para outra org)
     // SPEC-062 (D-062-5): a casca de cobranca NUNCA aparece na lista/seletor.
     const rows = await prisma.membership.findMany({
       where: { userId: user.id, org: NOT_SHELL },
@@ -116,7 +116,7 @@ export async function listMyOrganizations(): Promise<ActionResult<{ organization
 /** Troca a org ativa: valida a Membership do usuário no destino e reemite o JWT. Org suspensa não impede a troca. */
 export async function switchActiveOrganization(input: unknown): Promise<ActionResult<{ orgId: string; redirectTo: string }>> {
   return safeAction(async () => {
-    const { user } = await requireProviderOrg();
+    const { user } = await requireProviderOrgAllowExpired(); // SPEC-065 (D-065-13.2): allowlist (o usuario precisa trocar para outra org)
     const parsed = switchOrganizationSchema.safeParse(input);
     if (!parsed.success) return failure(zodErrors(parsed.error));
     const m = await prisma.membership.findUnique({
@@ -378,7 +378,7 @@ export async function removeMember(input: unknown): Promise<ActionResult<{ remov
 /** Sai da org ativa. Bloqueia: último owner; única organização do usuário (ficaria sem org para entrar). Reemite o JWT em outra org. */
 export async function leaveOrganization(): Promise<ActionResult<{ orgId: string; redirectTo: string }>> {
   return safeAction(async () => {
-    const { user, orgId } = await requireOrgMember();
+    const { user, orgId } = await requireOrgMember({ allowExpired: true });
     const result = await prisma.$transaction(async (tx) => {
       await lockOrg(tx, orgId);
       const mine = await tx.membership.findMany({ where: { userId: user.id, org: NOT_SHELL }, orderBy: { createdAt: "asc" }, select: { id: true, orgId: true, orgRole: true } });

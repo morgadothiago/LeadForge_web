@@ -40,6 +40,7 @@ import { CANCEL_RETENTION_MS, PAST_DUE_GRACE_MS } from "./status-map";
  */
 
 const TRIAL_WARNING_MS = 3 * 24 * 3600_000;
+const TRIAL_D1_MS = 24 * 3600_000;
 const PURGE_WARNING_MS = CANCEL_RETENTION_MS - 15 * 24 * 3600_000; // 15 dias antes dos 90 dias = 75 dias após canceledAt.
 
 export interface BillingReminderResult {
@@ -70,16 +71,33 @@ async function remind(state: BillingReminderResult, orgId: string, kind: Billing
   }
 }
 
-/** 1. 3 dias antes do fim do trial. */
+/**
+ * 1. Trial: D-3 (`trial_ending`) e D-1 (`trial_ending_d1`) — SPEC-065 (D-065-16): NUNCA depois da expiracao (`trialEndsAt > now`);
+ * e `trial_expired` (1x, ancora `trialEndsAt`) a partir da expiracao. Trial que NASCEU expirado (anti-abuso: e-mail/CPF/IP ja usou o teste,
+ * `trialEndsAt` ~ criacao) NAO recebe "seu teste acabou" (nunca teve teste). Chaves por `BillingReminderLog` (orgId, kind, anchorAt).
+ */
 async function remindTrialEnding(now: Date, state: BillingReminderResult): Promise<void> {
   const threshold = new Date(now.getTime() + TRIAL_WARNING_MS);
   const subs = await prisma.subscription.findMany({
-    where: { status: "trialing", trialEndsAt: { lte: threshold } },
+    where: { status: "trialing", trialEndsAt: { gt: now, lte: threshold } },
     select: { orgId: true, trialEndsAt: true },
   });
   for (const s of subs) {
     if (!s.trialEndsAt) continue;
     await remind(state, s.orgId, "trial_ending", s.trialEndsAt);
+    if (s.trialEndsAt.getTime() - now.getTime() < TRIAL_D1_MS) await remind(state, s.orgId, "trial_ending_d1", s.trialEndsAt);
+  }
+}
+
+async function remindTrialExpired(now: Date, state: BillingReminderResult): Promise<void> {
+  const subs = await prisma.subscription.findMany({
+    where: { status: "trialing", trialEndsAt: { not: null, lte: now } },
+    select: { orgId: true, trialEndsAt: true, createdAt: true },
+  });
+  for (const s of subs) {
+    if (!s.trialEndsAt) continue;
+    if (s.trialEndsAt.getTime() - s.createdAt.getTime() < 24 * 3600_000) continue; // nasceu expirado: nunca teve teste
+    await remind(state, s.orgId, "trial_expired", s.trialEndsAt);
   }
 }
 
@@ -220,6 +238,7 @@ async function remindPurgeWarning(now: Date, state: BillingReminderResult): Prom
 export async function sendBillingReminders(now: Date): Promise<BillingReminderResult> {
   const state: BillingReminderResult = { sent: 0, errors: 0 };
   await remindTrialEnding(now, state);
+  await remindTrialExpired(now, state);
   await remindPastDueStarted(state);
   await remindPastDueLadder(now, state);
   await remindAutoSuspended(now, state);

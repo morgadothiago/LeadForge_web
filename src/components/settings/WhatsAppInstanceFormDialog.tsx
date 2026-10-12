@@ -3,6 +3,7 @@ import * as React from "react";
 import { useRouter } from "next/navigation";
 import { AlertTriangle, Plus } from "lucide-react";
 import { toast } from "sonner";
+import { notifyActionError } from "@/components/feedback/notify";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Controller, useForm } from "react-hook-form";
 import { z } from "zod";
@@ -32,9 +33,12 @@ interface Props {
   onOpenChange?: (o: boolean) => void;
   /** create: chamado com o id/nome da instância criada (abre o QR). */
   onCreated?: (created: { id: string; name: string }) => void;
+  /** SPEC-065b: plano no limite => botao de criar desabilitado, ligado (aria-describedby) ao aviso `LimitNotice`; a barreira real e a action. */
+  createDisabled?: boolean;
+  createDescribedBy?: string;
 }
 
-export function WhatsAppInstanceFormDialog({ mode, instance, open, onOpenChange, onCreated }: Props) {
+export function WhatsAppInstanceFormDialog({ mode, instance, open, onOpenChange, onCreated, createDisabled, createDescribedBy }: Props) {
   const [inner, setInner] = React.useState(false);
   const isOpen = open ?? inner;
   const setOpen = onOpenChange ?? setInner;
@@ -42,7 +46,7 @@ export function WhatsAppInstanceFormDialog({ mode, instance, open, onOpenChange,
   return (
     <>
       {mode === "create" && (
-        <Button onClick={() => setOpen(true)}>
+        <Button onClick={() => setOpen(true)} disabled={createDisabled} aria-describedby={createDisabled ? createDescribedBy : undefined}>
           <Plus /> Nova instância
         </Button>
       )}
@@ -120,7 +124,7 @@ function InstanceForm({ mode, instance, onDone, onCreated }: { mode: "create" | 
         if (mode === "create") onCreated?.({ id: r.data.id, name: v.instanceName });
         return;
       }
-      toast.error(applyServerErrors(r.errors, setError, setFocus, INSTANCE_FIELDS));
+      notifyActionError(r.errors, applyServerErrors(r.errors, setError, setFocus, INSTANCE_FIELDS));
     });
   });
 

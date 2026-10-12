@@ -3,6 +3,7 @@ import * as React from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
+import { notifyActionError } from "@/components/feedback/notify";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm, type FieldPath } from "react-hook-form";
 import { z } from "zod";
@@ -34,6 +35,8 @@ interface Props {
   icps: { id: string; name: string; niche: string }[];
   sequences: { id: string; name: string }[];
   whatsappInstances: { id: string; instanceName: string; status?: "connected" | "connecting" | "disconnected" }[];
+  /** SPEC-065b: plano no limite de campanhas ativas => a campanha nova ja nasce "pausada" (ativar seria barrado pelo backend). */
+  defaultStatus?: "active" | "paused";
 }
 
 const STATUS_OPTIONS = (Object.keys(CAMPAIGN_STATUS_LABELS) as (keyof typeof CAMPAIGN_STATUS_LABELS)[]).map((v) => ({
@@ -80,7 +83,7 @@ function toUpdateInput(v: CampaignFormValues, id: string): z.input<typeof campai
   };
 }
 
-export function CampaignForm({ mode, campaign, icps, sequences, whatsappInstances }: Props) {
+export function CampaignForm({ mode, campaign, icps, sequences, whatsappInstances, defaultStatus = "active" }: Props) {
   const router = useRouter();
   const [icpMode, setIcpMode] = React.useState<"existing" | "new">(icps.length === 0 && mode === "create" ? "new" : "existing");
   const [pending, startTransition] = React.useTransition();
@@ -99,7 +102,7 @@ export function CampaignForm({ mode, campaign, icps, sequences, whatsappInstance
     defaultValues: {
       name: campaign?.name ?? "",
       description: campaign?.description ?? "",
-      status: campaign?.status ?? "active",
+      status: campaign?.status ?? defaultStatus,
       sequenceId: campaign?.sequenceId ?? null,
       whatsappInstanceId: campaign?.whatsappInstanceId ?? null,
       autoStart: campaign?.autoStart ?? false,
@@ -124,8 +127,7 @@ export function CampaignForm({ mode, campaign, icps, sequences, whatsappInstance
       setError(path, { type: "server", message: msgs.join(" ") });
     }
     if (errs._form) setError("root", { type: "server", message: errs._form.join(" ") });
-    const msg = getFormError(errs);
-    toast.error(msg);
+    notifyActionError(errs, getFormError(errs));
     if (first) setFocus(first.replace(/\.\d+$/, "") as FieldPath<CampaignFormValues>);
   }
 

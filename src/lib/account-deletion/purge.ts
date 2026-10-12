@@ -78,6 +78,15 @@ async function anonymize(reqId: string, now: Date): Promise<Outcome> {
           await tx.membership.delete({ where: { id: m.id } });
           const remaining = await tx.membership.count({ where: { orgId: m.orgId } });
           if (remaining > 0) await recordOrgAudit(tx, { orgId: m.orgId, actorUserId: null, action: "member_left", targetUserId: null, meta: { reason: "account_deleted" } });
+          else {
+            // SPEC-065 (D-065-24): org Free em trial sem mais membros e ENCERRADA (assinatura cancelada; org suspensa; retencao/expurgo pelo fluxo existente).
+            // O `TrialClaim` NAO e apagado (excluir e recadastrar nao renova o trial).
+            const sub = await tx.subscription.findUnique({ where: { orgId: m.orgId }, select: { status: true, trialEndsAt: true, plan: { select: { key: true } } } });
+            if (sub?.status === "trialing" && (sub.plan.key === "free" || !sub.trialEndsAt || sub.trialEndsAt.getTime() <= now.getTime())) {
+              await tx.subscription.update({ where: { orgId: m.orgId }, data: { status: "canceled", canceledAt: now } });
+              await tx.organization.update({ where: { id: m.orgId }, data: { status: "suspended", suspendedReason: "automatic" } });
+            }
+          }
         }
         const orgIds = memberships.map((m) => m.orgId);
 

@@ -17,6 +17,7 @@ import { Badge } from "@/components/ui/badge";
 import { SEQUENCE_STATUS_TEXT, isSeedSource, leadSequenceText } from "@/components/sequences/sequence-start-format";
 import { getLead } from "@/lib/queries/leads";
 import { leadIdSchema } from "@/lib/schemas/lead";
+import { redirectIfTrialExpired } from "@/lib/auth/require-page";
 
 export const dynamic = "force-dynamic";
 
@@ -37,6 +38,7 @@ const ext = (u: string | null) =>
   ) : null;
 
 export default async function Page({ params }: { params: Promise<{ id: string }> }) {
+  await redirectIfTrialExpired(); // SPEC-065 (D-065-13.3): trial expirado => redirect a /configuracoes/assinatura
   const { id } = await params;
   if (!leadIdSchema.safeParse(id).success) notFound();
   const lead = await getLead(id);

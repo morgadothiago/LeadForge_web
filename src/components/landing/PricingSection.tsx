@@ -29,7 +29,7 @@ export function PricingSection({ plans }: { plans: PlanView[] }) {
         <div className="mx-auto max-w-2xl text-center">
           <h2 className="font-heading text-3xl font-bold tracking-tight sm:text-4xl">Planos para todo tamanho de time</h2>
           <p className="mt-3 text-base text-muted-foreground sm:text-lg">
-            Escolha o plano ideal e cresça sem trocar de ferramenta.
+            Teste 14 dias grátis e escolha o plano quando precisar.
           </p>
         </div>
 
@@ -61,7 +61,8 @@ export function PricingSection({ plans }: { plans: PlanView[] }) {
                       href={`/signup?plan=${encodeURIComponent(plan.key)}&cadence=${cadence}`}
                       className={cn(buttonVariants({ pill: true }), "w-full")}
                     >
-                      Assinar {plan.name}
+                      Começar 14 dias grátis
+                      <span className="sr-only"> no plano {plan.name}</span>
                     </Link>
                   ) : (
                     <a href={SALES_CONTACT_HREF} className={cn(buttonVariants({ variant: "outline", pill: true }), "w-full")}>
@@ -73,6 +74,14 @@ export function PricingSection({ plans }: { plans: PlanView[] }) {
             ))}
           </div>
         )}
+
+        <div className="mx-auto mt-10 max-w-3xl rounded-2xl border border-border bg-card p-5 text-left sm:p-6">
+          <h3 className="font-heading text-base font-semibold">O que acontece quando o teste acaba?</h3>
+          <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
+            O teste dura 14 dias, sem cartão, com limites reduzidos. Quando termina, o acesso fica pausado e nada é cobrado sozinho. Os seus dados ficam
+            guardados: é só assinar um plano para voltar exatamente de onde parou. Cada pessoa ou empresa tem um único teste.
+          </p>
+        </div>
       </div>
     </section>
   );

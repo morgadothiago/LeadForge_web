@@ -4,7 +4,7 @@ import { randomUUID } from "node:crypto";
 import { headers } from "next/headers";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { ForbiddenError, requireProviderOrg, requireProviderUser } from "@/lib/auth/require-admin";
+import { ForbiddenError, requireProviderOrg, requireProviderOrgAllowExpired, requireProviderUser } from "@/lib/auth/require-admin";
 import { requireUser } from "@/lib/auth/require-user";
 import { createSession } from "@/lib/auth/session";
 import { hashPassword } from "@/lib/auth/password";
@@ -18,12 +18,15 @@ import { isBillingUnavailableError } from "@/lib/billing/provider-errors";
 import { cancelLimiter, cancelSubscriptionForOrg, type SubscriptionChangeResult } from "@/lib/billing/cancel-subscription";
 import { SHELL_NAME, findUserShell, lockUser } from "@/lib/billing/shell";
 import { sendSignupEmails } from "@/lib/auth/email-verification";
+import { parseDocument } from "@/lib/domain/document";
+import { createTrialAccount } from "@/lib/billing/signup-trial";
+import { isDisposableEmailDomain, isKnownIp, trialIpLimiter } from "@/lib/billing/trial-claim";
 import { lockOrg } from "@/lib/org/guards";
 import { recordOrgAudit } from "@/lib/org/audit";
 import { createOrgLimiter } from "@/lib/org/rate-limit";
 import { uniqueOrgSlug } from "@/lib/org/slug";
 import { isAppError, safeErrorForLog } from "@/lib/errors";
-import { checkoutSchema, completeOrgSetupSchema, signupSchema } from "@/lib/schemas/billing";
+import { checkoutSchema, completeOrgSetupSchema, renameOrgSchema, signupSchema } from "@/lib/schemas/billing";
 import { failure, formError, safeAction, success, zodErrors, type ActionResult } from "./result";
 
 /**
@@ -41,8 +44,9 @@ const baseUrl = (): string => (process.env.APP_BASE_URL || process.env.AUTH_URL 
 const signupLimiter = new SlidingLimiter(5, 10 * 60_000, 1000, "billing-signup");
 
 /** Só o `owner` (Membership.orgRole) da org gerencia a assinatura — `member` não inicia checkout nem abre o portal. */
-async function requireOwner(): Promise<{ orgId: string; userId: string }> {
-  const { user, orgId } = await requireProviderOrg();
+/** SPEC-065 (D-065-13.2): `allowExpired` SO para checkout/portal/reativar (a org com trial expirado precisa conseguir pagar). */
+async function requireOwner(opts: { allowExpired?: boolean } = {}): Promise<{ orgId: string; userId: string }> {
+  const { user, orgId } = await (opts.allowExpired ? requireProviderOrgAllowExpired() : requireProviderOrg());
   const membership = await prisma.membership.findUnique({ where: { userId_orgId: { userId: user.id, orgId } }, select: { orgRole: true } });
   if (membership?.orgRole !== "owner") throw new ForbiddenError();
   return { orgId, userId: user.id };
@@ -50,7 +54,7 @@ async function requireOwner(): Promise<{ orgId: string; userId: string }> {
 
 export async function createCheckoutSession(input: unknown): Promise<ActionResult<{ url: string }>> {
   return safeAction(async () => {
-    const { orgId, userId } = await requireOwner();
+    const { orgId, userId } = await requireOwner({ allowExpired: true });
     const parsed = checkoutSchema.safeParse(input);
     if (!parsed.success) return failure(zodErrors(parsed.error));
     const user = await prisma.user.findUniqueOrThrow({ where: { id: userId }, select: { email: true } });
@@ -78,7 +82,7 @@ export async function createCheckoutSession(input: unknown): Promise<ActionResul
 
 export async function createPortalSession(): Promise<ActionResult<{ url: string }>> {
   return safeAction(async () => {
-    const { orgId } = await requireOwner();
+    const { orgId } = await requireOwner({ allowExpired: true });
     const provider = getPaymentProvider();
     const result = await provider.createPortalSession({ orgId, returnUrl: `${baseUrl()}/configuracoes/assinatura` });
     return success({ url: result.url });
@@ -94,7 +98,7 @@ export type { SubscriptionChangeResult };
  */
 export async function cancelSubscription(): Promise<ActionResult<SubscriptionChangeResult>> {
   return safeAction(async () => {
-    const { orgId } = await requireOwner();
+    const { orgId } = await requireOwner(); // SPEC-065: NAO e AllowExpired (cancelar => canceled => soft_blocked devolveria leitura sem pagar)
     return cancelSubscriptionForOrg(orgId);
   });
 }
@@ -107,7 +111,7 @@ export async function cancelSubscription(): Promise<ActionResult<SubscriptionCha
  */
 export async function reactivateSubscription(): Promise<ActionResult<SubscriptionChangeResult>> {
   return safeAction(async () => {
-    const { orgId } = await requireOwner();
+    const { orgId } = await requireOwner({ allowExpired: true });
     if (await cancelLimiter.hit(orgId) > 0) return formError("Muitas tentativas. Aguarde alguns minutos e tente novamente.");
     const sub = await prisma.subscription.findUnique({
       where: { orgId },
@@ -154,10 +158,13 @@ async function findSelfServicePlan(planKey: string): Promise<{ id: string; key: 
 }
 
 /**
- * SPEC-062 (D-062-1/7) — cadastro SÓ com o usuário (nome, e-mail, senha). Cria apenas `User` (`emailVerifiedAt: null`);
- * NENHUMA Organization/Membership/Subscription. Autentica com sessão `orgId = null` e manda ao `/assinar`, preservando
- * `?plan=&cadence=` da landing SE o plano for self-service ativo (inválido é ignorado, nunca erro). Ação PÚBLICA (como `login`):
- * allowlisted em `src/lib/use-server-auth.test.ts`. E-mail já existente: mensagem genérica e nenhum e-mail (J11 segue aberta).
+ * SPEC-065 (D-065-23/27) — cadastro: cria `User` + `Organization` (owner) + `Subscription(free, trialing, +14 dias)` + 2 `TrialClaim`
+ * (e-mail canonico e CPF/CNPJ) numa UNICA transacao (`createTrialAccount`) e autentica ja na organizacao (`orgId` real), mandando ao
+ * `/dashboard`. Substitui a D-062-1/7 (cadastro so com usuario). `document` (CPF ou CNPJ) e OBRIGATORIO e validado (digitos verificadores,
+ * sequencia repetida); so o HASH e guardado. Se o e-mail canonico OU o documento (CNPJ pela raiz de 8 digitos) ja usou o teste, ou ha
+ * IP acima de 3 trials/24 h, ou dominio descartavel: a conta E criada mas o trial nasce ja expirado (mensagem generica na tela de bloqueio,
+ * sem revelar qual dado bateu). `?plan=&cadence=` da landing so pre-seleciona o botao de upgrade (nunca abre checkout). Ação PÚBLICA (como
+ * `login`): allowlisted em `src/lib/use-server-auth.test.ts`. E-mail já existente: mensagem genérica e nenhum e-mail (J11 segue aberta).
  */
 export async function signUp(input: unknown): Promise<ActionResult<{ redirectTo: string }>> {
   return safeAction(async () => {
@@ -168,17 +175,20 @@ export async function signUp(input: unknown): Promise<ActionResult<{ redirectTo:
     const parsed = signupSchema.safeParse(input);
     if (!parsed.success) return failure(zodErrors(parsed.error));
     const { name, email, password, plan, cadence } = parsed.data;
+    const document = parseDocument(parsed.data.document)!; // validado pelo schema
 
-    // Intenção de plano vinda da landing: só vale se for plano self-service ativo; qualquer outra coisa é ignorada.
+    // Intenção de plano vinda da landing: só vale se for plano self-service ativo; qualquer outra coisa é ignorada. Nunca abre checkout.
     const intent = plan ? await findSelfServicePlan(plan) : null;
-    const redirectTo = intent ? `/assinar?plan=${encodeURIComponent(intent.key)}&cadence=${cadence ?? "monthly"}` : "/assinar";
+    const redirectTo = intent ? `/dashboard?plan=${encodeURIComponent(intent.key)}&cadence=${cadence ?? "monthly"}` : "/dashboard";
+
+    // D-065-19.4/5: teto de 3 trials novos por IP/24 h e dominio descartavel => conta sem trial (mesmo caminho do "ja usado").
+    const ipKnown = isKnownIp(ip);
+    const denyTrial = isDisposableEmailDomain(email) || (ipKnown && (await trialIpLimiter.peek(ip)) > 0);
 
     const passwordHash = await hashPassword(password);
-    let userId: string;
+    let created;
     try {
-      // SPEC-055 (D-055-3): cadastro self-service nasce NAO verificado (o default do banco e "verificado").
-      const user = await prisma.user.create({ data: { name, email, role: "provider", passwordHash, emailVerifiedAt: null }, select: { id: true } });
-      userId = user.id;
+      created = await createTrialAccount({ name, email, passwordHash, document, denyTrial });
     } catch (e) {
       if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") {
         // Mensagem genérica, sem confirmar que o e-mail já existe (anti-enumeração; endpoint público só com rate limit de IP).
@@ -186,11 +196,32 @@ export async function signUp(input: unknown): Promise<ActionResult<{ redirectTo:
       }
       throw e;
     }
+    if (created.trialGranted && ipKnown) await trialIpLimiter.hit(ip);
 
-    // SPEC-055: boas-vindas (idempotente) + verificacao de e-mail, pos-commit/best-effort. Nunca no ramo de e-mail duplicado.
-    await sendSignupEmails({ id: userId, name, email }, { verify: true });
-    await createSession(userId, null, "provider");
+    // SPEC-055/065: boas-vindas (com o texto do trial) + verificacao de e-mail, pos-commit/best-effort. Nunca no ramo de e-mail duplicado.
+    await sendSignupEmails({ id: created.userId, name, email }, { verify: true, hasOrg: true, ...(created.trialGranted ? { trialEndsAt: created.trialEndsAt } : {}) });
+    await createSession(created.userId, created.orgId, "provider");
     return success({ redirectTo });
+  });
+}
+
+/**
+ * SPEC-065 (D-065-22) — renomeia a organizacao da sessao (cartao "Como se chama a sua empresa?" e Configuracoes). So o OWNER; rate limit;
+ * `OrgAuditLog org_renamed`. O slug NAO muda (estavel para URLs/convites).
+ */
+export async function renameOrganization(input: unknown): Promise<ActionResult<{ name: string }>> {
+  return safeAction(async () => {
+    const { orgId, userId } = await requireOwner();
+    const parsed = renameOrgSchema.safeParse(input);
+    if (!parsed.success) return failure(zodErrors(parsed.error));
+    if (await createOrgLimiter.hit(`rename:${orgId}`) > 0) return formError("Muitas tentativas. Aguarde alguns minutos e tente novamente.");
+    await prisma.$transaction(async (tx) => {
+      await lockOrg(tx, orgId);
+      const before = await tx.organization.findUniqueOrThrow({ where: { id: orgId }, select: { name: true } });
+      await tx.organization.update({ where: { id: orgId }, data: { name: parsed.data.name } });
+      await recordOrgAudit(tx, { orgId, actorUserId: userId, action: "org_renamed", meta: { from: before.name, to: parsed.data.name } });
+    });
+    return success({ name: parsed.data.name });
   });
 }
 

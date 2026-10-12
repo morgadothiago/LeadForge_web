@@ -10,6 +10,8 @@ import { createPlacesClient, PlacesSource } from "./places";
 import { scoreLead } from "./score";
 import type { LeadSource, SearchCursor } from "./types";
 
+/** SPEC-065: motivo gravado em `SearchRun.error` (run `done` parcial) quando a cota de leads do plano acaba. */
+export const PLAN_LIMIT_RUN_MESSAGE = "Limite de leads do plano atingido. Faça upgrade para continuar trazendo leads.";
 export const SEARCH_LEGAL_BASIS = "interesse_legitimo_b2b";
 
 export interface SearchOutcome {
@@ -20,6 +22,8 @@ export interface SearchOutcome {
   suppressed: number;
   invalid: number;
   requests: number;
+  /** SPEC-065 (D-065-18): a cota de leads do plano acabou no meio do lote — resultado PARCIAL (nao e erro); `SearchRun.error` explica. */
+  limitReached?: boolean;
 }
 
 export const SEARCH_TZ = "America/Sao_Paulo";
@@ -135,6 +139,7 @@ async function execute(campaignId: string, opts: { trigger?: "manual" | "schedul
     nextCursor = cursor ?? null;
     out.requests = requests;
     out.found = leads.length;
+    let limitReached = false;
     for (const [i, l] of leads.entries()) {
       if (ctrl.signal.aborted) throw timeoutErr();
       try {
@@ -162,11 +167,20 @@ async function execute(campaignId: string, opts: { trigger?: "manual" | "schedul
             .catch((e) => console.error("[lead-search] score/rawData:", safeErrorForLog(e)));
         } else if (res.status === "duplicate") out.duplicate++;
         else if (res.status === "suppressed") out.suppressed++;
-        else out.invalid++;
+        else if (res.status === "limit_reached") {
+          limitReached = true;
+          break; // cria ate a cota e PARA (D-065-18)
+        } else out.invalid++;
       } catch (e) {
         console.error("[lead-search] item:", safeErrorForLog(e));
         out.invalid++;
       }
+    }
+    // Limite do plano: NAO avanca o cursor (a proxima busca, depois do upgrade, retoma esta pagina) e registra o motivo no run.
+    if (limitReached) {
+      out.limitReached = true;
+      await prisma.searchRun.update({ where: { id: run.id }, data: { status: "done", ...counters(), error: PLAN_LIMIT_RUN_MESSAGE, finishedAt: new Date() } });
+      return out;
     }
     await prisma.searchRun.update({ where: { id: run.id }, data: { status: "done", ...counters(), ...(nextCursor ? { variant: nextCursor.variant, pageToken: nextCursor.pageToken, searchQuery: nextCursor.query } : {}), finishedAt: new Date() } });
     return out;

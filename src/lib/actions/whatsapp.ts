@@ -7,6 +7,8 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requireActiveProviderOrg, requireProviderOrg } from "@/lib/auth/require-admin";
 import { scopedPrisma } from "@/lib/tenant/scoped-prisma";
+import { assertWithinLimit, getOrgLimits } from "@/lib/billing/limits";
+import { lockOrg } from "@/lib/org/guards";
 import { encrypt } from "@/lib/crypto/secret-box";
 import { AppError, safeErrorForLog } from "@/lib/errors";
 import { buildWebhookUrl, getWhatsAppProvider, type ConnectionState } from "@/lib/whatsapp/provider";
@@ -36,22 +38,35 @@ async function record(id: string, status: ConnectionState, err?: unknown): Promi
 export async function createWhatsAppInstance(input: unknown): Promise<ActionResult<{ id: string }>> {
   return safeAction(async () => {
     const { orgId } = await requireActiveProviderOrg();
-    const db = scopedPrisma(orgId);
     const parsed = whatsappInstanceCreateSchema.safeParse(input);
     if (!parsed.success) return failure(zodErrors(parsed.error));
     const { instanceName, number, dailyLimit } = parsed.data;
     // instanceName é @unique GLOBAL no schema (nome usado no provider externo) — checagem cruza orgs de propósito.
     if (await prisma.whatsAppInstance.count({ where: { instanceName } })) return failure(DUP);
+    // SPEC-065 (D-065-18/19.6): maxWhatsappInstances checado ANTES de chamar o provedor (barato); recontado sob lock apos criar (corrida).
+    await assertWithinLimit(prisma, orgId, "whatsapp", await prisma.whatsAppInstance.count({ where: { orgId } }));
+    // D-065-19.6: o mesmo numero nao pode estar em duas organizacoes EM TRIAL (anti-abuso; comparacao so por digitos).
+    if ((await getOrgLimits(prisma, orgId)).trialing) {
+      const digits = number.replace(/\D/g, "");
+      const clash = await prisma.$queryRaw<Array<{ id: string }>>`
+        SELECT w."id" FROM "WhatsAppInstance" w JOIN "Subscription" s ON s."orgId" = w."orgId"
+        WHERE w."orgId" <> ${orgId} AND s."status" = 'trialing' AND regexp_replace(w."number", '\\D', '', 'g') = ${digits} LIMIT 1`;
+      if (clash.length > 0) return failure({ number: ["Este número já está em uso em outra organização em teste."] });
+    }
     const webhookToken = randomBytes(32).toString("base64url");
     const provider = getWhatsAppProvider(orgId, "evolution");
     const created = await provider.createInstance({ instanceName, number, webhookUrl: buildWebhookUrl({ webhookToken }) });
     try {
-      const row = await db.whatsAppInstance.create({
-        data: {
-          instanceName, number, dailyLimit, webhookToken, provider: "evolution", status: "connecting",
-          apiKey: created.apiKey ? encrypt(created.apiKey) : null,
-        },
-        select: { id: true },
+      const row = await prisma.$transaction(async (tx) => {
+        await lockOrg(tx, orgId);
+        await assertWithinLimit(tx, orgId, "whatsapp", await tx.whatsAppInstance.count({ where: { orgId } }));
+        return tx.whatsAppInstance.create({
+          data: {
+            orgId, instanceName, number, dailyLimit, webhookToken, provider: "evolution", status: "connecting",
+            apiKey: created.apiKey ? encrypt(created.apiKey) : null,
+          },
+          select: { id: true },
+        });
       });
       revalidate();
       return success(row);

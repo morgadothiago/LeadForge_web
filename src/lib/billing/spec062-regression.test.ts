@@ -144,16 +144,18 @@ describe("nenhum caminho cria trial (D-062-2/16)", () => {
   };
   const files = [...walk(SRC), path.resolve(process.cwd(), "prisma/seed.ts")];
 
-  it("teste estatico: nenhuma criacao de Subscription com status trialing, sem TRIAL_DAYS/trial-email/trial_started no codigo de producao", () => {
+  // SPEC-065 (R2/R6, reescrito): o trial voltou, mas SO o cadastro (`signup-trial.ts`) cria `Subscription trialing` e so `trial-claim.ts` define `TRIAL_DAYS`.
+  const TRIAL_OWNERS = ["src/lib/billing/signup-trial.ts", "src/lib/billing/trial-claim.ts"];
+  it("teste estatico: so o cadastro (065) cria Subscription trialing; sem trial-email/trial_started no codigo de producao", () => {
     for (const f of files) {
       const src = readFileSync(f, "utf8");
       const rel = path.relative(process.cwd(), f);
-      expect(src, `${rel}: TRIAL_DAYS`).not.toMatch(/TRIAL_DAYS/);
+      if (!TRIAL_OWNERS.includes(rel)) expect(src, `${rel}: TRIAL_DAYS`).not.toMatch(/TRIAL_DAYS/);
       expect(src, `${rel}: trial-email`).not.toMatch(/trial-email|sendTrialStartedEmail|trialStartedTemplate/);
       expect(src, `${rel}: trial_started`).not.toMatch(/["']trial_started["']/);
       // criacao: `subscription.create/upsert(... status: "trialing" ...)` na mesma chamada
       for (const m of src.matchAll(/subscription\.(?:create|upsert)\(([\s\S]{0,400}?)\)\s*;/g)) {
-        expect(m[1], `${rel}: cria Subscription trialing`).not.toMatch(/status:\s*["']trialing["']/);
+        if (!TRIAL_OWNERS.includes(rel)) expect(m[1], `${rel}: cria Subscription trialing`).not.toMatch(/status:\s*["']trialing["']/);
       }
     }
   });

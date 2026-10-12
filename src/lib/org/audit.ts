@@ -3,6 +3,7 @@ import type { Prisma, PrismaClient } from "@prisma/client";
 /** SPEC-049 (D-049-6): eventos auditados por org. NUNCA gravar token/código em `meta`. */
 export type OrgAuditAction =
   | "org_created"
+  | "org_renamed"
   | "member_invited"
   | "invite_revoked"
   | "member_joined"

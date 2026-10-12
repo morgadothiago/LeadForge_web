@@ -319,6 +319,16 @@ export async function seed(prisma: PrismaClient, now: Date = new Date()) {
  */
 export const PLAN_SEED = [
   {
+    key: "free",
+    name: "Teste grátis",
+    // SPEC-065 (D-065-6/8): plano do trial de 14 dias (cadastro). Fora da vitrine (como `courtesy`), sem checkout. Limites PLACEHOLDER
+    // (o usuario define depois; o seed e a fonte, ver `seedPlans`). `maxLeadsPerMonth` no Free vale "durante o teste".
+    priceMonthlyCents: 0,
+    priceYearlyCents: null,
+    limits: { maxCampaigns: 1, maxWhatsappInstances: 1, maxEmailAccounts: 1, maxLeadsPerMonth: 50, maxSendsPerDay: 20 },
+    selfServiceCheckout: false,
+  },
+  {
     key: "starter",
     name: "Starter",
     // PLACEHOLDER: confirmar preço final antes do launch (D-33-2).
@@ -362,7 +372,8 @@ export async function seedPlans(prisma: PrismaClient): Promise<void> {
   for (const p of PLAN_SEED) {
     await prisma.plan.upsert({
       where: { key: p.key },
-      update: {},
+      // SPEC-065 (D-065-6): so o `free` tem os limites atualizados pelo seed (nao ha tela de edicao de plano); os demais ficam intocados.
+      update: p.key === "free" ? { limits: p.limits, name: p.name } : {},
       create: { key: p.key, name: p.name, priceMonthlyCents: p.priceMonthlyCents, priceYearlyCents: p.priceYearlyCents, limits: p.limits, selfServiceCheckout: p.selfServiceCheckout },
     });
   }

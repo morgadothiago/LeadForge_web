@@ -2,13 +2,14 @@ import { Lock } from "lucide-react";
 import { AgentsPanel } from "@/components/agents/AgentsPanel";
 import { Card } from "@/components/ui/card";
 import { getAgentUsage } from "@/lib/actions/agent";
-import { requirePageUser } from "@/lib/auth/require-page";
+import { redirectIfTrialExpired, requirePageUser } from "@/lib/auth/require-page";
 import { getAgentSettings, listAgents } from "@/lib/queries/agent";
 
 export const dynamic = "force-dynamic";
 
 export default async function Page() {
   const user = await requirePageUser();
+  await redirectIfTrialExpired(); // SPEC-065 (D-065-13.3)
   if (user.platformRole !== "provider") {
     return (
       <Card role="alert" className="flex flex-col items-center gap-2 p-10 text-center">

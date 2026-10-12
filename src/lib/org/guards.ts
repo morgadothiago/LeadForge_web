@@ -1,6 +1,6 @@
 import type { OrgRole, Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { ForbiddenError, requireProviderOrg } from "@/lib/auth/require-admin";
+import { ForbiddenError, requireProviderOrg, requireProviderOrgAllowExpired } from "@/lib/auth/require-admin";
 import type { CurrentUser } from "@/lib/auth/require-user";
 
 /** SPEC-049: papel do usuário na org ATIVA da sessão (null se não houver Membership — sessão já seria rejeitada por requireUser). */
@@ -10,8 +10,9 @@ export async function getActiveOrgRole(userId: string, orgId: string): Promise<O
 }
 
 /** Sessão de provider na org ativa, qualquer papel. Não exige org `active` (membros podem listar/sair com a org suspensa). */
-export async function requireOrgMember(): Promise<{ user: CurrentUser; orgId: string; orgRole: OrgRole }> {
-  const { user, orgId } = await requireProviderOrg();
+export async function requireOrgMember(opts: { allowExpired?: boolean } = {}): Promise<{ user: CurrentUser; orgId: string; orgRole: OrgRole }> {
+  // SPEC-065 (D-065-13.2): `allowExpired` so para `leaveOrganization` (allowlist fechada).
+  const { user, orgId } = await (opts.allowExpired ? requireProviderOrgAllowExpired() : requireProviderOrg());
   const orgRole = await getActiveOrgRole(user.id, orgId);
   if (!orgRole) throw new ForbiddenError();
   return { user, orgId, orgRole };

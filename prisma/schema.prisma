@@ -152,6 +152,7 @@ model Organization {
   setupPendingSince DateTime?
 
   subscription         Subscription?
+  usageCounters        UsageCounter[]
   memberships          Membership[]
   orgInvites           OrgInvite[]
   orgAuditLogs         OrgAuditLog[]
@@ -1025,7 +1026,7 @@ model Plan {
   name                 String
   priceMonthlyCents    Int
   priceYearlyCents     Int?
-  /// PLACEHOLDER (D-33-2): ex. {"maxCampaigns":3,"maxWhatsappInstances":1,"maxLeadsPerMonth":500}. Enforcement fino fica fora do escopo da SPEC-033.
+  /// PLACEHOLDER (D-33-2): ex. {"maxCampaigns":3,"maxWhatsappInstances":1,"maxLeadsPerMonth":500}. SPEC-065: chaves opcionais `maxEmailAccounts`/`maxSendsPerDay`; `null`/ausente = ilimitado; aplicado no codigo (`src/lib/billing/limits.ts`).
   limits               Json
   /// Permite descontinuar o plano sem apagar historico (assinaturas existentes continuam validas).
   active               Boolean        @default(true)
@@ -1053,7 +1054,7 @@ model Subscription {
   cadence                BillingCadence     @default(monthly)
   currentPeriodEnd       DateTime?
   cancelAtPeriodEnd      Boolean            @default(false)
-  /// DESATIVADO (SPEC-062, D-062-2): nada novo cria trial; so orgs legadas em `trialing` usam (removido na 062c). null fora do periodo de trial.
+  /// SPEC-065 (D-065-7): fim do trial Free de 14 dias (`trialing` + plano `free`); zerado ao pagar (`processBillingEvent`). null fora do periodo de trial.
   trialEndsAt            DateTime?
   /// D-33-3: inicio do `past_due` atual (ancora do grace period de 7 dias). null = em dia.
   pastDueSince           DateTime?
@@ -1085,6 +1086,29 @@ model Subscription {
   @@index([pixManaged, status])
   @@index([externalCheckoutId])
   @@index([externalSubscriptionId])
+}
+
+/// SPEC-065 (D-065-17): contador atomico de uso por organizacao, INDEPENDENTE das linhas de negocio (apagar lead/campanha NAO devolve cota).
+/// `metric`: "leads" (periodKey "trial" no Free ou "YYYY-MM" BRT no pago) | "sends" (periodKey "YYYY-MM-DD" BRT). Reserva via INSERT ... ON CONFLICT DO UPDATE ... WHERE count + n <= limite.
+model UsageCounter {
+  id        String       @id @default(uuid())
+  orgId     String
+  org       Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  metric    String
+  periodKey String
+  count     Int          @default(0)
+  updatedAt DateTime     @updatedAt
+
+  @@unique([orgId, metric, periodKey])
+}
+
+/// SPEC-065 (D-065-19/27): anti-abuso do trial. SO hash (sha256 + pepper) do e-mail canonico (`kind=email`) ou do CPF / raiz do CNPJ (`kind=doc`); sem PII, sem FK
+/// (sobrevive a exclusao de conta/organizacao de proposito: senao excluir e recadastrar renovaria o trial).
+model TrialClaim {
+  id        String   @id @default(uuid())
+  kind      String
+  keyHash   String   @unique
+  createdAt DateTime @default(now())
 }
 
 /// SPEC-063 (D-063-1/2/3): catalogo de PRODUTOS do AbacatePay (assinatura exige produto com `cycle`; produto nao tem update).
@@ -1173,6 +1197,9 @@ enum BillingReminderKind {
   past_due_d5
   past_due_d7
   renewal_upcoming
+  /// SPEC-065 (D-065-16): trial Free de 14 dias — aviso D-1 e aviso unico "teste expirado" (ancora = trialEndsAt).
+  trial_ending_d1
+  trial_expired
 }
 
 /// SPEC-026: auditoria das acoes de gestao do app (sem PII: so ids) + idempotencia por (deviceId, Idempotency-Key).

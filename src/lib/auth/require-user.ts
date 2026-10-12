@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { getSession } from "./session";
 import type { PlatformRole } from "./session-token";
+import { resolveOrgAccess, type OrgAccessState } from "@/lib/billing/access";
 
 export interface CurrentUser {
   id: string;
@@ -14,6 +15,8 @@ export interface CurrentUser {
   platformRole: PlatformRole;
   /** SPEC-055: e-mail confirmado (D-055-7: nao verificado nao pode ENVIAR mensagens; o resto do app segue liberado). A UI usa para o banner. */
   emailVerified: boolean;
+  /** SPEC-065 (D-065-12/13): estado de acesso da org da sessao (derivado, relogio do servidor; `null` sem org). `requireProviderOrg` barra `trial_expirado`. */
+  orgAccess?: OrgAccessState | null;
 }
 
 export class UnauthorizedError extends Error {
@@ -47,7 +50,12 @@ export async function requireUser(): Promise<CurrentUser> {
       sessionsInvalidatedAt: true,
       emailVerifiedAt: true,
       // SPEC-049 (D-049-5): a org ativa da sessão só vale enquanto o usuário ainda tem Membership nela.
-      memberships: { where: { orgId: session.orgId ?? "" }, select: { orgId: true }, take: 1 },
+      // SPEC-065: a mesma leitura traz org+assinatura para `resolveOrgAccess` (sem 2a ida ao banco no guard).
+      memberships: {
+        where: { orgId: session.orgId ?? "" },
+        select: { orgId: true, org: { select: { status: true, subscription: { select: { status: true, pastDueSince: true, cancelAtPeriodEnd: true, currentPeriodEnd: true, trialEndsAt: true } } } } },
+        take: 1,
+      },
     },
   });
   if (!user) throw new UnauthorizedError();
@@ -56,7 +64,9 @@ export async function requireUser(): Promise<CurrentUser> {
   if (user.sessionsInvalidatedAt && session.issuedAtMs < user.sessionsInvalidatedAt.getTime()) {
     throw new UnauthorizedError();
   }
-  return { id: user.id, name: user.name, email: user.email, role: user.role, orgId: session.orgId, platformRole: session.platformRole, emailVerified: user.emailVerifiedAt !== null };
+  const m = user.memberships[0];
+  const orgAccess = session.platformRole === "provider" && m ? resolveOrgAccess(m.org.subscription, m.org, new Date()) : null;
+  return { id: user.id, name: user.name, email: user.email, role: user.role, orgId: session.orgId, platformRole: session.platformRole, emailVerified: user.emailVerifiedAt !== null, orgAccess };
 }
 
 /**

@@ -5,11 +5,13 @@ import { buttonVariants } from "@/components/ui/button";
 import { CreativeDetail } from "@/components/creatives/CreativeDetail";
 import { getFormError } from "@/components/campaigns/form-utils";
 import { getCreative, listAvatarsAndVoices } from "@/lib/actions/creative";
+import { redirectIfTrialExpired } from "@/lib/auth/require-page";
 
 export const dynamic = "force-dynamic";
 
 /** SPEC-051b — página do criativo (status, player, ações). */
 export default async function CriativoPage({ params }: { params: Promise<{ id: string }> }) {
+  await redirectIfTrialExpired(); // SPEC-065 (D-065-13.3): trial expirado => redirect a /configuracoes/assinatura
   const { id } = await params;
   const [res, info] = await Promise.all([getCreative(id), listAvatarsAndVoices()]);
   if (!res.ok) {

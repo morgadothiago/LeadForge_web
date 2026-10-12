@@ -3,10 +3,12 @@ import { TemplateManager } from "@/components/sequences/TemplateManager";
 import { listCampaigns } from "@/lib/queries/campaigns";
 import { listTemplates } from "@/lib/queries/sequences";
 import { cn } from "@/lib/utils";
+import { redirectIfTrialExpired } from "@/lib/auth/require-page";
 
 export const dynamic = "force-dynamic";
 
 export default async function Page({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
+  await redirectIfTrialExpired(); // SPEC-065 (D-065-13.3): trial expirado => redirect a /configuracoes/assinatura
   const raw = (await searchParams).campaignId;
   const wanted = Array.isArray(raw) ? raw[0] : raw;
   const campaigns = await listCampaigns({});

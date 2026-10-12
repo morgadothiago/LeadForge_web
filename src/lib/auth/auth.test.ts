@@ -433,7 +433,7 @@ describe("todas as Server Actions chamam requireUser (exceto auth.ts)", async ()
     const fns = parts.map((c) => ({ name: /function (\w+)/.exec(c)![1], exported: c.startsWith("export"), body: c }));
     const ok = (fn: (typeof fns)[number], seen = new Set<string>()): boolean => {
       // SPEC-030/033: requireProviderOrg()/requireActiveProviderOrg()/requirePlatformAdmin() chamam requireUser() por dentro.
-      if (/\brequireUser\(\)|\brequireOrgMember\(\)|\brequireOrgOwner\(\)|\brequireProviderOrg\(\)|\brequireProviderUser\(\)|\brequireActiveProviderOrg\(\)|\brequirePlatformAdmin\(\)/.test(fn.body)) return true;
+      if (/\brequireUser\(\)|\brequireOrgMember\((?:\{[^}]*\})?\)|\brequireOrgOwner\(\)|\brequireProviderOrg\(\)|\brequireProviderOrgAllowExpired\(\)|\brequireProviderUser\(\)|\brequireActiveProviderOrg\(\)|\brequirePlatformAdmin\(\)/.test(fn.body)) return true;
       seen.add(fn.name);
       return fns.some((o) => !seen.has(o.name) && new RegExp(`\\b${o.name}\\(`).test(fn.body) && ok(o, seen));
     };
@@ -456,7 +456,7 @@ describe("queries chamam requireUser antes do prisma", () => {
       const body = c.slice(c.indexOf("\n"));
       const iPrisma = body.search(/\bprisma\b|\bget\w+\(/);
       // SPEC-030/033: requireProviderOrg()/requireActiveProviderOrg()/requirePlatformAdmin() chamam requireUser() por dentro (substituem o antigo requireAdmin()).
-      const iReq = Math.max(body.indexOf("requireUser()"), body.indexOf("requireAdmin()"), body.indexOf("requireProviderOrg()"), body.indexOf("requireActiveProviderOrg()"), body.indexOf("requirePlatformAdmin()"));
+      const iReq = Math.max(body.indexOf("requireUser()"), body.indexOf("requireAdmin()"), body.indexOf("requireProviderOrg()"), body.indexOf("requireProviderOrgAllowExpired()"), body.indexOf("requireActiveProviderOrg()"), body.indexOf("requirePlatformAdmin()"));
       if (iPrisma === -1 && !/\bprisma\b/.test(c)) continue;
       expect(iReq, `${f}:${name} sem requireUser`).toBeGreaterThan(-1);
       expect(iReq, `${f}:${name} requireUser depois do acesso`).toBeLessThan(iPrisma === -1 ? Infinity : iPrisma);

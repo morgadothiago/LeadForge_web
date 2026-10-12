@@ -1,4 +1,5 @@
 import type { Prisma } from "@prisma/client";
+import { reserveLeadOrThrow } from "@/lib/billing/usage";
 import { recordStageChange } from "./stage-history";
 
 /** Núcleo de criação de lead (compartilhado pela ação `createLead` e pela ingestão SPEC-014): Lead + Opportunity `novo_lead` (fim da coluna) + StageHistory. Deve rodar DENTRO de uma transação. */
@@ -31,6 +32,10 @@ export async function createLeadCore(tx: Prisma.TransactionClient, d: LeadCoreIn
     },
     select: { id: true },
   });
+  // SPEC-065 (D-065-17/18): PONTO UNICO do limite `maxLeadsPerMonth` (createLead, ingestao webhook, busca de leads, lead-source). Reserva atomica
+  // DENTRO da transacao do insert: rollback (ex.: duplicado P2002 logo acima/abaixo) devolve a cota; apagar o lead depois NAO devolve. Lanca `PlanLimitError`.
+  const camp = await tx.campaign.findUniqueOrThrow({ where: { id: d.campaignId }, select: { orgId: true } });
+  await reserveLeadOrThrow(tx, camp.orgId, new Date());
   const last = await tx.opportunity.aggregate({ where: { campaignId: d.campaignId, stage: "novo_lead" }, _max: { position: true } });
   const opp = await tx.opportunity.create({
     data: { leadId: lead.id, campaignId: d.campaignId, stage: "novo_lead", position: (last._max.position ?? -1) + 1 },

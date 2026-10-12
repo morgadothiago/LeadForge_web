@@ -144,9 +144,9 @@ describe("TeamPanel", () => {
 
 describe("SignupForm (SPEC-062: so usuario)", () => {
   beforeEach(() => vi.clearAllMocks());
-  it("3 campos (nome, e-mail, senha); sem empresa, plano, trial nem escolha de organizacao", () => {
+  it("campos nome, e-mail, CPF ou CNPJ (SPEC-065, minimo) e senha; sem empresa, plano, trial nem escolha de organizacao", () => {
     const html = renderToStaticMarkup(<SignupForm />);
-    for (const label of ["Nome", "E-mail", "Senha"]) expect(html).toContain(label);
+    for (const label of ["Nome", "E-mail", "CPF ou CNPJ", "Senha"]) expect(html).toContain(label);
     expect(html).not.toContain("Nome da empresa");
     expect(html).not.toContain('type="radio"');
     expect(html).not.toMatch(/14 dias|grátis|sem cartão|Participar de uma organização/);

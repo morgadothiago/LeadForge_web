@@ -30,7 +30,7 @@ import { OrgSwitcher } from "@/components/org/OrgSwitcher";
 import type { MyOrganization } from "@/lib/actions/org";
 import { Logo } from "./Logo";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import { ADMIN_NAV_ITEMS, NAV_SECTIONS, aggregateFresh, hasActiveChild, isActivePath, type NavItem, type NavSection } from "./nav-items";
+import { ADMIN_NAV_ITEMS, NAV_SECTIONS, RESTRICTED_NAV_SECTIONS, aggregateFresh, hasActiveChild, isActivePath, type NavItem, type NavSection } from "./nav-items";
 
 const ITEM_CLASS =
   "relative h-10 gap-3 px-3 font-medium text-sidebar-foreground focus-visible:ring-primary/40 data-active:bg-primary/10 data-active:text-sidebar-accent-foreground group-data-[collapsible=icon]:[&_svg]:size-4 [&_svg]:size-5";
@@ -199,17 +199,21 @@ export function AppSidebar({
   user,
   platformRole = "provider",
   organizations = [],
+  restricted = false,
 }: {
   user: { name: string; email: string };
   platformRole?: "provider" | "platform_admin";
   /** SPEC-049b: orgs do usuário (só provider). O seletor aparece com >=1 (D-049-16); vazio = sem seletor. */
   organizations?: MyOrganization[];
+  /** SPEC-065b (D-065-13.4): trial expirado => shell reduzido (so Assinatura e Minha conta; o seletor de organizacoes continua). */
+  restricted?: boolean;
 }) {
   const pathname = usePathname();
   const { setOpenMobile } = useSidebar();
   const { summary } = useNotifications();
   // SPEC-032: platform_admin nunca vê os itens de provider (Dashboard/Leads/Campanhas... dependem de orgId, que platform_admin não tem).
-  const sections: readonly NavSection[] = platformRole === "platform_admin" ? [{ key: "admin", items: ADMIN_NAV_ITEMS }] : NAV_SECTIONS;
+  const sections: readonly NavSection[] =
+    platformRole === "platform_admin" ? [{ key: "admin", items: ADMIN_NAV_ITEMS }] : restricted ? RESTRICTED_NAV_SECTIONS : NAV_SECTIONS;
   return (
     <Sidebar collapsible="icon" variant="sidebar">
       <SidebarHeader className="gap-0 p-0">
@@ -223,7 +227,7 @@ export function AppSidebar({
         >
           L
         </Link>
-        {platformRole === "provider" && <OrgSwitcher organizations={organizations} />}
+        {platformRole === "provider" && <OrgSwitcher organizations={organizations} restricted={restricted} />}
       </SidebarHeader>
       <SidebarContent>
         {sections.map((section) => (

@@ -6,12 +6,14 @@ import { Input } from "@/components/ui/input";
 import { listCampaigns } from "@/lib/queries/campaigns";
 import { getPipelineBoard } from "@/lib/queries/pipeline";
 import { boardParamsSchema } from "@/lib/schemas/pipeline";
+import { redirectIfTrialExpired } from "@/lib/auth/require-page";
 
 export const dynamic = "force-dynamic";
 
 const first = (v: string | string[] | undefined): string | undefined => (Array.isArray(v) ? v[0] : v);
 
 export default async function Page({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
+  await redirectIfTrialExpired(); // SPEC-065 (D-065-13.3): trial expirado => redirect a /configuracoes/assinatura
   const sp = await searchParams;
   const { campaignId, q } = boardParamsSchema.parse({ campaignId: first(sp.campaignId), q: first(sp.q) });
   const [columns, campaigns] = await Promise.all([getPipelineBoard({ campaignId, q }), listCampaigns({ includeArchived: true })]);

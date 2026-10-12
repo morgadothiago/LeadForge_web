@@ -122,13 +122,13 @@ describe("processBillingEvent — classificacao e e-mail (SPEC-052a)", () => {
     expect(sub.status).toBe("trialing");
   });
 
-  it("SPEC-062: trialEndsAt de org legada em trial e PRESERVADO (nunca estendido) ao ativar", async () => {
+  it("SPEC-065 (D-065-9, substitui a regra da 062): ao ATIVAR (pagar) o trial acaba — trialEndsAt vira null; so e preservado em status nao-active", async () => {
     const legacy = new Date("2026-03-10T00:00:00Z");
     await prisma.subscription.create({ data: { orgId: org.orgId, planId: (await prisma.plan.findUniqueOrThrow({ where: { key: "starter" } })).id, status: "trialing", trialEndsAt: legacy } });
     await processBillingEvent(ev(), NOW);
     const sub = await prisma.subscription.findUniqueOrThrow({ where: { orgId: org.orgId }, select: { trialEndsAt: true, status: true } });
     expect(sub.status).toBe("active");
-    expect(sub.trialEndsAt).toEqual(legacy);
+    expect(sub.trialEndsAt).toBeNull();
     expect(scenarios()).toEqual(["subscription_success"]);
   });
 });

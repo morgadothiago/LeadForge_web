@@ -102,14 +102,17 @@ Linhas: G1 a G3, G8, N2 a N4.
 
 **Por quê:** é a porta de entrada de todo cliente.
 
-**Como:** janela **anônima**, abra `/signup`, use um e-mail novo (só nome, e-mail e senha), confirme o e-mail no Mailpit, escolha o plano em `/assinar`, conclua o pagamento, dê um nome à organização em `/organizacao/nova` e chegue no dashboard.
+**Antes:** `npx prisma migrate deploy` e `npx prisma db seed` (cria o plano "Teste gratis"). Nunca `migrate dev`.
+
+**Como:** janela **anônima**, abra `/signup`, use um e-mail novo e um **CPF de teste válido** (ex.: `529.982.247-25`), crie a conta e caia no dashboard. Confirme o e-mail no Mailpit.
 
 **Deve ver:**
-- ✅ O cadastro cria **só o usuário**; o painel só abre depois de pagar e nomear a organização (não existe mais teste grátis).
-- ✅ O botão "Assinar" só habilita com o e-mail confirmado.
-- ✅ Você consegue criar um lead, uma sequência e uma campanha.
+- ✅ O cadastro cria usuário **e organização** (teste grátis de 14 dias, sem cartão) e vai direto ao painel, sem tela de pagamento.
+- ✅ O chip "Teste grátis: 14 dias" e o cartão "Como se chama a sua empresa?".
+- ✅ Um segundo cadastro com o **mesmo e-mail ou CPF** cria a conta, mas **sem teste** (mensagem genérica na tela de assinatura).
+- ✅ Você consegue criar um lead, uma sequência e uma campanha (dentro dos limites do teste).
 
-Linhas: B1, B2, B4, bloco P.
+Linhas: B1, B2, B4, bloco T.
 
 ---
 

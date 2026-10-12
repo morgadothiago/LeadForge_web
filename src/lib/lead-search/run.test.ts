@@ -84,6 +84,18 @@ describe("runLeadSearch", () => {
     expect(d.rawData).toMatchObject({ source: "google_places", legalBasis: "interesse_legitimo_b2b" });
     expect(p.searchRun.update.mock.calls[0]![0].data.status).toBe("done");
   });
+  it("SPEC-065 (D-065-18): cota de leads do plano esgotada no meio do lote => PARA (parcial, run `done` com motivo), nao e erro e nao avanca o cursor", async () => {
+    processItem
+      .mockResolvedValueOnce({ index: 0, status: "created", leadId: "L1" })
+      .mockResolvedValueOnce({ index: 1, status: "limit_reached", reason: "limite de leads do plano atingido" });
+    const s = { id: "google_places", search: vi.fn(async () => ({ leads: [raw("a", "+5581999991111"), raw("b", "+5581999992222"), raw("c", "+5581999993333")], requests: 1, cursor: { variant: 1, pageToken: "next", query: "q" } })) } as LeadSource;
+    const o = await runLeadSearch("c", { source: s });
+    expect(o).toMatchObject({ created: 1, invalid: 0, limitReached: true });
+    expect(processItem).toHaveBeenCalledTimes(2); // o 3o item nem foi tentado
+    const d = p.searchRun.update.mock.calls[0]![0].data;
+    expect(d).toMatchObject({ status: "done", created: 1, error: expect.stringMatching(/Limite de leads do plano/) });
+    expect(d).not.toHaveProperty("pageToken"); // cursor nao avanca: depois do upgrade a busca retoma desta pagina
+  });
   it("falha da fonte registra run failed", async () => {
     const s: LeadSource = { id: "google_places", search: vi.fn(async () => { throw new Error("x"); }) };
     await expect(runLeadSearch("c", { source: s })).rejects.toThrow();

@@ -62,8 +62,9 @@ export async function processBillingEvent(event: ParsedBillingEvent, now: Date):
             const prior: PriorSubscriptionState | null = existing ? { status: existing.status, planId: existing.planId, cadence: existing.cadence, currentPeriodEnd: existing.currentPeriodEnd, cancelAtPeriodEnd: existing.cancelAtPeriodEnd } : null;
             const pastDueSince = event.status === "past_due" ? (existing?.pastDueSince ?? now) : null;
             const canceledAt = event.status === "canceled" ? (existing?.canceledAt ?? now) : null;
-            // SPEC-062 (D-062-2): nada novo cria trial — `trialEndsAt` so e PRESERVADO (org legada); nunca mais calculado (+14d).
-            const trialEndsAt = existing?.trialEndsAt ?? null;
+            // SPEC-065 (D-065-9): ao ficar `active` (pagou: upgrade do trial Free ou reativacao de org expirada) o trial ACABA — `trialEndsAt = null`.
+            // Em qualquer outro status so e PRESERVADO (nunca recalculado aqui; o cadastro e o unico que cria o prazo, `signup-trial.ts`).
+            const trialEndsAt = event.status === "active" ? null : (existing?.trialEndsAt ?? null);
 
             // SPEC-053 (#12): so a action de reativar desfaz um cancelamento agendado; evento externo com
             // `cancelAtPeriodEnd:false` (ex.: AbacatePay sempre manda false) o preserva. `canceled` efetiva e zera.
@@ -85,7 +86,8 @@ export async function processBillingEvent(event: ParsedBillingEvent, now: Date):
             await tx.subscription.upsert({ where: { orgId: event.orgId }, create: { orgId: event.orgId, ...data }, update: data });
 
             const orgStatus = computeOrgStatus({ status: event.status, pastDueSince, cancelAtPeriodEnd, currentPeriodEnd: event.currentPeriodEnd, trialEndsAt }, now);
-            await tx.organization.update({ where: { id: event.orgId }, data: { status: orgStatus } });
+            // SPEC-065 (D-065-15): org reativada pelo pagamento limpa o motivo da suspensao (automatica do trial expirado/inadimplencia).
+            await tx.organization.update({ where: { id: event.orgId }, data: { status: orgStatus, ...(orgStatus === "active" ? { suspendedReason: null } : {}) } });
 
             return { canceledAt, prior, pastDueSince, cancelAtPeriodEnd };
           },

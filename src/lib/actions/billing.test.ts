@@ -4,6 +4,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { prisma } from "@/lib/prisma";
 import { createTestOrg, purgeTestOrg, type TestOrg } from "@/lib/test-utils/org-fixture";
 import { signInAs, signOut } from "@/lib/auth/test-helpers";
+import { randomCpf } from "@/lib/test-utils/document";
 import { createCheckoutSession, createPortalSession, signUp } from "./billing";
 
 let org: TestOrg;
@@ -94,52 +95,69 @@ describe("createPortalSession (SPEC-033)", () => {
   });
 });
 
-describe("signUp (SPEC-062, D-062-1/7) — so o usuario, sem organizacao nem trial", () => {
+describe("signUp (SPEC-065, D-065-23) — usuario + organizacao + trial Free", () => {
   const created: string[] = [];
   afterAll(async () => {
-    await prisma.user.deleteMany({ where: { email: { in: created } } });
+    for (const email of created) {
+      const u = await prisma.user.findUnique({ where: { email }, select: { id: true, memberships: { select: { orgId: true } } } });
+      if (!u) continue;
+      for (const m of u.memberships) {
+        await prisma.membership.deleteMany({ where: { orgId: m.orgId } });
+        await prisma.orgAuditLog.deleteMany({ where: { orgId: m.orgId } });
+        await prisma.organization.deleteMany({ where: { id: m.orgId } });
+      }
+      await prisma.user.deleteMany({ where: { id: u.id } });
+    }
   });
+  const pw = { password: "senha-forte-123456", confirmPassword: "senha-forte-123456" };
 
-  it("cria SO o User (nao verificado): nenhuma Organization/Membership/Subscription; redireciona ao /assinar", async () => {
+  it("cria User (nao verificado) + Organization + Membership(owner) + Subscription(free, trialing, +14 dias); redireciona ao /dashboard", async () => {
     const email = `zz-signup-${randomUUID().slice(0, 8)}@test.local`;
     created.push(email);
-    const orgsBefore = await prisma.organization.count();
-    const subsBefore = await prisma.subscription.count();
-    const r = await signUp({ name: "Fulano", email, password: "senha-forte-123456", confirmPassword: "senha-forte-123456" });
+    const before = Date.now();
+    const r = await signUp({ name: "Fulano Silva", email, document: randomCpf(true), ...pw });
     expect(r.ok).toBe(true);
     if (!r.ok) return;
-    expect(r.data.redirectTo).toBe("/assinar");
-    const user = await prisma.user.findUniqueOrThrow({ where: { email }, select: { role: true, emailVerifiedAt: true, memberships: true } });
+    expect(r.data.redirectTo).toBe("/dashboard");
+    const user = await prisma.user.findUniqueOrThrow({ where: { email }, select: { role: true, emailVerifiedAt: true, memberships: { select: { orgRole: true, org: { select: { name: true, status: true, setupPendingSince: true, subscription: { select: { status: true, trialEndsAt: true, plan: { select: { key: true } } } } } } } } } });
     expect(user.role).toBe("provider");
     expect(user.emailVerifiedAt).toBeNull();
-    expect(user.memberships).toHaveLength(0);
-    expect(await prisma.organization.count()).toBe(orgsBefore);
-    expect(await prisma.subscription.count()).toBe(subsBefore);
+    expect(user.memberships).toHaveLength(1);
+    const m = user.memberships[0];
+    expect(m.orgRole).toBe("owner");
+    expect(m.org).toMatchObject({ name: "Empresa de Fulano", status: "active", setupPendingSince: null });
+    expect(m.org.subscription?.status).toBe("trialing");
+    expect(m.org.subscription?.plan.key).toBe("free");
+    const ms = m.org.subscription!.trialEndsAt!.getTime();
+    expect(ms - before).toBeGreaterThan(14 * 24 * 3600_000 - 60_000);
+    expect(ms - before).toBeLessThan(14 * 24 * 3600_000 + 60_000);
   });
 
-  it("e-mail já cadastrado -> erro genérico (sem confirmar existência da conta)", async () => {
+  it("e-mail já cadastrado -> erro genérico (sem confirmar existência da conta) e nada novo criado", async () => {
     const email = `zz-signup-dup-${randomUUID().slice(0, 8)}@test.local`;
     created.push(email);
-    const input = { name: "Fulano", email, password: "senha-forte-123456", confirmPassword: "senha-forte-123456" };
+    const input = { name: "Fulano", email, document: randomCpf(), ...pw };
     expect((await signUp(input)).ok).toBe(true);
-    const r2 = await signUp(input);
+    const orgs = await prisma.organization.count();
+    const claims = await prisma.trialClaim.count();
+    const r2 = await signUp({ ...input, document: randomCpf() });
     expect(r2.ok).toBe(false);
     if (!r2.ok) {
       expect(r2.errors._form?.[0]).toBeDefined();
       expect(JSON.stringify(r2.errors)).not.toMatch(/já existe|already exists|cadastrado/i);
     }
+    expect(await prisma.organization.count()).toBe(orgs);
+    expect(await prisma.trialClaim.count()).toBe(claims); // falha no meio = nada criado (nem claim)
   });
 
   it("SPEC-064: senha de exatamente 6 caracteres e aceita; confirmação diferente é rejeitada no servidor (erro no campo confirmPassword)", async () => {
-    // rate limit do signUp = 5 por 10 min neste arquivo: aqui so 2 chamadas (senha de 5 e coberta no servidor por resetPassword e em schemas/password.test.ts)
     const bad = `zz-signup-cf-${randomUUID().slice(0, 8)}@test.local`;
-    const r = await signUp({ name: "Fulano", email: bad, password: "abc123", confirmPassword: "abc124" });
+    const r = await signUp({ name: "Fulano", email: bad, document: randomCpf(), password: "abc123", confirmPassword: "abc124" });
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.errors.confirmPassword?.[0]).toBe("As senhas não coincidem.");
     expect(await prisma.user.findUnique({ where: { email: bad } })).toBeNull();
-    // (confirmação ausente: coberto em schemas/password.test.ts; o rate limit do signUp é 5 por 10 min neste arquivo)
     const ok = `zz-signup-6-${randomUUID().slice(0, 8)}@test.local`;
     created.push(ok);
-    expect((await signUp({ name: "Fulano", email: ok, password: "abc123", confirmPassword: "abc123" })).ok).toBe(true);
+    expect((await signUp({ name: "Fulano", email: ok, document: randomCpf(), password: "abc123", confirmPassword: "abc123" })).ok).toBe(true);
   });
 });

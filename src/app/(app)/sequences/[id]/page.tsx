@@ -4,10 +4,12 @@ import { SequenceBuilder } from "@/components/sequences/SequenceBuilder";
 import { loadTemplateOptions } from "@/components/sequences/load-options";
 import { idSchema } from "@/lib/schemas/campaign";
 import { getSequence } from "@/lib/queries/sequences";
+import { redirectIfTrialExpired } from "@/lib/auth/require-page";
 
 export const dynamic = "force-dynamic";
 
 export default async function Page({ params }: { params: Promise<{ id: string }> }) {
+  await redirectIfTrialExpired(); // SPEC-065 (D-065-13.3): trial expirado => redirect a /configuracoes/assinatura
   const { id } = await params;
   if (!idSchema.safeParse(id).success) notFound();
   const [sequence, templates] = await Promise.all([getSequence(id), loadTemplateOptions()]);

@@ -4,11 +4,11 @@ import { WhatsAppInstanceFormDialog } from "./WhatsAppInstanceFormDialog";
 import { WhatsAppQrDialog } from "./WhatsAppQrDialog";
 
 /** Botão "Nova instância" que, ao criar, abre direto o QR code. */
-export function WhatsAppCreateButton() {
+export function WhatsAppCreateButton({ disabled, describedBy }: { disabled?: boolean; describedBy?: string } = {}) {
   const [created, setCreated] = React.useState<{ id: string; name: string } | null>(null);
   return (
     <>
-      <WhatsAppInstanceFormDialog mode="create" onCreated={setCreated} />
+      <WhatsAppInstanceFormDialog mode="create" onCreated={setCreated} createDisabled={disabled} createDescribedBy={describedBy} />
       {created && <WhatsAppQrDialog instanceId={created.id} instanceName={created.name} open onOpenChange={(o) => !o && setCreated(null)} />}
     </>
   );

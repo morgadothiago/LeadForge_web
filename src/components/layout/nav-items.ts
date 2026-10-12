@@ -1,4 +1,4 @@
-import { Bell, Building2, CalendarDays, Kanban, ClipboardCheck, LayoutDashboard, Megaphone, Settings, Users, Video, Workflow, type LucideIcon } from "lucide-react";
+import { Bell, Building2, CalendarDays, CreditCard, Kanban, ClipboardCheck, LayoutDashboard, Megaphone, Settings, UserRound, Users, Video, Workflow, type LucideIcon } from "lucide-react";
 
 import type { NavBadgeKey } from "@/lib/notifications/client-types";
 
@@ -55,6 +55,20 @@ export const NAV_SECTIONS: readonly NavSection[] = [
     items: [
       { href: "/notificacoes", label: "Notificações", description: "Alertas e lembretes do sistema.", icon: Bell, badgeKey: "notificacoes" },
       { href: "/configuracoes", label: "Configurações", description: "Contas de envio e integrações.", icon: Settings, badgeKey: "configuracoes" },
+    ],
+  },
+];
+
+/**
+ * SPEC-065b (D-065-13.4/14) — navegacao do SHELL REDUZIDO (org com teste gratis expirado: bloqueio total). So as rotas permitidas;
+ * o resto do tenant fica fora da sidebar (e as paginas redirecionam, 065a). NAO entra em `NAV_ITEMS` (nao e a navegacao do tenant).
+ */
+export const RESTRICTED_NAV_SECTIONS: readonly NavSection[] = [
+  {
+    key: "restrito",
+    items: [
+      { href: "/configuracoes/assinatura", label: "Assinatura", description: "Assine um plano para voltar a usar a organização.", icon: CreditCard },
+      { href: "/configuracoes/conta", label: "Minha conta", description: "Sair ou excluir a sua conta.", icon: UserRound },
     ],
   },
 ];

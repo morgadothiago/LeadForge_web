@@ -1,7 +1,7 @@
 import "dotenv/config";
 import { describe, expect, it } from "vitest";
 import { prisma } from "@/lib/prisma";
-import { listActivePlans } from "./plans";
+import { listActivePlans, parseLimits } from "./plans";
 
 /** SPEC-034 — catálogo público de planos (D-33-2 seed: starter/pro self-service, business sob consulta). */
 describe("listActivePlans", () => {
@@ -38,6 +38,16 @@ describe("listActivePlans", () => {
   it("plano 'courtesy' (SPEC-040, D-040-2) nunca aparece na vitrine pública, mesmo ativo", async () => {
     const plans = await listActivePlans();
     expect(plans.map((p) => p.key)).not.toContain("courtesy");
+  });
+
+  it("SPEC-065 (D-065-6): plano 'free' (trial) existe e esta ativo no banco, mas NUNCA aparece na vitrine; limites novas chaves parseadas (ausente = null)", async () => {
+    expect((await prisma.plan.findUniqueOrThrow({ where: { key: "free" } })).active).toBe(true);
+    const plans = await listActivePlans();
+    expect(plans.map((p) => p.key)).not.toContain("free");
+    expect(parseLimits({ maxCampaigns: 2 })).toEqual({ maxCampaigns: 2, maxWhatsappInstances: null, maxLeadsPerMonth: null, maxEmailAccounts: null, maxSendsPerDay: null });
+    expect(parseLimits({ maxEmailAccounts: 1, maxSendsPerDay: 20 })).toMatchObject({ maxEmailAccounts: 1, maxSendsPerDay: 20 });
+    expect(parseLimits(null).maxSendsPerDay).toBeNull();
+    expect(parseLimits({ maxCampaigns: -1, maxSendsPerDay: "x" })).toMatchObject({ maxCampaigns: null, maxSendsPerDay: null });
   });
 
   it("plano inativo não aparece na lista", async () => {

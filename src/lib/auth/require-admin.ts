@@ -26,11 +26,36 @@ export class OrgSuspendedError extends Error {
 }
 
 /**
+ * SPEC-065 (D-065-13): a org da sessao esta com o teste gratis EXPIRADO (bloqueio total). Subclasse de `ForbiddenError` (mesmo contrato de
+ * "sem permissao" para chamadores existentes); `handleActionError` devolve a mensagem propria + `code: trial_expired`.
+ */
+export class TrialExpiredError extends ForbiddenError {
+  constructor() {
+    super();
+    this.name = "TrialExpiredError";
+    this.message = "Seu teste grátis terminou. Assine um plano em Configurações > Assinatura para voltar de onde parou.";
+  }
+}
+
+/**
  * SPEC-030: exige sessão de `provider` com org ativa. Substitui o antigo `requireAdmin()` para todo
  * recurso que hoje é por-organização (campanhas, integrações, agentes, configurações...). Lança
  * UnauthorizedError (sem sessão) ou ForbiddenError (sessão de platform_admin, sem org).
  */
 export async function requireProviderOrg(): Promise<{ user: CurrentUser; orgId: string }> {
+  const r = await requireProviderOrgAllowExpired();
+  // SPEC-065 (D-065-13.1): FAIL-CLOSED. Trial expirado bloqueia por padrao toda action/query/pagina por organizacao (inclusive as futuras);
+  // so a variante `requireProviderOrgAllowExpired` (allowlist fechada, coberta por teste de varredura) deixa passar.
+  if (r.user.orgAccess === "trial_expirado") throw new TrialExpiredError();
+  return r;
+}
+
+/**
+ * SPEC-065 (D-065-13.2): como `requireProviderOrg()`, mas NAO barra a org com trial expirado. ALLOWLIST FECHADA (teste de varredura
+ * `trial-guard-coverage.test.ts`): checkout/portal/reativar, leitura da assinatura/banner, listar/trocar/sair de organizacao, reenviar
+ * verificacao. Quem usa esta variante NUNCA le dado de campanha/lead/etc.
+ */
+export async function requireProviderOrgAllowExpired(): Promise<{ user: CurrentUser; orgId: string }> {
   const user = await requireUser();
   if (user.platformRole !== "provider" || !user.orgId) throw new ForbiddenError();
   return { user, orgId: user.orgId };

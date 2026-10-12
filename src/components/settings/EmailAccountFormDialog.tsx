@@ -3,6 +3,7 @@ import * as React from "react";
 import { useRouter } from "next/navigation";
 import { Eye, EyeOff, Plus } from "lucide-react";
 import { toast } from "sonner";
+import { notifyActionError } from "@/components/feedback/notify";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
@@ -33,16 +34,19 @@ interface Props {
   account?: EmailAccountFormValues;
   open?: boolean;
   onOpenChange?: (o: boolean) => void;
+  /** SPEC-065b: plano no limite => botao de criar desabilitado, ligado (aria-describedby) ao aviso `LimitNotice`; a barreira real e a action. */
+  createDisabled?: boolean;
+  createDescribedBy?: string;
 }
 
-export function EmailAccountFormDialog({ mode, account, open, onOpenChange }: Props) {
+export function EmailAccountFormDialog({ mode, account, open, onOpenChange, createDisabled, createDescribedBy }: Props) {
   const [inner, setInner] = React.useState(false);
   const isOpen = open ?? inner;
   const setOpen = onOpenChange ?? setInner;
   return (
     <>
       {mode === "create" && (
-        <Button onClick={() => setOpen(true)}>
+        <Button onClick={() => setOpen(true)} disabled={createDisabled} aria-describedby={createDisabled ? createDescribedBy : undefined}>
           <Plus /> Nova conta
         </Button>
       )}
@@ -134,7 +138,7 @@ function AccountForm({ mode, account, onDone }: { mode: "create" | "edit"; accou
         router.refresh();
         return;
       }
-      toast.error(applyServerErrors(r.errors, setError, setFocus, EMAIL_FIELDS));
+      notifyActionError(r.errors, applyServerErrors(r.errors, setError, setFocus, EMAIL_FIELDS));
     });
   });
 

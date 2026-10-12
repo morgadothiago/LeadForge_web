@@ -73,6 +73,10 @@ export const envSchema = z.object({
   CREATIVE_MOCK_DELAY_MS: z.string().optional(),
   /** SPEC-049 (D-049-14): cabeçalho de IP que o proxy/CDN de confiança sobrescreve (ex.: x-real-ip). Obrigatório em produção (ver `parseEnv`). */
   TRUSTED_PROXY_IP_HEADER: z.string().trim().min(1).optional(),
+  /** SPEC-065 (D-065-19/27): pepper do hash anti-abuso do trial (`TrialClaim`). Obrigatoria em producao (sem fallback); em dev/test cai em AUTH_SECRET. */
+  TRIAL_CLAIM_PEPPER: z.string().min(16).optional(),
+  /** SPEC-065 (D-065-19.5): dominios de e-mail descartavel extras (virgulas) que recebem a conta SEM trial. */
+  TRIAL_DISPOSABLE_DOMAINS: z.string().optional(),
 });
 
 export type Env = z.infer<typeof envSchema>;

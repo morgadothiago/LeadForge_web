@@ -26,8 +26,8 @@ export default async function SignupPage({ searchParams }: { searchParams: Promi
   }
   if (homeRoute) redirect(homeRoute);
 
-  // SPEC-062 (D-062-1/7): o cadastro so cria o usuario. `?plan=&cadence=` (landing) e apenas INTENCAO, repassada a `signUp`,
-  // que valida o plano no servidor (invalido e ignorado). `?modo=participar` antigo (D-062-15) apenas abre `/signup`.
+  // SPEC-065 (D-065-23): o cadastro cria usuario + organizacao no teste gratis de 14 dias. `?plan=&cadence=` (landing) e apenas
+  // INTENCAO, repassada a `signUp`, que valida o plano no servidor (invalido e ignorado). `?modo=participar` antigo (D-062-15) apenas abre `/signup`.
   const sp = await searchParams;
   const planRaw = Array.isArray(sp.plan) ? sp.plan[0] : sp.plan;
   const modoRaw = Array.isArray(sp.modo) ? sp.modo[0] : sp.modo;
@@ -38,11 +38,13 @@ export default async function SignupPage({ searchParams }: { searchParams: Promi
         <div className="space-y-1 text-center">
           <p className="font-heading text-2xl font-bold text-primary">LeadForge</p>
           <h1 className="font-heading text-lg font-semibold">Criar sua conta</h1>
-          <p className="text-sm text-muted-foreground">Crie sua conta em um minuto. Você escolhe o plano no próximo passo.</p>
+          <p className="text-sm text-muted-foreground">
+            <strong className="font-semibold text-foreground">14 dias grátis, sem cartão.</strong> Crie sua conta em um minuto e comece a usar agora. Você só escolhe um plano quando quiser continuar.
+          </p>
         </div>
         {modoRaw === "participar" && (
           <p role="note" className="rounded-md border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
-            Vai entrar em uma organização que já existe? Crie sua conta e, no próximo passo, use o código ou o link de convite que você recebeu. Você não precisa pagar.
+            Vai entrar em uma organização que já existe? Abra o link de convite que você recebeu por e-mail: ele leva direto à organização, sem pagar e sem novo teste. Criar a conta aqui abre um teste grátis separado, só seu.
           </p>
         )}
         <SignupForm plan={planRaw} cadence={resolveCadence(sp.cadence)} />

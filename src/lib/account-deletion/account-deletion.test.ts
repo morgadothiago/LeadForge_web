@@ -24,6 +24,7 @@ import { ANONYMIZED_NAME, DELETION_WINDOW_DAYS, DELETION_WINDOW_MS, anonymizedEm
 import { ANONYMIZED_ITEMS, DELETED_ITEMS, RETAINED_ITEMS } from "./retention";
 import { accountDeletedTemplate } from "@/lib/channels/email/templates/account-deleted";
 import { purgeCanceledOrgs } from "@/lib/billing/purge";
+import { findDeletionBlockers } from "./blockers";
 import { CANCEL_RETENTION_MS } from "@/lib/billing/status-map";
 
 /** SPEC-054a — exclusao de conta (LGPD). `sendSystemEmail` mockado (nunca provedor real). */
@@ -343,7 +344,7 @@ describe("regras de organizacao (D-054-3)", () => {
       expect(r.errors.blockers).toContain("active_subscription");
       expect(r.errors._form[0]).toMatch(/assinatura ativa/);
     }
-    await prisma.subscription.update({ where: { id: sub.id }, data: { status: "trialing" } });
+    await prisma.subscription.update({ where: { id: sub.id }, data: { status: "trialing", trialEndsAt: new Date(Date.now() + 5 * DAY) } }); // trial VIGENTE bloqueia; expirado nao (SPEC-065)
     expect((await requestAccountDeletion({ password: PASS })).ok).toBe(false);
     await prisma.subscription.update({ where: { id: sub.id }, data: { status: "active", cancelAtPeriodEnd: true } });
     expect((await requestAccountDeletion({ password: PASS })).ok).toBe(true);
@@ -633,5 +634,37 @@ describe("estado para o frontend", () => {
       expect(s2.data.canRequest).toBe(false);
     }
     expect((await requestAccountDeletion({ password: PASS })).ok).toBe(false);
+  });
+});
+
+describe("trial Free (SPEC-065, D-065-24): nao bloqueia a exclusao; a purga encerra a organizacao Free", () => {
+  const freeId = async () => (await prisma.plan.findUniqueOrThrow({ where: { key: "free" }, select: { id: true } })).id;
+
+  it("unico membro com trialing+free (vigente ou expirado) NAO tem bloqueio; trialing de plano PAGO (legado) e active continuam bloqueando", async () => {
+    const org = await mkOrg("free065", false);
+    const u = await givePassword(org);
+    for (const trialEndsAt of [new Date(Date.now() + 5 * DAY), new Date(Date.now() - DAY)]) {
+      await prisma.subscription.deleteMany({ where: { orgId: org.orgId } });
+      await prisma.subscription.create({ data: { orgId: org.orgId, planId: await freeId(), status: "trialing", trialEndsAt } });
+      expect((await findDeletionBlockers(prisma, u.id)).map((b) => b.code)).toEqual([]);
+    }
+    await mkSub(org.orgId, { status: "trialing", trialEndsAt: new Date(Date.now() + 5 * DAY), canceledAt: null }); // trial legado do plano starter
+    expect((await findDeletionBlockers(prisma, u.id)).map((b) => b.code)).toEqual(["active_subscription"]);
+    await mkSub(org.orgId, { status: "active", canceledAt: null });
+    expect((await findDeletionBlockers(prisma, u.id)).map((b) => b.code)).toEqual(["active_subscription"]);
+  });
+
+  it("exclusao completa: org Free sem mais membros fica cancelada/suspensa (dados retidos pelo fluxo de 90 dias) e o TrialClaim SOBREVIVE", async () => {
+    const org = await mkOrg("free065x", false);
+    const u = await givePassword(org);
+    await prisma.subscription.create({ data: { orgId: org.orgId, planId: await freeId(), status: "trialing", trialEndsAt: new Date(Date.now() + 5 * DAY) } });
+    const claim = await prisma.trialClaim.create({ data: { kind: "doc", keyHash: `zz065-${randomUUID()}` } });
+    const req = await requestAndConfirm(u, org);
+    const due = new Date(Date.now() + 31 * DAY);
+    expect((await executeAccountDeletion(req.id, due)).outcome).toBe("executed");
+    expect(await prisma.subscription.findUniqueOrThrow({ where: { orgId: org.orgId }, select: { status: true, canceledAt: true } })).toMatchObject({ status: "canceled", canceledAt: due });
+    expect(await prisma.organization.findUniqueOrThrow({ where: { id: org.orgId }, select: { status: true, suspendedReason: true } })).toEqual({ status: "suspended", suspendedReason: "automatic" });
+    expect(await prisma.trialClaim.count({ where: { id: claim.id } })).toBe(1);
+    await prisma.trialClaim.delete({ where: { id: claim.id } });
   });
 });

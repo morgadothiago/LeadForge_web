@@ -11,12 +11,14 @@ import { listEmailAccounts } from "@/lib/queries/email";
 import { getCampaign, listCampaignFormOptions, listIcps } from "@/lib/queries/campaigns";
 import { listWhatsAppInstances } from "@/lib/queries/whatsapp";
 import { idSchema } from "@/lib/schemas/campaign";
+import { redirectIfTrialExpired } from "@/lib/auth/require-page";
 
 export const dynamic = "force-dynamic";
 // SPEC-058: a server action "Buscar agora" roda síncrona (prazo interno de 45 s); maxDuration da página vale para as actions usadas nela.
 export const maxDuration = 60;
 
 export default async function Page({ params }: { params: Promise<{ id: string }> }) {
+  await redirectIfTrialExpired(); // SPEC-065 (D-065-13.3): trial expirado => redirect a /configuracoes/assinatura
   const { id } = await params;
   if (!idSchema.safeParse(id).success) notFound();
   const [waInstances, emailAccounts, campaign, icps, { sequences }, searchPanel] = await Promise.all([

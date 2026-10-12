@@ -5,11 +5,13 @@ import { buttonVariants } from "@/components/ui/button";
 import { CreativeWizard } from "@/components/creatives/CreativeWizard";
 import { getFormError } from "@/components/campaigns/form-utils";
 import { listAvatarsAndVoices } from "@/lib/actions/creative";
+import { redirectIfTrialExpired } from "@/lib/auth/require-page";
 
 export const dynamic = "force-dynamic";
 
 /** SPEC-051b — criação de criativo em passos. */
 export default async function NovoCriativoPage() {
+  await redirectIfTrialExpired(); // SPEC-065 (D-065-13.3): trial expirado => redirect a /configuracoes/assinatura
   const res = await listAvatarsAndVoices();
   if (!res.ok) {
     return (

@@ -12,11 +12,14 @@ import { getFormError } from "@/components/campaigns/form-utils";
 import { PasswordInput } from "@/components/auth/PasswordInput";
 import { PasswordStrength } from "@/components/auth/PasswordStrength";
 import { signUp } from "@/lib/actions/billing";
+import { maskDocument } from "@/lib/domain/document-mask";
 import { signupSchema, type SignupInput } from "@/lib/schemas/billing";
 
 /**
- * SPEC-062 (D-062-1/7) — cadastro SO com usuario: nome, e-mail e senha (MINIMO da 062a; a 062b refaz a tela). `plan`/`cadence`
- * (intencao vinda da landing) seguem ate o `/assinar` pela action `signUp`. react-hook-form + `zodResolver(signupSchema)`.
+ * SPEC-065b (D-065-21/23/27) — cadastro do teste gratis de 14 dias: nome, e-mail, CPF ou CNPJ (mascara + digitos verificadores no
+ * cliente via `signupSchema`; o servidor valida de novo), senha, confirmar senha e forca (064). Cria usuario + organizacao e vai ao
+ * dashboard. `plan`/`cadence` (intencao da landing) so viajam para o servidor, que os valida. react-hook-form + `zodResolver`.
+ * Erros de campo e `_form` do servidor aparecem inline (role="alert") e em toast; o foco vai ao primeiro campo com erro.
  */
 export function SignupForm({ plan, cadence }: { plan?: string; cadence?: "monthly" | "yearly" }) {
   const router = useRouter();
@@ -30,9 +33,11 @@ export function SignupForm({ plan, cadence }: { plan?: string; cadence?: "monthl
     formState: { errors },
   } = useForm<SignupInput>({
     resolver: zodResolver(signupSchema),
-    defaultValues: { name: "", email: "", password: "", confirmPassword: "", plan, cadence },
+    mode: "onTouched",
+    defaultValues: { name: "", email: "", document: "", password: "", confirmPassword: "", plan, cadence },
   });
 
+  const documentField = register("document");
   const [pw, nm, em] = useWatch({ control, name: ["password", "name", "email"] });
 
   const onSubmit = handleSubmit((values) => {
@@ -67,6 +72,31 @@ export function SignupForm({ plan, cadence }: { plan?: string; cadence?: "monthl
       </Field>
       <Field id="email" label="E-mail" error={errors.email?.message}>
         {(a) => <Input {...a} {...register("email")} type="email" inputMode="email" autoComplete="email" required />}
+      </Field>
+      {/* SPEC-065 (D-065-27): so o hash do documento e guardado (anti-abuso: um teste por pessoa/empresa). Aviso de LGPD no hint. */}
+      <Field
+        id="document"
+        label="CPF ou CNPJ"
+        keepHint
+        hint="Usamos só para limitar o teste a um por pessoa ou empresa. Guardamos apenas um código irreversível (hash), nunca o número."
+        error={errors.document?.message}
+      >
+        {(a) => (
+          <Input
+            {...a}
+            {...documentField}
+            onChange={(e) => {
+              e.target.value = maskDocument(e.target.value);
+              void documentField.onChange(e);
+            }}
+            type="text"
+            inputMode="numeric"
+            autoComplete="off"
+            placeholder="000.000.000-00 ou 00.000.000/0000-00"
+            maxLength={18}
+            required
+          />
+        )}
       </Field>
       <Field id="password" label="Senha" hint="Mínimo de 6 caracteres." error={errors.password?.message}>
         {(a) => <PasswordInput {...a} {...register("password")} required />}

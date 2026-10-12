@@ -156,7 +156,7 @@ describe("sendBillingReminders (SPEC-039, D-039-2)", () => {
 
   it("idempotência: rodar o tick de novo no mesmo dia NÃO reenvia o mesmo aviso", async () => {
     const now = new Date();
-    const trialEndsAt = new Date(now.getTime() + 1 * 24 * 3600_000);
+    const trialEndsAt = new Date(now.getTime() + 2 * 24 * 3600_000); // SPEC-065: a 2 dias (fora da janela do D-1, que e < 1 dia)
     await prisma.subscription.create({ data: { orgId: org.orgId, planId, status: "trialing", cadence: "monthly", trialEndsAt } });
 
     const first = await sendBillingReminders(now);
@@ -188,7 +188,7 @@ describe("sendBillingReminders (SPEC-039, D-039-2)", () => {
   it("falha no envio de e-mail (SMTP indisponível) NÃO lança e NÃO derruba o job", async () => {
     vi.mocked(sendSystemEmail).mockResolvedValueOnce({ ok: false, error: new Error("smtp down") as never });
     const now = new Date();
-    const trialEndsAt = new Date(now.getTime() + 1 * 24 * 3600_000);
+    const trialEndsAt = new Date(now.getTime() + 2 * 24 * 3600_000); // SPEC-065: a 2 dias (fora da janela do D-1, que e < 1 dia)
     await prisma.subscription.create({ data: { orgId: org.orgId, planId, status: "trialing", cadence: "monthly", trialEndsAt } });
 
     const r = await sendBillingReminders(now); // não deve lançar mesmo com falha do SMTP.
@@ -201,7 +201,7 @@ describe("sendBillingReminders (SPEC-039, D-039-2)", () => {
     const other = await createTestOrg("billing-reminders-other");
     try {
       const now = new Date();
-      const trialEndsAt = new Date(now.getTime() + 1 * 24 * 3600_000);
+      const trialEndsAt = new Date(now.getTime() + 2 * 24 * 3600_000); // SPEC-065: a 2 dias (fora da janela do D-1, que e < 1 dia)
       await prisma.subscription.create({ data: { orgId: other.orgId, planId, status: "trialing", cadence: "monthly", trialEndsAt } });
 
       const r = await sendBillingReminders(now);

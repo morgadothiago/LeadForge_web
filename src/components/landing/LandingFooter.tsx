@@ -27,7 +27,7 @@ export function LandingFooter() {
             <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Conta</p>
             <ul className="space-y-1.5 text-sm">
               <li><Link href="/login" className="text-muted-foreground hover:text-foreground">Entrar</Link></li>
-              <li><Link href="/signup" className="text-muted-foreground hover:text-foreground">Criar conta</Link></li>
+              <li><Link href="/signup" className="text-muted-foreground hover:text-foreground">Teste grátis</Link></li>
             </ul>
           </div>
           <div className="space-y-2">

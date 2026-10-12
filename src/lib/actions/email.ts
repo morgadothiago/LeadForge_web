@@ -5,6 +5,8 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requireActiveProviderOrg } from "@/lib/auth/require-admin";
 import { scopedPrisma } from "@/lib/tenant/scoped-prisma";
+import { assertWithinLimit } from "@/lib/billing/limits";
+import { lockOrg } from "@/lib/org/guards";
 import { encrypt } from "@/lib/crypto/secret-box";
 import { buildTransport, sanitizeError } from "@/lib/channels/email";
 import { normalizeSmtpError } from "@/lib/channels/smtp-errors";
@@ -28,9 +30,14 @@ export async function createEmailAccount(input: unknown): Promise<ActionResult<{
     if (!parsed.success) return failure(zodErrors(parsed.error));
     const { password, ...data } = parsed.data;
     try {
-      const a = await prisma.emailAccount.create({
-        data: { ...data, orgId, userId: user.id, encryptedPassword: encrypt(password) },
-        select: { id: true },
+      // SPEC-065 (D-065-18): maxEmailAccounts sob lockOrg, contagem + insert na mesma transacao (sem corrida).
+      const a = await prisma.$transaction(async (tx) => {
+        await lockOrg(tx, orgId);
+        await assertWithinLimit(tx, orgId, "email_accounts", await tx.emailAccount.count({ where: { orgId } }));
+        return tx.emailAccount.create({
+          data: { ...data, orgId, userId: user.id, encryptedPassword: encrypt(password) },
+          select: { id: true },
+        });
       });
       revalidate();
       return success(a);

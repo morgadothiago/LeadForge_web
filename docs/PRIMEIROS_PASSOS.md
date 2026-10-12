@@ -168,40 +168,57 @@ Abra http://localhost:3000/login e use `ADMIN_EMAIL` e `ADMIN_PASSWORD` do seu `
   pagar um checkout de teste com o cartão `4242 4242 4242 4242` (9.7).
 - `MOCK_WEBHOOK_SECRET` só serve para chamar a rota do carteiro `POST /api/billing/webhook` na mão. Sem ele, a rota
   responde 503. O checkout interno não precisa dele.
-- **O que você deve ver na tela:** depois de criar a conta, você escolhe um plano e cai num pagamento de faz de conta.
+- **O que você deve ver na tela:** quando você clica em "Fazer upgrade" e escolhe um plano, cai num pagamento de faz de conta.
 
-### 2.2 Criar uma conta nova (SPEC-062: primeiro o plano, depois a organização)
+### 2.2 Criar uma conta nova (SPEC-065: 14 dias de teste grátis)
 
-Imagine um clubinho. Primeiro você **entra no portão** (cria a conta), depois **paga a mensalidade** (escolhe o plano) e
-só então **ganha a sua salinha** (dá nome à organização). Quem já tem sala pode chamar você para entrar na dela, e aí não
-precisa pagar: quem paga é a sala.
+Imagine uma **loja de brinquedos que deixa você brincar de graça por 14 dias**. Você entra, ganha a sua salinha na hora e
+já pode brincar. Os brinquedos do teste são um pouquinho menores (os "limites"). Quando os 14 dias acabam, a salinha **fecha
+a porta**, mas os seus brinquedos ficam guardados: é só pagar a mensalidade (escolher um plano) e a porta abre de novo.
 
-1. Vá em `/signup`. Só pede **nome, e-mail e senha**. Não pergunta nome de empresa nem fala de teste grátis. A senha precisa de
-   **pelo menos 6 caracteres** e você **digita duas vezes** (campo "Confirmar senha"). Embaixo do campo há uma **barrinha de força**:
-   vermelha e "Muito fraca" para coisas como `123456`, até verde e "Forte". A barrinha só **aconselha**: com 6 ou mais caracteres
-   você consegue criar a conta mesmo com senha fraca. A mesma regra vale ao aceitar um convite e ao redefinir a senha.
-2. Você vai para **/assinar**, a tela de escolher o plano (mensal ou anual, só cartão). O plano "Business" é "Falar com vendas".
-3. **Confirme seu e-mail** antes de pagar: o botão "Assinar" fica cinza até você clicar no link que chegou no Mailpit
-   (http://localhost:8025). Dá para pedir o link de novo na própria tela.
-4. Clique em **Assinar** no plano. No mock, o pagamento é de mentirinha. Você volta para **/assinar/retorno**, que mostra
-   "Confirmando seu pagamento..." e muda sozinho quando o pagamento é confirmado.
-5. Aparece **/organizacao/nova**: escreva o nome da sua organização. Pronto: você é o dono e o painel abre.
+1. Vá em `/signup`. A tela diz **"14 dias grátis, sem cartão"** e pede **nome, e-mail, CPF ou CNPJ e senha**.
+   - O **CPF ou CNPJ** ganha pontinhos e traço sozinho enquanto você digita. Se os números não baterem, aparece "CPF ou CNPJ
+     inválido." no campo. Serve só para que cada pessoa ou empresa tenha **um teste só**. O sistema guarda um "código
+     embaralhado" (hash), nunca o número de verdade. Tem um aviso escrito embaixo do campo.
+   - A senha precisa de **pelo menos 6 caracteres** e você **digita duas vezes** (campo "Confirmar senha"). A barrinha de
+     força só **aconselha**: com 6 ou mais caracteres você consegue criar a conta mesmo com senha fraca.
+2. Clique em **Criar conta**. Você **já cai no painel (`/dashboard`)**, sem passar por tela de pagamento. A sua organização
+   foi criada sozinha com o nome "Empresa de {seu primeiro nome}".
+3. No painel aparecem dois cartõezinhos que você pode fechar:
+   - **"Como se chama a sua empresa?"**: troque o nome e clique em "Salvar nome" (ou "Agora não").
+   - **"Primeiros passos"**: conectar um e-mail ou WhatsApp, criar a primeira campanha, trazer os primeiros leads.
+4. No topo do painel aparece um selinho **"Teste grátis: 14 dias"** com o botão **"Fazer upgrade"**. Nos **3 últimos dias** surge
+   também uma faixa amarela avisando quantos dias faltam.
+5. **Confirme seu e-mail** (link no Mailpit, http://localhost:8025). Sem isso o sistema **não envia mensagens** para os seus
+   leads (e o botão de assinar fica cinza).
 
-- **O que você deve ver na tela:** nenhuma página do painel abre antes de pagar. Se você tentar `/dashboard` sem plano, o sistema
-  te leva de volta para escolher o plano.
-- Pagou e ainda não deu nome à organização? Ao entrar de novo você cai direto em **/organizacao/nova**. O plano pago não some.
-- Desistiu do pagamento? Volte em **/assinar** e tente de novo (a tela mostra "Pagamento cancelado. Nenhuma cobrança foi feita").
-- Não quer pagar porque recebeu um **código** ou um **convite**? Em **/entrar-em-organizacao** você digita o código; o convite
-  abre pelo link do e-mail. Entra sem pagar.
-- **/minha-conta** é a sua conta enquanto você ainda não tem organização: confirmar e-mail e excluir a conta.
-- Quer uma **segunda organização**? Em "Criar organização" (no seletor) o sistema leva para **/assinar?nova=1**: cada
-  organização tem o seu próprio plano.
-- Com o Mailpit aberto (Fase 3), chegam o e-mail de **boas-vindas** (com o próximo passo: escolher o plano) e o de
-  **confirmação de e-mail**. No pagamento de mentirinha chega o e-mail "Assinatura confirmada".
-- O **recibo** só sai em renovação ou PIX pago, não no checkout de mentirinha.
-- Precisa da migration `20261017120000_cadastro_sem_trial` aplicada no seu banco (`npx prisma migrate deploy`; faça isso por
-  sua conta, o projeto não aplica sozinho no banco de dev).
-- Validação em navegador: veja o bloco P do `docs/ROTEIRO_DE_TESTES.md`.
+**Os "limites" do teste grátis** (valores de exemplo, o dono do produto define os finais): 1 campanha ativa, 1 número de
+WhatsApp, 1 conta de e-mail, 50 leads durante o teste e 20 envios por dia. Em **Configurações > Assinatura** há a tela **"Uso do
+plano"** com barrinhas ("1 de 1", "12 de 50"). Quando chega no limite, o botão de criar fica **cinza com uma explicação** e um
+link "Fazer upgrade". O WhatsApp novo ainda tem o **aquecimento** (poucas mensagens nos primeiros dias) para o número não ser bloqueado.
+
+**Quando os 14 dias acabam:** o menu lateral fica só com **Assinatura** e **Minha conta**; qualquer outra página leva de volta
+para **Configurações > Assinatura**, que mostra "Seu teste grátis terminou em ...". Os dados ficam guardados.
+- Se você é o **dono**: escolha o plano (mensal ou anual, só cartão) e pague. Em **/configuracoes/assinatura** aparece
+  "Confirmando seu pagamento..." e, assim que o pagamento é confirmado, o painel volta ao normal sem sair da conta.
+- Se você entrou por **convite** (é "membro"): a tela diz para pedir ao proprietário que assine. Você não vê botão de pagar.
+- Se o seu **e-mail, CPF ou CNPJ já usou o teste**, a conta é criada mas **sem os 14 dias**: aparece "Não foi possível liberar o
+  teste grátis para este cadastro" e você só segue assinando um plano. A tela não diz qual dado bateu.
+
+Outras coisas:
+- Entrar numa organização que já existe? Abra o **link de convite** que veio por e-mail: você entra na organização do convite,
+  **sem pagar e sem ganhar um teste só seu**.
+- Quer uma **segunda organização**? Em "Criar organização" (no seletor) o sistema leva para **/assinar?nova=1**: a segunda é
+  **paga** (não tem novo teste).
+- **/minha-conta** serve para quem ficou sem organização: confirmar e-mail e excluir a conta.
+- Com o Mailpit aberto (Fase 3), chegam o e-mail de **boas-vindas** (dizendo "Você tem 14 dias grátis, até {data}") e o de
+  **confirmação de e-mail**. Perto do fim chegam avisos aos 3 dias e a 1 dia, e um quando o teste acaba.
+- ⚠️ **Antes de testar no seu computador:** rode `npx prisma migrate deploy` (cria as tabelas `UsageCounter` e `TrialClaim`) **e
+  depois o seed** (`npx prisma db seed`, que cria o plano "Teste gratis"). Sem o seed o cadastro falha. Nunca use `migrate dev`.
+  Em produção, defina também `TRIAL_CLAIM_PEPPER` (um segredo seu; sem ele o cadastro recusa).
+- ⚠️ **Os limites agora valem de verdade.** A organização de exemplo do seed no dev está no plano Starter, e os limites do Starter
+  passam a valer nela (pode barrar dados de teste grandes). O app móvel antigo não recebe o bloqueio do teste expirado (fora de escopo).
+- Validação em navegador: veja o bloco T do `docs/ROTEIRO_DE_TESTES.md`.
 
 ### 2.3 Várias pessoas na mesma empresa (multi-tenant, SPEC-049, já entregue)
 

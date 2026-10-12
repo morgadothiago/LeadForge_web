@@ -17,7 +17,7 @@ import { FadeInSection } from "@/components/landing/FadeInSection";
 export const metadata: Metadata = {
   title: "LeadForge — Prospecção B2B automatizada com IA",
   description:
-    "Campanhas por ICP, sequências multicanal, WhatsApp, busca de leads por IA e agentes de IA (SDR, Follow-up, Closer) num só lugar.",
+    "Campanhas por ICP, sequências multicanal, WhatsApp, busca de leads por IA e agentes de IA (SDR, Follow-up, Closer) num só lugar. Teste grátis por 14 dias, sem cartão.",
 };
 export const dynamic = "force-dynamic";
 

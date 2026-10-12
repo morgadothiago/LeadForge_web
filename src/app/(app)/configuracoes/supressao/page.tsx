@@ -8,10 +8,12 @@ import { buttonVariants } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { listSuppressions } from "@/lib/queries/suppression";
 import { cn } from "@/lib/utils";
+import { redirectIfTrialExpired } from "@/lib/auth/require-page";
 
 export const dynamic = "force-dynamic";
 
 export default async function Page({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
+  await redirectIfTrialExpired(); // SPEC-065 (D-065-13.3): trial expirado => redirect a /configuracoes/assinatura
   const p = parseSuppressionParams(await searchParams);
   const result = await listSuppressions({ kind: p.kind, q: p.q, page: p.page, pageSize: 25 });
   const hasFilters = Boolean(p.kind || p.q);

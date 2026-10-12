@@ -32,6 +32,8 @@ export async function cancelSubscriptionForOrg(orgId: string): Promise<ActionRes
     select: { status: true, cadence: true, currentPeriodEnd: true, cancelAtPeriodEnd: true, externalCustomerId: true, externalSubscriptionId: true, plan: { select: { key: true } } },
   });
   if (!sub) return formError("Nenhuma assinatura encontrada para cancelar.");
+  // SPEC-065 (D-065-24): o teste gratis (plano `free`) nao tem o que cancelar; sair = excluir a conta (054).
+  if (sub.plan.key === "free") return formError("O teste grátis não tem assinatura para cancelar.");
   if (sub.status === "canceled" || sub.cancelAtPeriodEnd) {
     return success({ status: sub.status, cancelAtPeriodEnd: sub.cancelAtPeriodEnd, currentPeriodEnd: sub.currentPeriodEnd, outcome: "already" });
   }

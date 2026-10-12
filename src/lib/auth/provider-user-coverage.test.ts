@@ -41,9 +41,11 @@ describe("requireProviderUser: superficie controlada (SPEC-062)", () => {
 
   it("requireProviderOrg/requireActiveProviderOrg continuam recusando sessao sem org (corpo inalterado)", () => {
     const src = readFileSync(path.resolve(process.cwd(), "src/lib/auth/require-admin.ts"), "utf8");
-    expect(src).toMatch(/export async function requireProviderOrg[\s\S]*?if \(user\.platformRole !== "provider" \|\| !user\.orgId\) throw new ForbiddenError\(\);/);
+    // SPEC-065: `requireProviderOrg` delega a `requireProviderOrgAllowExpired` (que mantem o corpo original) e so ACRESCENTA o bloqueio do trial expirado.
+    expect(src).toMatch(/export async function requireProviderOrgAllowExpired[\s\S]*?if \(user\.platformRole !== "provider" \|\| !user\.orgId\) throw new ForbiddenError\(\);/);
+    expect(src).toMatch(/export async function requireProviderOrg\(\)[\s\S]*?await requireProviderOrgAllowExpired\(\)[\s\S]*?"trial_expirado"\) throw new TrialExpiredError/);
     expect(src).toMatch(/export async function requireActiveProviderOrg[\s\S]*?await requireProviderOrg\(\)[\s\S]*?org\.status !== "active"\) throw new OrgSuspendedError/);
     const guards = readFileSync(path.resolve(process.cwd(), "src/lib/org/guards.ts"), "utf8");
-    expect(guards).toMatch(/requireOrgMember[\s\S]*?await requireProviderOrg\(\)/);
+    expect(guards).toMatch(/requireOrgMember[\s\S]*?requireProviderOrg\(\)/);
   });
 });

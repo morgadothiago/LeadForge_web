@@ -19,6 +19,7 @@ import { requireUser } from "@/lib/auth/require-user";
 import { hashPassword } from "@/lib/auth/password";
 import { newInviteToken } from "@/lib/org/tokens";
 import { signUp } from "@/lib/actions/billing";
+import { randomCpf } from "@/lib/test-utils/document";
 import { signUpAndJoin } from "@/lib/actions/org";
 import { forgotPassword, resendVerificationEmail, resetPassword, verifyEmail } from "@/lib/actions/auth";
 import { dispatchDraft } from "@/lib/agents/drafts";
@@ -91,7 +92,7 @@ async function signup(email: string, name = "Fulana Teste") {
   }
 }
 async function signupRaw(email: string, name: string) {
-  return signUp({ name, email, password: "senha-forte-123456", confirmPassword: "senha-forte-123456" });
+  return signUp({ name, email, document: randomCpf(), password: "senha-forte-123456", confirmPassword: "senha-forte-123456" });
 }
 
 describe("boas-vindas (#1)", () => {
@@ -102,11 +103,9 @@ describe("boas-vindas (#1)", () => {
     expect(to(email, "welcome")).toHaveLength(1);
     expect(to(email, "email_verification")).toHaveLength(1);
     const w = to(email, "welcome")[0];
-    expect(w.text).not.toMatch(/\d{2}\/\d{2}\/\d{4}/);
-    // SPEC-062: sem organizacao ainda — o proximo passo e escolher o plano; nenhuma mencao a trial.
-    expect(w.html).toContain("/assinar");
-    expect(w.text).toMatch(/escolha seu plano/);
-    expect(w.text).not.toMatch(/teste|gr[aá]tis|14 dias/i);
+    // SPEC-065 (D-065-16.1): a org nasce no cadastro; o texto diz "14 dias gratis, ate {data}. Sem cartao." e leva ao /dashboard.
+    expect(w.html).toContain("/dashboard");
+    expect(w.text).toMatch(/14 dias grátis, até \d{2}\/\d{2}\/\d{4}\. Sem cartão\./);
     const u = await prisma.user.findUniqueOrThrow({ where: { email } });
     expect(u.emailVerifiedAt).toBeNull();
     expect(await prisma.emailDispatchLog.count({ where: { dedupeKey: `welcome:${u.id}` } })).toBe(1);
@@ -234,7 +233,7 @@ describe("resendVerificationEmail", () => {
     await signup(email);
     sent.length = 0;
     const u = await prisma.user.findUniqueOrThrow({ where: { email } });
-    await signInAs(u.id, { orgId: null, platformRole: "provider" }); // SPEC-062: cadastro novo nao tem organizacao
+    await signInAs(u.id); // SPEC-065: o cadastro ja cria a organizacao (sessao na org)
     return { email, userId: u.id };
   }
 

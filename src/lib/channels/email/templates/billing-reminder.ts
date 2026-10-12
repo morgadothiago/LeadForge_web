@@ -5,12 +5,21 @@ import type { EmailTemplate } from "./password-reset";
  * SPEC-046 (conteúdo preservado 1:1 da SPEC-039, só muda o mecanismo de envio/visual) — 4 sub-tipos
  * (D-039-2), mesmo texto já aprovado, só embrulhado no layout HTML compartilhado.
  */
-export type BillingReminderVariant = "trial_ending" | "past_due_started" | "auto_suspended" | "purge_warning";
+export type BillingReminderVariant = "trial_ending" | "trial_ending_d1" | "trial_expired" | "past_due_started" | "auto_suspended" | "purge_warning";
 
 const COPY: Record<BillingReminderVariant, { subject: string; body: string }> = {
   trial_ending: {
     subject: "Seu período de teste está terminando — LeadForge",
     body: "Seu período de teste gratuito termina em breve. Escolha um plano em Configurações > Assinatura para continuar usando o LeadForge sem interrupção.",
+  },
+  // SPEC-065 (D-065-16): D-1 e "teste expirado" (1x). So cita prazo de guarda dos dados se a Q-065-4 definir (hoje: nada e apagado).
+  trial_ending_d1: {
+    subject: "Seu teste grátis termina amanhã — LeadForge",
+    body: "Seu teste grátis termina amanhã. Escolha um plano em Configurações > Assinatura para continuar de onde parou, sem perder nada.",
+  },
+  trial_expired: {
+    subject: "Seu teste grátis terminou — LeadForge",
+    body: "Seu teste grátis terminou e o acesso à sua organização está pausado. Seus dados estão guardados: assine um plano em Configurações > Assinatura e você volta exatamente de onde parou.",
   },
   past_due_started: {
     subject: "Pagamento não identificado — LeadForge",

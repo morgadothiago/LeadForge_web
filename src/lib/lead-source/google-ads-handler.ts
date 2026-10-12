@@ -120,6 +120,8 @@ export async function handleGoogleAdsWebhook(req: Request, deps: GoogleAdsDeps =
       contact,
     });
     console.info(`[integrations/leads/google-ads] status=${result.status}`);
+    // SPEC-065 (D-065-13.5): org com teste gratis expirado recusa a ingestao (403 tipado).
+    if (result.status === "trial_expired") return err(403, "trial_expired", "O teste grátis desta organização terminou.");
     return json({ status: result.status }, 200);
   } catch (e) {
     console.error("[integrations/leads/google-ads] erro:", safeErrorForLog(e));

@@ -11,14 +11,14 @@ export function FinalCtaSection() {
           Pronto para prospectar no piloto automático?
         </h2>
         <p className="mx-auto mt-3 max-w-xl text-base text-primary-foreground sm:text-lg">
-          Crie sua conta em minutos, escolha seu plano e monte sua primeira campanha.
+          Teste grátis por 14 dias, sem cartão de crédito. Crie sua conta em minutos e monte sua primeira campanha.
         </p>
         <div className="mt-8 flex justify-center">
           <Link
             href="/signup"
             className={cn(buttonVariants({ size: "lg", pill: true }), "gap-2 bg-primary-foreground text-primary hover:bg-primary-foreground/90")}
           >
-            Criar conta
+            Comece 14 dias grátis
             <ArrowRight size={16} aria-hidden="true" />
           </Link>
         </div>

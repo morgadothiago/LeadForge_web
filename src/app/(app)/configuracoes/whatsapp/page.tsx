@@ -4,11 +4,17 @@ import { WhatsAppInstanceList } from "@/components/settings/WhatsAppInstanceList
 import { Card } from "@/components/ui/card";
 import { listWhatsAppInstances } from "@/lib/queries/whatsapp";
 import { getInstanceHealth, type InstanceHealthView } from "@/lib/queries/whatsapp-health";
+import { redirectIfTrialExpired } from "@/lib/auth/require-page";
+import { getPlanUsage } from "@/lib/queries/usage";
+import { LimitNotice, limitNoticeId } from "@/components/billing/LimitNotice";
+import { isAtLimit } from "@/components/billing/trial-ui";
 
 export const dynamic = "force-dynamic";
 
 export default async function Page() {
-  const instances = await listWhatsAppInstances();
+  await redirectIfTrialExpired(); // SPEC-065 (D-065-13.3): trial expirado => redirect a /configuracoes/assinatura
+  const [instances, usage] = await Promise.all([listWhatsAppInstances(), getPlanUsage().catch(() => null)]);
+  const full = usage ? isAtLimit(usage.byMetric.whatsapp) : false;
   // Poucas instâncias por conta: 1 consulta de saúde por instância, em paralelo, com falha isolada (não derruba a página).
   const entries = await Promise.all(
     instances.map(async (i): Promise<[string, InstanceHealthView | null]> => {
@@ -27,8 +33,9 @@ export default async function Page() {
           <h2 className="font-heading text-lg font-semibold">Instâncias de WhatsApp</h2>
           <p className="text-sm text-muted-foreground">Números conectados via Evolution API para enviar mensagens e receber respostas.</p>
         </div>
-        <WhatsAppCreateButton />
+        <WhatsAppCreateButton disabled={full} describedBy={limitNoticeId("whatsapp")} />
       </div>
+      <LimitNotice item={usage?.byMetric.whatsapp} />
 
       <div role="note" className="flex gap-2 rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-xs">
         <AlertTriangle className="mt-0.5 size-4 shrink-0 text-warning" aria-hidden="true" />

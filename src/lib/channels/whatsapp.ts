@@ -9,7 +9,7 @@ import { findSuppression, SUPPRESSED_MESSAGE } from "@/lib/domain/suppression";
 import { expandSpintax } from "@/lib/templates/spintax";
 import { effectiveDailyLimit } from "@/lib/whatsapp/warmup";
 import { ensureWarmupStarted, evaluateInstanceHealth, resumeInstanceNow } from "@/lib/whatsapp/health";
-import { isCloserTouch, leadStopped, reservableWhere, repliedOrEnded, skipSuppressedBeforeReserve, skipSeedBeforeReserve, deferUnverifiedBeforeReserve, REPLIED_MESSAGE, NEEDS_REVIEW_PREFIX } from "./reserve";
+import { isCloserTouch, leadStopped, reservableWhere, repliedOrEnded, skipSuppressedBeforeReserve, skipSeedBeforeReserve, deferUnverifiedBeforeReserve, deferOverPlanBeforeReserve, REPLIED_MESSAGE, NEEDS_REVIEW_PREFIX } from "./reserve";
 import { nextSendWindow, sanitizeError, SENDING_STALE_MS, startOfDaySP } from "./email";
 
 const NOT_CONNECTED_RETRY_MS = 5 * 60_000;
@@ -42,7 +42,7 @@ export type SendWhatsAppResult =
   | {
       status: "deferred";
       nextAt: Date;
-      reason: "outside_window" | "daily_limit" | "not_connected" | "min_interval" | "rate_limited" | "min_gap" | "other_channel_today" | "instance_paused" | "number_check_failed" | "email_not_verified";
+      reason: "outside_window" | "daily_limit" | "not_connected" | "min_interval" | "rate_limited" | "min_gap" | "other_channel_today" | "instance_paused" | "number_check_failed" | "email_not_verified" | "plan_limit" | "trial_expired";
     }
   | { status: "failed"; error: AppError };
 
@@ -72,6 +72,9 @@ export async function sendWhatsApp(touchId: string, opts: SendWhatsAppOptions = 
   // SPEC-055 (D-055-7): usuario com e-mail nao verificado nao envia mensagens (adia; nada e perdido).
   const unverifiedAt = await deferUnverifiedBeforeReserve(touchId, where, now);
   if (unverifiedAt) return { status: "deferred", nextAt: unverifiedAt, reason: "email_not_verified" };
+  // SPEC-065 (D-065-13.5/18): trial expirado nao envia; maxSendsPerDay do plano adia para o proximo dia.
+  const overPlan = await deferOverPlanBeforeReserve(touchId, where, now);
+  if (overPlan) return { status: "deferred", nextAt: overPlan.nextAt, reason: overPlan.reason };
   const reserved = await prisma.touch.updateMany({ where, data: { status: "sending" } });
   if (reserved.count === 0) {
     const cur = await prisma.touch.findUnique({ where: { id: touchId }, select: { status: true } });

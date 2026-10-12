@@ -74,7 +74,7 @@ function allAsyncFns(src: string): Fn[] {
  * org/papel de plataforma. O grep original só procurava `requireUser(` literal.
  */
 // SPEC-049: `requireOrgMember()`/`requireOrgOwner()` (`src/lib/org/guards.ts`) chamam `requireProviderOrg()` por dentro.
-const SESSION_GUARD_RE = /\brequireUser\s*\(|\brequireOrgMember\s*\(|\brequireOrgOwner\s*\(|\brequireProviderOrg\s*\(|\brequireProviderUser\s*\(|\brequireActiveProviderOrg\s*\(|\brequirePlatformAdmin\s*\(/;
+const SESSION_GUARD_RE = /\brequireUser\s*\(|\brequireOrgMember\s*\(|\brequireOrgOwner\s*\(|\brequireProviderOrg\s*\(|\brequireProviderOrgAllowExpired\s*\(|\brequireProviderUser\s*\(|\brequireActiveProviderOrg\s*\(|\brequirePlatformAdmin\s*\(/;
 
 // Funções de queries/actions (exportadas ou helpers locais como setStatus) que exigem sessão (delegáveis).
 const guarded = new Set<string>();

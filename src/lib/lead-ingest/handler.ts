@@ -6,6 +6,8 @@ import { tooManyRequests } from "@/lib/http";
 import { safeErrorForLog } from "@/lib/errors";
 import { withSerializableRetry } from "@/lib/db/tx-conflict";
 import { createLeadCore } from "@/lib/domain/lead-create";
+import { PlanLimitError } from "@/lib/billing/limits";
+import { loadOrgAccess } from "@/lib/billing/org-access";
 import { findSuppression } from "@/lib/domain/suppression";
 import { bearerToken, secretsMatch } from "@/lib/scheduler/cron-endpoint";
 import { getIngestSecret, isIngestEnabled, MAX_BODY_BYTES } from "./config";
@@ -78,7 +80,8 @@ export async function readBodyLimited(req: Request, max = MAX_BODY_BYTES): Promi
   return Buffer.concat(chunks).toString("utf8");
 }
 
-export type ItemStatus = "created" | "duplicate" | "suppressed" | "invalid";
+/** SPEC-065 (D-065-18): `limit_reached` = cota de leads do plano esgotada (parcial, nao e erro; nao consome cota nem cria o lead). */
+export type ItemStatus = "created" | "duplicate" | "suppressed" | "invalid" | "limit_reached";
 export interface ItemResult {
   index: number;
   status: ItemStatus;
@@ -92,6 +95,8 @@ export interface IngestSummary {
   duplicate: number;
   suppressed: number;
   invalid: number;
+  /** SPEC-065: presente so quando > 0 (contrato anterior preservado). */
+  limitReached?: number;
   results: ItemResult[];
   warnings?: string[];
 }
@@ -151,6 +156,7 @@ export async function processItem(campaignId: string, raw: unknown, index: numbe
     return { index, status: "created", leadId: out.id };
   } catch (e) {
     if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") return { index, status: "duplicate" };
+    if (e instanceof PlanLimitError) return { index, status: "limit_reached", reason: "limite de leads do plano atingido" };
     throw e;
   }
 }
@@ -224,16 +230,31 @@ export async function handleIngest(req: Request, deps: IngestDeps = {}): Promise
       }
     }
 
-    const camp = await prisma.campaign.findUnique({ where: { id: campaignId }, select: { id: true, status: true } });
+    const camp = await prisma.campaign.findUnique({ where: { id: campaignId }, select: { id: true, status: true, orgId: true } });
+    // SPEC-065 (D-065-13.5): org com teste gratis EXPIRADO nao cresce dado nem burla cota: recusa (403 tipado). A reserva de idempotencia e liberada.
+    if (camp && (await loadOrgAccess(prisma, camp.orgId, new Date(clock()))) === "trial_expirado") {
+      if (claimed) await prisma.webhookEvent.delete({ where: { eventId: claimed } }).catch(() => undefined);
+      return err(403, "trial_expired", "O teste grátis desta organização terminou. Assine um plano para voltar a receber leads.");
+    }
     if (!camp || camp.status === "archived") {
       if (claimed) await prisma.webhookEvent.delete({ where: { eventId: claimed } }).catch(() => undefined);
       return camp ? err(409, "campaign_archived", "Campanha arquivada: não aceita novos leads.") : err(404, "campaign_not_found", "Campanha não encontrada.");
     }
 
     const results: ItemResult[] = [];
-    for (const [i, raw] of leads.entries()) results.push(await processItem(campaignId, raw, i));
+    let limitHit = false;
+    for (const [i, raw] of leads.entries()) {
+      // SPEC-065: cota esgotada => PARA (cria ate a cota; o resto vira `limit_reached`, sem tentar), resposta parcial 200.
+      if (limitHit) {
+        results.push({ index: i, status: "limit_reached", reason: "limite de leads do plano atingido" });
+        continue;
+      }
+      const r = await processItem(campaignId, raw, i);
+      if (r.status === "limit_reached") limitHit = true;
+      results.push(r);
+    }
     const count = (s: ItemStatus) => results.filter((r) => r.status === s).length;
-    const summary: IngestSummary = { campaignId, total: results.length, created: count("created"), duplicate: count("duplicate"), suppressed: count("suppressed"), invalid: count("invalid"), results };
+    const summary: IngestSummary = { campaignId, total: results.length, created: count("created"), duplicate: count("duplicate"), suppressed: count("suppressed"), invalid: count("invalid"), ...(count("limit_reached") > 0 ? { limitReached: count("limit_reached") } : {}), results };
 
     // Leads já criados: falha ao gravar a auditoria NÃO vira 500 (esconderia a criação parcial).
     // Devolve 200 com o resultado por item + warnings; a chave é liberada (retry cai em `duplicate` com leadId, sem recriar).

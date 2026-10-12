@@ -20,13 +20,24 @@ export function PlanSelectionSection({
   currentPlanKey,
   hasSubscription,
   isOwner,
+  trialing = false,
+  blocked = false,
+  initialPlanKey = null,
+  initialCadence = "monthly",
 }: {
   plans: PlanView[];
   currentPlanKey: string | null;
   hasSubscription: boolean;
   isOwner: boolean;
+  /** SPEC-065b: org no teste gratis => "Fazer upgrade" (assinar substitui o teste; o restante dos dias nao vira credito). */
+  trialing?: boolean;
+  /** SPEC-065b: teste expirado => "Escolha um plano para voltar". */
+  blocked?: boolean;
+  /** SPEC-065b (D-065-23): plano de intencao vindo da landing (`?plan=`): so destaca/pre-seleciona; nunca abre o checkout sozinho. */
+  initialPlanKey?: string | null;
+  initialCadence?: "monthly" | "yearly";
 }) {
-  const [cadence, setCadence] = React.useState<"monthly" | "yearly">("monthly");
+  const [cadence, setCadence] = React.useState<"monthly" | "yearly">(initialCadence);
   const [loadingKey, setLoadingKey] = React.useState<string | null>(null);
   const [pending, startTransition] = React.useTransition();
 
@@ -48,10 +59,16 @@ export function PlanSelectionSection({
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h3 id="planos-h" className="font-heading text-base font-semibold">
-            {hasSubscription ? "Trocar de plano" : "Escolha um plano"}
+            {hasSubscription ? "Trocar de plano" : blocked ? "Escolha um plano para voltar" : trialing ? "Fazer upgrade" : "Escolha um plano"}
           </h3>
           <p className="text-sm text-muted-foreground">
-            {hasSubscription ? "Assinar um novo plano substitui o atual imediatamente." : "Comece a assinatura para liberar todos os recursos."}
+            {hasSubscription
+              ? "Assinar um novo plano substitui o atual imediatamente."
+              : blocked
+                ? "Assim que o pagamento for confirmado, você volta exatamente de onde parou."
+                : trialing
+                  ? "A assinatura começa na hora e libera os limites do plano. Os dias que sobraram do teste não viram crédito."
+                  : "Comece a assinatura para liberar todos os recursos."}
           </p>
         </div>
         <Tabs value={cadence} onValueChange={(v) => setCadence(v as "monthly" | "yearly")}>
@@ -77,7 +94,8 @@ export function PlanSelectionSection({
               plan={plan}
               cadence={cadence}
               current={isCurrent}
-              highlighted={plan.key === "pro"}
+              highlighted={initialPlanKey ? plan.key === initialPlanKey : plan.key === "pro"}
+              highlightLabel={initialPlanKey ? "Escolhido por você" : "Mais popular"}
               footer={
                 isCurrent ? (
                   <Button variant="secondary" disabled className="w-full">

@@ -47,7 +47,7 @@ export function LandingNav({ initialTheme }: { initialTheme: Theme }) {
             Entrar
           </Link>
           <Link href="/signup" className={buttonVariants({ pill: true })}>
-            Criar conta
+            Teste grátis
           </Link>
         </div>
 
@@ -86,7 +86,7 @@ export function LandingNav({ initialTheme }: { initialTheme: Theme }) {
               Entrar
             </Link>
             <Link href="/signup" className={cn(buttonVariants({ pill: true }), "w-full")}>
-              Criar conta
+              Teste grátis
             </Link>
           </div>
         </nav>

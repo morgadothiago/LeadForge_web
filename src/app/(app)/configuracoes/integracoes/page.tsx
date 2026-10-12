@@ -7,6 +7,7 @@ import { ForbiddenError } from "@/lib/auth/require-admin";
 import { getMetaAppSecret, getMetaWebhookVerifyToken, isGoogleAdsLeadsEnabled, isMetaLeadsEnabled } from "@/lib/lead-source/config";
 import { listIntegrationAudit, listIntegrations } from "@/lib/queries/integration";
 import { listLeadSourceBindings, listLeadSourceCampaigns } from "@/lib/queries/lead-source";
+import { redirectIfTrialExpired } from "@/lib/auth/require-page";
 
 export const dynamic = "force-dynamic";
 
@@ -16,6 +17,7 @@ function parsePage(v: string | string[] | undefined): number {
 }
 
 export default async function Page({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
+  await redirectIfTrialExpired(); // SPEC-065 (D-065-13.3): trial expirado => redirect a /configuracoes/assinatura
   const p = await searchParams;
   const flags: LeadSourceFlags = {
     googleAdsEnabled: isGoogleAdsLeadsEnabled(),

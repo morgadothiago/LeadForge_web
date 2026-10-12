@@ -4,6 +4,8 @@ import { revalidatePath } from "next/cache";
 import type { CampaignStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requireActiveProviderOrg } from "@/lib/auth/require-admin";
+import { activateCampaignWithinLimit, assertCanActivateCampaign } from "@/lib/billing/limits";
+import { lockOrg } from "@/lib/org/guards";
 import { scopedPrisma } from "@/lib/tenant/scoped-prisma";
 import { campaignCreateSchema, campaignUpdateSchema, idSchema } from "@/lib/schemas/campaign";
 import { Prisma } from "@prisma/client";
@@ -45,6 +47,11 @@ export async function createCampaign(input: unknown): Promise<ActionResult<{ id:
     if (refErrors) return failure(refErrors);
 
     const campaign = await prisma.$transaction(async (tx) => {
+      // SPEC-065 (D-065-18): maxCampaigns (ativas) sob lockOrg, na mesma transacao do insert (sem corrida).
+      if (status === "active") {
+        await lockOrg(tx, orgId);
+        await assertCanActivateCampaign(tx, orgId);
+      }
       const resolvedIcpId = icp ? (await tx.icpProfile.create({ data: { ...icp, orgId }, select: { id: true } })).id : icpId;
       if (!resolvedIcpId) throw new Error("icpId ausente após validação.");
       return tx.campaign.create({
@@ -67,7 +74,12 @@ export async function updateCampaign(input: unknown): Promise<ActionResult<{ id:
     if (!(await db.campaign.count({ where: { id } }))) return formError("Campanha não encontrada.");
     const refErrors = await checkRefs(db, data);
     if (refErrors) return failure(refErrors);
-    await db.campaign.update({ where: { id }, data });
+    if (data.status === "active") {
+      // SPEC-065 (D-065-18): voltar a `active` (retomar/desarquivar via edicao) conta contra maxCampaigns.
+      await activateCampaignWithinLimit(orgId, id, data);
+    } else {
+      await db.campaign.update({ where: { id }, data });
+    }
     revalidate(id);
     return success({ id });
   });
@@ -80,7 +92,8 @@ async function setStatus(id: unknown, status: CampaignStatus): Promise<ActionRes
     const parsed = idSchema.safeParse(id);
     if (!parsed.success) return formError("ID inválido.");
     if (!(await db.campaign.count({ where: { id: parsed.data } }))) return formError("Campanha não encontrada.");
-    await db.campaign.update({ where: { id: parsed.data }, data: { status } });
+    if (status === "active") await activateCampaignWithinLimit(orgId, parsed.data, { status });
+    else await db.campaign.update({ where: { id: parsed.data }, data: { status } });
     revalidate(parsed.data);
     return success({ id: parsed.data, status });
   });

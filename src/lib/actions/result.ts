@@ -1,6 +1,7 @@
 import { Prisma } from "@prisma/client";
 import type { ZodError } from "zod";
-import { ForbiddenError, OrgOwnerRequiredError, OrgSuspendedError } from "@/lib/auth/require-admin";
+import { ForbiddenError, OrgOwnerRequiredError, OrgSuspendedError, TrialExpiredError } from "@/lib/auth/require-admin";
+import { PlanLimitError } from "@/lib/billing/limits";
 import { UnauthorizedError } from "@/lib/auth/require-user";
 import { isRetryableTxConflict, CONFLICT_MESSAGE } from "@/lib/db/tx-conflict";
 import { isAppError, safeErrorForLog } from "@/lib/errors";
@@ -39,6 +40,9 @@ export function zodErrors(error: ZodError): FieldErrors {
 export function handleActionError<T = never>(e: unknown): ActionResult<T> {
   if (e instanceof UnauthorizedError) return formError("Sessão expirada. Faça login novamente.");
   if (e instanceof OrgOwnerRequiredError) return formError(e.message);
+  // SPEC-065 (D-065-13/18): codigos tipados para a UI (CTA "Fazer upgrade" / tela de bloqueio). `TrialExpiredError` vem ANTES de `ForbiddenError` (subclasse).
+  if (e instanceof TrialExpiredError) return { ok: false, errors: { _form: [e.message], code: ["trial_expired"] } };
+  if (e instanceof PlanLimitError) return { ok: false, errors: { _form: [e.message], code: ["plan_limit"], metric: [e.metric], limit: [String(e.limit)], used: [String(e.used)] } };
   if (e instanceof ForbiddenError) return formError("Sem permissão.");
   if (e instanceof OrgSuspendedError) return formError("Assinatura pendente ou cancelada. Regularize o pagamento em Configurações > Assinatura para continuar.");
   if (isAppError(e) && e.code === "email_not_verified") return { ok: false, errors: { _form: [e.userMessage], code: ["email_not_verified"] } };

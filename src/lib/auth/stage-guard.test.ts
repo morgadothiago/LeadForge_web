@@ -6,13 +6,22 @@ import { STAGE_RULES, firstParam, stageGuardTarget, type StageRoute } from "./st
 
 const STAGES: AccountStage[] = ["sem_plano", "aguardando_pagamento", "pago_sem_org", "membro", "dono", "membro_pago_sem_org", "admin"];
 /** Destinos que ficam FORA das telas de onboarding (renderizam no app/admin e nao redirecionam de volta). */
-const TERMINAL = new Set(["/dashboard", "/admin/organizacoes", "/configuracoes/conta"]);
+const TERMINAL = new Set(["/dashboard", "/admin/organizacoes", "/configuracoes/conta", "/configuracoes/assinatura"]);
 
 function ruleFor(path: string): (typeof STAGE_RULES)[StageRoute] | undefined {
   return (STAGE_RULES as Record<string, (typeof STAGE_RULES)[StageRoute]>)[path];
 }
 
 describe("stageGuardTarget (SPEC-062b)", () => {
+  it("SPEC-065 (D-065-11): quem JA tem organizacao (dono/membro) em /assinar vai ao upgrade da org existente, nunca abre casca", () => {
+    const r = STAGE_RULES["/assinar"];
+    expect(stageGuardTarget("dono", r.allowed, r.overrides)).toBe("/configuracoes/assinatura");
+    expect(stageGuardTarget("membro", r.allowed, r.overrides)).toBe("/configuracoes/assinatura");
+    // `?nova=1` (2a organizacao paga, D-062-14) segue permitido
+    expect(stageGuardTarget("dono", STAGE_RULES["/assinar?nova=1"].allowed, STAGE_RULES["/assinar?nova=1"].overrides)).toBeNull();
+    // sem organizacao: segue a 062b
+    expect(stageGuardTarget("sem_plano", r.allowed, r.overrides)).toBeNull();
+  });
   it("estado permitido: sem redirect", () => {
     expect(stageGuardTarget("sem_plano", STAGE_RULES["/assinar"].allowed)).toBeNull();
   });

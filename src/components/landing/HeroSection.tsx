@@ -21,14 +21,14 @@ export function HeroSection() {
           </p>
           <div className="flex flex-col items-center gap-3 sm:flex-row sm:justify-center lg:justify-start">
             <Link href="/signup" className={buttonVariants({ size: "lg", pill: true }) + " w-full gap-2 sm:w-auto"}>
-              Criar conta
+              Comece 14 dias grátis
               <ArrowRight size={16} aria-hidden="true" />
             </Link>
             <a href="#precos" className={buttonVariants({ variant: "outline", size: "lg", pill: true }) + " w-full sm:w-auto"}>
               Ver preços
             </a>
           </div>
-          <p className="text-xs text-muted-foreground">Crie sua conta e escolha o plano no próximo passo.</p>
+          <p className="text-xs text-muted-foreground">Sem cartão de crédito. Limites reduzidos no teste.</p>
         </div>
 
         <div className="flex justify-center lg:justify-end">

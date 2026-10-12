@@ -5,7 +5,10 @@ import { fail } from "@/lib/mobile/http";
 /** SPEC-028: guard de SESSAO (cookie) para /api/notifications/*. 401 JSON (nunca redirect). Bearer mobile NAO vale aqui. */
 export async function requireSession(): Promise<CurrentUser | Response> {
   try {
-    return await requireUser();
+    const user = await requireUser();
+    // SPEC-065 (D-065-13): org com teste gratis expirado = bloqueio total (os alertas sao dado da organizacao).
+    if (user.platformRole === "provider" && user.orgAccess === "trial_expirado") return fail(403, "trial_expired", "O teste grátis desta organização terminou.");
+    return user;
   } catch (e) {
     if (e instanceof UnauthorizedError) return fail(401, "unauthorized", "Não autenticado.");
     throw e;

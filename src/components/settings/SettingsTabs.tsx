@@ -14,12 +14,15 @@ const TABS = [
   { href: "/configuracoes/conta", label: "Conta" },
 ] as const;
 
+/** SPEC-065b (D-065-14): com o teste gratis expirado so Assinatura e Conta abrem; as outras abas redirecionariam. */
+const RESTRICTED_TABS: readonly string[] = ["/configuracoes/assinatura", "/configuracoes/conta"];
+
 /** `isAdmin` vem do servidor (role); é só UX: a barreira real é requireAdmin nas actions/queries/página. */
-export function SettingsTabs({ isAdmin = false }: { isAdmin?: boolean }) {
+export function SettingsTabs({ isAdmin = false, restricted = false }: { isAdmin?: boolean; restricted?: boolean }) {
   const pathname = usePathname();
   return (
     <nav aria-label="Seções de configurações" className="flex gap-1.5 overflow-x-auto border-b border-border pb-3">
-      {TABS.filter((t) => !("adminOnly" in t) || isAdmin).map((t) => {
+      {TABS.filter((t) => (!("adminOnly" in t) || isAdmin) && (!restricted || RESTRICTED_TABS.includes(t.href))).map((t) => {
         const active = pathname.startsWith(t.href);
         return (
           <Link

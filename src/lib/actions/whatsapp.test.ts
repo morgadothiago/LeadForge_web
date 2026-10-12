@@ -11,7 +11,7 @@ process.env.APP_BASE_URL = "http://app.test";
 
 import { prisma } from "@/lib/prisma";
 import { signInAsSeedAdmin } from "@/lib/auth/test-helpers";
-import { seed } from "../../../prisma/seed";
+import { SEED_IDS, seed } from "../../../prisma/seed";
 import { decrypt } from "@/lib/crypto/secret-box";
 import { FakeWhatsAppProvider } from "@/lib/whatsapp/providers/fake";
 import {
@@ -26,9 +26,14 @@ let f: FakeWhatsAppProvider;
 
 beforeAll(async () => {
   await seed(prisma);
+  // SPEC-065: a org de seed (Starter) agora TEM limite de instancias (1); este arquivo cria varias => usa um plano ilimitado (restaurado no afterAll).
+  const unlimited = await prisma.plan.findUniqueOrThrow({ where: { key: "business" }, select: { id: true } });
+  await prisma.subscription.update({ where: { orgId: SEED_IDS.org }, data: { planId: unlimited.id } });
   await signInAsSeedAdmin();
 }, 30000);
 afterAll(async () => {
+  const starter = await prisma.plan.findUniqueOrThrow({ where: { key: "starter" }, select: { id: true } });
+  await prisma.subscription.update({ where: { orgId: SEED_IDS.org }, data: { planId: starter.id } });
   await prisma.campaign.deleteMany({ where: { name: TAG } });
   await prisma.whatsAppInstance.deleteMany({ where: { instanceName: { startsWith: TAG } } });
   await prisma.$disconnect();

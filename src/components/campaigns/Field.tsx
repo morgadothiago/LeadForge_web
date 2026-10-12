@@ -6,6 +6,7 @@ export function Field({
   label,
   error,
   hint,
+  keepHint,
   required,
   children,
 }: {
@@ -13,10 +14,12 @@ export function Field({
   label: string;
   error?: string;
   hint?: string;
+  /** Mantem a dica visivel (e no aria-describedby) mesmo com erro de campo (ex.: aviso de LGPD do CPF/CNPJ). */
+  keepHint?: boolean;
   required?: boolean;
   children: (a: { id: string; "aria-invalid": boolean; "aria-describedby": string | undefined }) => React.ReactNode;
 }) {
-  const descId = error ? `${id}-error` : hint ? `${id}-hint` : undefined;
+  const descId = [error ? `${id}-error` : null, hint && (keepHint || !error) ? `${id}-hint` : null].filter(Boolean).join(" ") || undefined;
   return (
     <div className="space-y-1.5">
       <label htmlFor={id} className="text-sm font-medium">
@@ -32,7 +35,8 @@ export function Field({
         <p id={`${id}-error`} role="alert" className="text-xs text-destructive">
           {error}
         </p>
-      ) : hint ? (
+      ) : null}
+      {hint && (keepHint || !error) ? (
         <p id={`${id}-hint`} className="text-xs text-muted-foreground">
           {hint}
         </p>

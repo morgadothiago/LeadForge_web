@@ -1,6 +1,6 @@
 import { CalendarView } from "@/components/calendar/CalendarView";
 import type { CalendarMeeting } from "@/components/calendar/types";
-import { requirePageUser } from "@/lib/auth/require-page";
+import { redirectIfTrialExpired, requirePageUser } from "@/lib/auth/require-page";
 import { dayKeyOf, isDayKey, visibleRange, type CalendarView as View } from "@/lib/calendar/tz";
 import { getMeetingStart, listMeetings } from "@/lib/queries/meetings";
 
@@ -10,6 +10,7 @@ const first = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v
 
 export default async function Page({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   await requirePageUser();
+  await redirectIfTrialExpired(); // SPEC-065 (D-065-13.3)
   const sp = await searchParams;
   const todayKey = dayKeyOf(new Date());
   const rawView = first(sp.view);

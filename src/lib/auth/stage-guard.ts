@@ -18,7 +18,8 @@ const ALL_PROVIDER: readonly AccountStage[] = ["sem_plano", "aguardando_pagament
 /** Estados em que cada tela renderiza (D-062-6 "Pode acessar"). Fonte unica das paginas E do teste de "sem laco". */
 export const STAGE_RULES = {
   /** Casca paga (mesmo com org) nunca abre 2o checkout: vai finalizar a organizacao. */
-  "/assinar": { allowed: ["sem_plano", "aguardando_pagamento"] as readonly AccountStage[], overrides: { membro_pago_sem_org: "/organizacao/nova" } as Partial<Record<AccountStage, string>> },
+  // SPEC-065 (D-065-11): quem JA tem organizacao (dono/membro) e redirecionado ao upgrade da organizacao existente, nunca abre casca.
+  "/assinar": { allowed: ["sem_plano", "aguardando_pagamento"] as readonly AccountStage[], overrides: { membro_pago_sem_org: "/organizacao/nova", dono: "/configuracoes/assinatura", membro: "/configuracoes/assinatura" } as Partial<Record<AccountStage, string>> },
   /** `?nova=1` (2a organizacao, D-062-14): dono/membro tambem entram. */
   "/assinar?nova=1": { allowed: ["sem_plano", "aguardando_pagamento", "dono", "membro"] as readonly AccountStage[], overrides: { membro_pago_sem_org: "/organizacao/nova" } as Partial<Record<AccountStage, string>> },
   "/assinar/retorno": { allowed: ALL_PROVIDER, overrides: {} as Partial<Record<AccountStage, string>> },

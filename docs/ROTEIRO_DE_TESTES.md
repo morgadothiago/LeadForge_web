@@ -17,7 +17,7 @@ para a linha do roteiro abaixo. Marque `[x]` lá quando passar.
 | 2 | **E-mail real** (Resend ou ACS) num Gmail seu: cadastro, confirmar e-mail, esqueci a senha, convite | Sem e-mail ninguém entra nem paga. Confira se cai na caixa de entrada e se os links apontam para o endereço de produção | B9, J12, 9.10 itens 3 a 6 |
 | 3 | **Isolamento entre clientes**: tenant B abre por URL a campanha e a assinatura do tenant A | Vazamento de dados de cliente é o pior erro possível | G7, H8 |
 | 4 | **Busca real no Google Places**: 1 busca manual, depois conferir o custo no Google Cloud | Gasta dinheiro de verdade; o SKU cobrado ainda não foi confirmado. Ponha teto de gasto antes | G1 a G3, G8, N4 |
-| 5 | **Cadastro limpo (SPEC-062)**: janela anônima, `/signup` com e-mail novo, confirmar e-mail, assinar, nomear a organização, dashboard | É a porta de entrada de todo cliente | B1, B2, B4, bloco P |
+| 5 | **Cadastro limpo (SPEC-065)**: janela anônima, `/signup` com e-mail e CPF novos, cair no dashboard com 14 dias de teste, confirmar e-mail | É a porta de entrada de todo cliente | B1, B2, B4, bloco T |
 | 6 | **Suspender uma org**: admin suspende, o tenant tenta usar o app, depois reativa | Se falhar, cliente inadimplente continua usando (ou cliente em dia fica bloqueado) | A4, B10 |
 | 7 | **E-mail não confirmado não envia mensagem**: aprovar rascunho e deixar o tick tentar | Proteção contra spam e contra cadastro falso; o envio deve ser adiado, não perdido | J5, J6 |
 | 8 | **Cancelar a assinatura**: agendado (acesso até o fim) x imediato, e evento externo não desfazer | Mexe em cobrança e em acesso | H9, H10 |
@@ -78,14 +78,14 @@ Crie **dois tenants** para testar isolamento: **Tenant A** e **Tenant B**.
 
 | # | Passo | Esperado | OK | Observado |
 |---|---|---|---|---|
-| B1 | `/signup` como Tenant A (e-mail novo): só nome, e-mail e senha | Cria **só o usuário** e vai para `/assinar` (escolher plano). Sem escolha de organização, sem "Nome da empresa", sem texto de teste grátis (SPEC-062) | [ ] | |
-| B2 | Confirmar o e-mail (Mailpit), assinar um plano (mock), nomear a organização em `/organizacao/nova` | Org nasce `active` e cai no `/dashboard`; nenhum dashboard abre antes de pagar. Roteiro completo: bloco P | [ ] | |
+| B1 | `/signup` como Tenant A (e-mail novo): nome, e-mail, **CPF ou CNPJ** e senha | Cria usuário **e organização** (teste grátis de 14 dias) e vai direto ao `/dashboard`. Sem "Nome da empresa" no cadastro (SPEC-065; bloco T) | [ ] | |
+| B2 | Confirmar o e-mail (Mailpit) e, no cartão do dashboard, dar nome à empresa | Org `active` em teste grátis; chip "Teste grátis: 14 dias" no topo. Roteiro completo: bloco T (bloco P só vale para a 2ª organização) | [ ] | |
 | B3 | Repetir B1 em outra janela anônima para Tenant B | Segunda org independente | [ ] | |
 | B4 | Tenant A: criar um lead, uma sequence e uma campanha | Aparecem em `/leads`, `/sequences`, `/campanhas` | [ ] | |
 | B5 | **Isolamento**: logado como B, abrir `/leads`, `/sequences`, `/campanhas` | **Nada do Tenant A aparece** | [x] | B não vê nada de A em leads/pipeline/campanhas/sequences/calendário/dashboard (Claude, navegador automatizado) |
 | B6 | **Isolamento por URL**: copie `/leads/<id>` do lead de A e abra como B | 404/erro, nunca mostra o lead | [x] | URL direta do lead e da campanha de A: B recebe 404 (HTTP 200 do Next com página "404"), sem vazar dado (Claude, navegador automatizado) |
 | B7 | **Tenant não acessa admin**: como A, abrir `/admin/organizacoes` | Redireciona/nega | [x] | tenant em /admin/organizacoes é redirecionado ao /dashboard (Claude, navegador automatizado) |
-| B8 | `/configuracoes/assinatura` | Mostra o plano e o status da própria org | [ ] | |
+| B8 | `/configuracoes/assinatura` | Mostra o plano ("Teste gratis" em teste), o prazo, o uso do plano e as opções de upgrade | [ ] | |
 | B9 | `/esqueci-senha` com o e-mail de A | Mensagem genérica; e-mail no Mailpit; link abre `/redefinir-senha` | [ ] | |
 | B10 | Org suspensa pelo admin (A4): tentar usar o app como esse tenant | Acesso bloqueado com aviso claro | [ ] | |
 
@@ -303,7 +303,9 @@ Mudou só o jeito de validar e mostrar erro nos formulários; as regras são as 
 | O11 | Admin da plataforma: detalhe da organização > Suspender | Botão do diálogo só habilita com motivo de 3+ caracteres; suspende e Reativar volta ao normal | [ ] | |
 | O12 | Tab/Enter em todos os diálogos acima | Foco vai ao primeiro campo com erro; Enter envia; leitor de tela lê o erro do campo | [ ] | |
 
-## P. Plano obrigatório antes da organização (SPEC-062b). Precisa da migration `20261017120000_cadastro_sem_trial` no dev (`npx prisma migrate deploy`)
+## P. Plano obrigatório antes da organização (SPEC-062b). **Desde a SPEC-065 vale só para a 2ª organização e para quem ficou sem organização** (o cadastro novo é o bloco T). Precisa da migration `20261017120000_cadastro_sem_trial` no dev (`npx prisma migrate deploy`)
+
+> Atenção: P1, P2, P5, P17 descrevem o cadastro da 062 e ficam **substituídos pelo bloco T** (cadastro com organização e teste grátis; landing com "14 dias grátis"). Use o bloco P para: 2ª organização (`/assinar?nova=1`), convite/código, `/minha-conta` e casca paga.
 
 Para testar sem gastar nada: `PAYMENT_PROVIDER=mock` (padrão) em `npm run dev`. Deixe o Mailpit aberto (http://localhost:8025). Use janela anônima e e-mail novo. **Teste cada tela também em 390px de largura e só com o teclado (Tab, Enter, Esc), em claro e escuro.**
 
@@ -327,6 +329,37 @@ Para testar sem gastar nada: `PAYMENT_PROVIDER=mock` (padrão) em `npm run dev`.
 | P16 | Org antiga em trial vencido (se existir no seu banco) | Faixa vermelha "Seu período de teste terminou. Escolha um plano..." com o botão "Escolher um plano" (leva a Configurações > Assinatura) | [ ] | |
 | P17 | Landing `/` (claro, escuro, 390px) | Nenhum "grátis", "14 dias" ou "sem cartão". Botões "Criar conta" levam a `/signup`; nos preços, "Assinar {plano}" leva a `/signup?plan=...&cadence=...`; Business "Falar com vendas". Depois de criar a conta, `/assinar` já destaca o plano escolhido ("Escolhido por você") | [ ] | |
 | P18 | Teclado e leitor de tela em `/assinar`, `/assinar/retorno`, `/organizacao/nova` | Tab chega em tudo na ordem certa, foco visível; erro do campo é lido; "Confirmando..." é anunciado; sem barra de rolagem lateral em 390px | [ ] | |
+
+## T. Teste grátis de 14 dias e limites (SPEC-065a + 065b). Precisa da migration `20261019120000_free_trial_065a` **e do seed** no dev
+
+Preparação (você faz, o projeto não aplica sozinho): `npx prisma migrate deploy`, depois `npx prisma db seed`, e reinicie o `npm run dev`. **Nunca `migrate dev`.** Deixe o Mailpit aberto (http://localhost:8025) e o `npm run dev:tick` rodando. Use janela anônima, e-mail novo e **CPF de teste válido** (ex.: `529.982.247-25`; CNPJ de teste: `11.222.333/0001-81`). **Teste cada tela também em 390px de largura, só com o teclado (Tab, Enter, Esc), em claro e escuro.**
+
+> ⚠️ **Os limites do Starter agora valem na organização de seed do dev** (no seed ela está no Starter): pode barrar dados de teste grandes. Para testar limites baixos use uma conta **nova** (plano "Teste gratis"). A organização do admin e as de cortesia não têm limite.
+
+Para simular o passar do tempo, no banco de **dev** (por sua conta; troque `<orgId>`): `UPDATE "Subscription" SET "trialEndsAt" = now() + interval '2 days' WHERE "orgId" = '<orgId>';` (últimos dias) e `... SET "trialEndsAt" = now() - interval '3 days' ...` (expirado: aparece "Seu teste grátis terminou em {data}"). Depois recarregue a página. **Cuidado:** a mensagem "Não foi possível liberar o teste grátis para este cadastro" (cadastro que já usou o teste) só aparece quando `trialEndsAt` é praticamente igual à data de criação da organização; para ver essa, use o T7 (cadastro repetido), não o SQL de expirar.
+
+| # | O que fazer | O que deve acontecer | OK? | Observado |
+|---|---|---|---|---|
+| T1 | `/signup` | Texto **"14 dias grátis, sem cartão"**; campos Nome, E-mail, **CPF ou CNPJ**, Senha, Confirmar senha (com barra de força). Sem "Nome da empresa" nem plano. Aviso embaixo do CPF/CNPJ: só limita o teste a um por pessoa/empresa e guarda só um hash | [ ] | |
+| T2 | Digitar `52998224725` e depois `11222333000181` no CPF/CNPJ | A máscara aparece sozinha (`529.982.247-25` / `11.222.333/0001-81`); o teclado do celular é numérico | [ ] | |
+| T3 | CPF `111.111.111-11`, `123.456.789-00` e vazio, e enviar | "CPF ou CNPJ inválido." / "CPF ou CNPJ é obrigatório." no campo; o foco vai ao campo; nada é criado | [ ] | |
+| T4 | Criar a conta com dados válidos | Cai direto em `/dashboard` (sem tela de pagamento). Chip **"Teste grátis: 14 dias"** + botão **Fazer upgrade** no topo (em 390px o chip vira "14 d" e o botão some; o chip leva à assinatura). Mailpit: "Bem-vindo" com "14 dias grátis, até {data}" e "Confirme seu e-mail" | [ ] | |
+| T5 | Cartão **"Como se chama a sua empresa?"** | Campo já com "Empresa de {nome}"; salvar muda o nome (aparece no seletor da sidebar) e o cartão some; "Agora não" (ou o X) também some e **não volta** ao recarregar. Vazio: erro no campo | [ ] | |
+| T6 | Cartão **Primeiros passos** | 3 passos; ao criar um canal/campanha/lead o passo fica riscado "(feito)"; com os 3 feitos o cartão some; "Dispensar" some e não volta | [ ] | |
+| T7 | Cadastrar de novo com o **mesmo e-mail** (ou com `a.b+x@gmail.com` do mesmo Gmail) e CPF diferente; depois com e-mail novo e o **mesmo CPF**; depois com outro CNPJ da mesma raiz (matriz/filial) | A conta é criada mas **sem teste**: a tela de assinatura diz **"Não foi possível liberar o teste grátis para este cadastro"**, sem dizer qual. O painel fica bloqueado até assinar | [ ] | |
+| T8 | Simular **2 dias restantes** | Faixa amarela "Faltam 2 dias do seu teste grátis..." com "Fazer upgrade"; chip em tom de aviso | [ ] | |
+| T9 | Em **Configurações > Assinatura** (teste ativo) | Cartão "Plano Teste gratis", "Teste grátis até {data} (faltam N dias)", sem "Gerenciar assinatura" nem "Cancelar"; **Uso do plano** com barras (Campanhas ativas, WhatsApp, E-mail, Leads, Envios); aviso do aquecimento do WhatsApp; seção **Fazer upgrade** com Starter/Pro, mensal/anual | [ ] | |
+| T10 | Criar a **1ª campanha ativa** e depois uma **2ª ativa** (conta nova, limite 1) | A 2ª é barrada com "Seu plano permite 1 campanha ativa..." e um toast com botão **Fazer upgrade**. Em `/campanhas/nova` já aparece o aviso amarelo e a campanha nasce **pausada** por padrão. Pausar/arquivar continua livre | [ ] | |
+| T11 | Em `/configuracoes/whatsapp` e `/configuracoes/email` com o limite 1 já usado; em `/leads` com 50 leads usados | O botão **Nova instância / Nova conta / Novo lead** fica **cinza** com o aviso "Você já conectou 1 de 1 ... Para continuar, faça upgrade" e o link "Fazer upgrade". O leitor de tela lê o aviso junto do botão | [ ] | |
+| T12 | Simular **teste expirado** (dono) e abrir `/leads` ou `/dashboard` | Vai para **/configuracoes/assinatura**. A sidebar tem **só Assinatura e Minha conta** (mais o seletor de organizações); o topo não tem busca nem sino; as abas de Configurações só mostram Assinatura e Conta. Título "Seu teste grátis terminou em {data}", "Seus dados estão guardados" e botão **Escolher plano** (leva aos planos) | [ ] | |
+| T13 | Mesmo estado, mas logado como **membro convidado** | "O teste grátis desta organização terminou. Peça ao proprietário ({nome})..." Sem botão de pagar e sem lista de planos | [ ] | |
+| T14 | Expirado: ainda dá para **trocar de organização, abrir Minha conta, sair e excluir a conta**? E abrir `/api/...`/URL de um lead por fora? | Sim para as quatro primeiras; qualquer página/ação da organização é barrada (nunca mostra dado) | [ ] | |
+| T15 | Expirado (dono): **Assinar** um plano (mock) | Volta para `/configuracoes/assinatura?checkout=success` com **"Confirmando seu pagamento..."**; ao confirmar, "Pagamento confirmado!" e o menu completo **volta sem precisar sair e entrar**; o limite novo vale; o chip some | [ ] | |
+| T16 | Abrir `/configuracoes/assinatura?checkout=success` com uma conta que **não** pagou | Fica em "Confirmando..." e depois (≈3 min) "Ainda não recebemos a confirmação... nenhuma nova cobrança". A URL sozinha **nunca** libera o acesso | [ ] | |
+| T17 | Cancelar o pagamento no checkout (`?checkout=cancel`) | Toast "Checkout cancelado. Nenhuma cobrança foi feita." e a org continua em teste | [ ] | |
+| T18 | Landing `/` (claro, escuro, 390px) | Botão **"Comece 14 dias grátis"**, "Sem cartão de crédito. Limites reduzidos no teste.", nos preços "Teste 14 dias grátis e escolha o plano quando precisar", botões "Começar 14 dias grátis", bloco "O que acontece quando o teste acaba?". Nada de "7 dias" nem "sem limites". Clicar num plano leva a `/signup?plan=...`; depois do cadastro o dashboard mostra "Você escolheu o plano X" e a Assinatura destaca "Escolhido por você" (o checkout **não** abre sozinho) | [ ] | |
+| T19 | Teclado e leitor de tela: `/signup`, dashboard (cartões), chip, faixa, Assinatura, tela de bloqueio | Tab em ordem e foco visível; erro de campo é lido; a tela de bloqueio anuncia o motivo (role=status) e põe o foco no título; "Confirmando..." é anunciado; barras de uso têm texto "1 de 1"; **sem barra de rolagem lateral em 390px**; contraste ok no escuro | [ ] | |
+| T20 | Org de **cortesia**/admin/seed antiga | Sem chip, sem limites, sem bloqueio (ilimitada); org paga normal inalterada | [ ] | |
 
 ### P-064. Senha: mínimo 6, confirmar senha e barra de força (SPEC-064). Sem migration; só interface e validação
 

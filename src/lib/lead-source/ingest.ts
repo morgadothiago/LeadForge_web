@@ -5,6 +5,8 @@ import { safeErrorForLog } from "@/lib/errors";
 import { withSerializableRetry } from "@/lib/db/tx-conflict";
 import { createLeadCore } from "@/lib/domain/lead-create";
 import { findSuppression } from "@/lib/domain/suppression";
+import { PlanLimitError } from "@/lib/billing/limits";
+import { loadOrgAccess } from "@/lib/billing/org-access";
 import type { ExtractedContact } from "./mapping";
 
 /**
@@ -15,7 +17,8 @@ import type { ExtractedContact } from "./mapping";
  * externo do lead na plataforma de origem (Google `lead_id` / Meta `leadgen_id`) — cada plataforma reenvia
  * a mesma notificação em caso de falha/timeout do lado do anunciante.
  */
-export type IngestStatus = "created" | "duplicate" | "suppressed" | "campaign_archived";
+/** SPEC-065: `plan_limit` = cota de leads do plano esgotada; `trial_expired` = org com teste gratis expirado (recusado, D-065-13.5). */
+export type IngestStatus = "created" | "duplicate" | "suppressed" | "campaign_archived" | "plan_limit" | "trial_expired";
 export interface IngestResult {
   status: IngestStatus;
   leadId?: string;
@@ -35,6 +38,9 @@ export async function ingestExternalLead(opts: {
 }): Promise<IngestResult> {
   const { source, orgId, campaignId, externalLeadId, contact } = opts;
   const eventId = eventIdFor(source, externalLeadId);
+
+  // SPEC-065 (D-065-13.5): org com teste gratis expirado nao recebe lead (nao reivindica a chave: apos assinar, o provedor pode reenviar).
+  if ((await loadOrgAccess(prisma, orgId, new Date())) === "trial_expirado") return { status: "trial_expired" };
 
   // Reivindicação idempotente ANTES de criar o lead: reenvio da mesma notificação nunca duplica.
   try {
@@ -99,6 +105,11 @@ export async function ingestExternalLead(opts: {
     await prisma.webhookEvent.update({ where: { eventId }, data: { payload: { status: "created", leadId: out.id }, processedAt: new Date() } });
     return { status: "created", leadId: out.id };
   } catch (e) {
+    if (e instanceof PlanLimitError) {
+      // Cota esgotada: resposta tipada (nao e erro 500). A reivindicacao e liberada para o provedor poder reenviar depois do upgrade.
+      await prisma.webhookEvent.delete({ where: { eventId } }).catch(() => undefined);
+      return { status: "plan_limit" };
+    }
     // Falha após a reivindicação: libera a chave pra permitir retry do provedor (nunca deixa "processing" preso).
     console.error(`[lead-source/${source}] erro ao processar lead:`, safeErrorForLog(e));
     await prisma.webhookEvent.delete({ where: { eventId } }).catch(() => undefined);
