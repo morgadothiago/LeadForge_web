@@ -57,7 +57,7 @@ Entraram com o PR #2, em ordem do mais antigo para o mais novo:
 | 2 | **Provedor de avatar real** (Q-051-1: HeyGen, D-ID, Synthesia, Tavus ou Azure AI Speech Avatar) | criativos reais (hoje só mock) | Escolher 1 e abrir SPEC; antes cumprir D-051-15 (SSRF/timeouts) |
 | 3 | **Drift `20260928*`**: ver 3b | limpeza; "nunca `migrate dev`" vale até lá | Opção A |
 | 4 | **Validação jurídica da retenção (D-054-4, INFERRED)**: 5 anos para registros de cobrança e 6 meses para logs; o código apaga logs após 6 meses, mas os registros de cobrança ficam sem prazo de descarte (não há job de 5 anos). A tela e o e-mail "conta excluída" também listam como retidos o usuário anonimizado, `AccountDeletionRequest`, reuniões e criativos (`src/lib/account-deletion/retention.ts`) | ir para produção com a 054 | Passar por um advogado |
-| 5 | **Exportação de dados (LGPD art. 18 V, portabilidade)**: fora da 054 (D-054-6) | conformidade completa | SPEC futura |
+| 5 | **Exportação de dados (LGPD art. 18 V, portabilidade)**: fora da 054 (D-054-6) | conformidade completa | SPEC-061 em DRAFT (`specs/61-exportacao-de-dados-lgpd/spec.md`; perguntas Q-061-n abertas) |
 | 6 | **Revisar as decisões INFERRED das SPECs 055 e 056** (abaixo) | nada trava; são premissas | Aceitar ou pedir ajuste |
 
 Resolvidas nesta rodada (não dependem mais de você): **Q-051-11** fechada (D-051-19: aceito o default, sem teto de retentativas dos
