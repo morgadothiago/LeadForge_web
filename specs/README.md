@@ -62,6 +62,7 @@ Fullstack = executa dev-backend primeiro, depois dev-frontend.
 | 058 | "Buscar agora": busca de leads sob demanda na campanha (papel, concorrencia, teto manual, UX, custo) | fullstack (058a backend / 058b frontend) | 10 (UX) | IMPLEMENTED 058a+058b (2026-10-10; validacao em navegador e E2E real PENDENTES) | 015,030,033,018 |
 | 059 | Rate limit persistente (Redis) com fallback em memoria (D-049-14) | backend | 11 | IMPLEMENTED (2026-10-11; Redis real validado) | 049,014,018,026,055 |
 | 060 | Paginacao da busca Places (nextPageToken + rotacao de variacoes, cursor persistido) | fullstack | 11 | IMPLEMENTED (2026-10-11; E2E real PENDENTE) | 015,058 |
+| 061 | Exportacao de dados pessoais (LGPD art. 18 V, portabilidade) — 061a backend / 061b frontend (D-061-n INFERRED, Q-061-n abertas) | fullstack | 11 | DRAFT (aguardando APROVAR SPEC-061) | 049,050,054,059 |
 
 Ordem (sessao 2): 009,010,016 feitos -> 011 -> 012 -> 017 -> 013 -> 014 -> 015. Ordem sessao 1: 000 -> 001 -> 002 -> 003 -> 004 -> 005 -> 006 -> 007 -> 008 | 009 -> 010 -> 011 -> 012 -> 013 -> 014 -> 015.
 Nota: 004 (dashboard) fica antes de 005-008 por ordem do PROMPT; com poucos dados usa seed.
