@@ -33,14 +33,14 @@ beforeEach(() => {
 });
 
 describe("AppSidebar", () => {
-  it("renderiza os 10 itens de NAV_ITEMS com href e rótulo, dentro de nav nomeado", () => {
+  it("renderiza os 11 itens de NAV_ITEMS com href e rótulo, dentro de nav nomeado", () => {
     const html = render();
     expect(html).toContain('aria-label="Navegação principal"');
     for (const { href, label } of NAV_ITEMS) {
       expect(html).toContain(`href="${href}"`);
       expect(html).toContain(label);
     }
-    expect(NAV_ITEMS).toHaveLength(10);
+    expect(NAV_ITEMS).toHaveLength(11);
   });
 
   it.each(NAV_ITEMS.map((i) => i.href))("rota %s marca exatamente um item ativo", (href) => {

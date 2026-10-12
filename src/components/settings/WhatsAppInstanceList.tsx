@@ -162,7 +162,7 @@ function InstanceCard({ instance: i, health, onAnnounce }: { instance: WhatsAppI
         open={confirmDel}
         onOpenChange={setConfirmDel}
         title="Excluir instância?"
-        description={`"${i.instanceName}" será removida permanentemente, inclusive no provedor. Esta ação não pode ser desfeita.`}
+        description={`"${i.instanceName}" será removida permanentemente, inclusive no provedor. Isso também apaga as conversas e mensagens da Caixa de atendimento deste número. Esta ação não pode ser desfeita.`}
         confirmLabel="Excluir"
         destructive
         pending={pending}

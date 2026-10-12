@@ -4,6 +4,9 @@ Atualizado em 2026-10-12 (fim de sessão). **A seção 0 abaixo manda; as seçõ
 
 ## 0. RETOMAR AMANHÃ: leia isto primeiro (2026-10-12, fim de sessão)
 
+### Atualização SPEC-068b (2026-10-12, depois)
+- **068a já commitada (`5a3cd15`). 068b (frontend `/atendimento`) IMPLEMENTADA, SEM COMMIT, aguardando QA independente + E2E em navegador** (bloco V do `docs/ROTEIRO_DE_TESTES.md`, 390/1280 px, claro/escuro, axe). tsc/eslint/vitest verdes (210 arquivos / 2698 testes). Detalhes e desvios: "Implementation Notes — 068b" na SPEC. Para ver na tela: `npx prisma migrate deploy` (migration 068a) + reiniciar o `npm run dev`. Sem jsdom/RTL no repo: interações só no E2E manual. Próximo: QA da 068b -> E2E -> commit/push; depois 068c/d (anexos).
+
 ### Onde paramos
 - **`main` = `771121e`** (PR #17), igual no GitHub e no local. **Produção na Vercel já roda esse código** (`https://lead-forge-web-omega.vercel.app`). Cada merge na `main` **publica sozinho** em produção (Git integrado).
 - **Em produção e na `main`:** SPEC-062a/b (cadastro só com usuário, sem trial, casca de cobrança, telas `/assinar`, `/assinar/retorno`, `/organizacao/nova`, `/entrar-em-organizacao`, `/minha-conta`), SPEC-063a (adaptador AbacatePay v2: catálogo de produtos, checkout real, webhook v2, PIX, logs sem segredos; validado no sandbox), SPEC-064 (senha mínima 6, confirmar senha, barra de força), Vercel Analytics e Speed Insights. 179 arquivos / 2343 testes verdes, QA independente aprovado em todas.

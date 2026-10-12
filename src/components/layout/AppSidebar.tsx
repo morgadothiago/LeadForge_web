@@ -24,7 +24,9 @@ import {
   SidebarRail,
   useSidebar,
 } from "@/components/ui/sidebar";
+import { useInboxUnread } from "@/components/inbox/InboxUnreadProvider";
 import { useNotifications } from "@/components/notifications/NotificationsProvider";
+import { badgeText } from "@/lib/inbox/client-types";
 import { countFor, navNewText, navTooltip } from "@/lib/notifications/client-types";
 import { OrgSwitcher } from "@/components/org/OrgSwitcher";
 import type { MyOrganization } from "@/lib/actions/org";
@@ -49,6 +51,23 @@ function NewDot({ fresh }: { fresh: number }) {
   );
 }
 
+/** SPEC-068b: contador de mensagens nao lidas da caixa (texto para leitor de tela; no modo icone vira bolinha). */
+function UnreadPill({ count }: { count: number }) {
+  if (count <= 0) return null;
+  return (
+    <>
+      <span className="sr-only">{`, ${count} ${count === 1 ? "mensagem não lida" : "mensagens não lidas"}`}</span>
+      <span
+        aria-hidden="true"
+        data-slot="inbox-unread"
+        className="ml-auto flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-primary px-1.5 text-xs font-semibold text-primary-foreground group-data-[collapsible=icon]:absolute group-data-[collapsible=icon]:right-0.5 group-data-[collapsible=icon]:top-0.5 group-data-[collapsible=icon]:ml-0 group-data-[collapsible=icon]:h-3 group-data-[collapsible=icon]:min-w-3 group-data-[collapsible=icon]:px-0 group-data-[collapsible=icon]:text-[0px]"
+      >
+        {badgeText(count)}
+      </span>
+    </>
+  );
+}
+
 function NewTag({ item }: { item: NavItem }) {
   if (item.tag !== "new") return null;
   return (
@@ -60,6 +79,7 @@ function NewTag({ item }: { item: NavItem }) {
 
 function NavEntry({ item, pathname, summary, onNavigate }: { item: NavItem; pathname: string; summary: Parameters<typeof countFor>[0]; onNavigate: () => void }) {
   const { href, label, icon: Icon, badgeKey } = item;
+  const { unreadMessages } = useInboxUnread();
   const countOf = (k: NonNullable<NavItem["badgeKey"]>) => countFor(summary, k);
   if (item.children?.length) {
     const open = hasActiveChild(pathname, item);
@@ -94,12 +114,13 @@ function NavEntry({ item, pathname, summary, onNavigate }: { item: NavItem; path
   }
   const active = isActivePath(pathname, href);
   const fresh = badgeKey ? countFor(summary, badgeKey) : 0;
+  const inbox = item.inboxBadge ? unreadMessages : 0;
   return (
     <SidebarMenuItem>
       <SidebarMenuButton
         isActive={active}
-        tooltip={navTooltip(label, fresh)}
-        data-has-new={fresh > 0 ? "true" : undefined}
+        tooltip={inbox > 0 ? `${label} (${badgeText(inbox)} não ${inbox === 1 ? "lida" : "lidas"})` : navTooltip(label, fresh)}
+        data-has-new={fresh > 0 || inbox > 0 ? "true" : undefined}
         render={<Link href={href} aria-current={active ? "page" : undefined} onClick={onNavigate} />}
         className={ITEM_CLASS}
       >
@@ -107,6 +128,7 @@ function NavEntry({ item, pathname, summary, onNavigate }: { item: NavItem; path
         <span className="truncate">{label}</span>
         <NewTag item={item} />
         <NewDot fresh={fresh} />
+        <UnreadPill count={inbox} />
       </SidebarMenuButton>
     </SidebarMenuItem>
   );

@@ -1,4 +1,4 @@
-import { Bell, Building2, CalendarDays, CreditCard, Kanban, ClipboardCheck, LayoutDashboard, Megaphone, Settings, UserRound, Users, Video, Workflow, type LucideIcon } from "lucide-react";
+import { Bell, Building2, MessagesSquare, CalendarDays, CreditCard, Kanban, ClipboardCheck, LayoutDashboard, Megaphone, Settings, UserRound, Users, Video, Workflow, type LucideIcon } from "lucide-react";
 
 import type { NavBadgeKey } from "@/lib/notifications/client-types";
 
@@ -9,6 +9,8 @@ export interface NavItem {
   icon: LucideIcon;
   /** Chave do contador "novo" (bolinha) em `NotificationSummaryState`; ausente = sem bolinha. */
   badgeKey?: NavBadgeKey;
+  /** SPEC-068b: mostra o total de mensagens nao lidas da caixa de atendimento (contexto `useInboxUnread`). */
+  inboxBadge?: boolean;
   /** SPEC-057: subitens expansíveis (só com rota real). */
   children?: readonly NavItem[];
   /** SPEC-057: selo "New" para funcionalidade recém-lançada. */
@@ -26,7 +28,10 @@ export interface NavSection {
 export const NAV_SECTIONS: readonly NavSection[] = [
   {
     key: "topo",
-    items: [{ href: "/dashboard", label: "Dashboard", description: "Visão geral das métricas de prospecção.", icon: LayoutDashboard }],
+    items: [
+      { href: "/dashboard", label: "Dashboard", description: "Visão geral das métricas de prospecção.", icon: LayoutDashboard },
+      { href: "/atendimento", label: "Atendimento", description: "Converse com seus leads pelo WhatsApp.", icon: MessagesSquare, inboxBadge: true },
+    ],
   },
   {
     key: "captacao",

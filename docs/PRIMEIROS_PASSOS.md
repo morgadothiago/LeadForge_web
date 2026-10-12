@@ -513,6 +513,21 @@ Em Configurações > WhatsApp, crie a instância e leia o QR code com o celular.
 - ⚠️ Use um **chip descartável**. A Evolution não é oficial e o número pode ser banido. Custo: o chip. Não foi
   verificado do começo ao fim nesta revisão.
 
+### 5.3 Conversar com os leads (Atendimento)
+
+Quando um lead responde no WhatsApp, a resposta aparece numa tela só sua, parecida com o WhatsApp Web.
+
+- Clique em **Atendimento** no menu da esquerda. Do lado esquerdo ficam as conversas; do direito, o papo.
+- A bolinha com número mostra quantas mensagens você ainda não leu. Ao abrir a conversa, ela some.
+- Escreva embaixo e aperte **Enter** para mandar (**Shift+Enter** pula linha). Os tracinhos ao lado da mensagem mostram
+  se ela foi enviada, entregue ou lida.
+- Só dá para responder até **24 horas** depois da última mensagem do lead. Passou disso, ou se ele pediu para não
+  receber mais, ou se o número caiu, a caixa de resposta é trocada por um aviso dizendo o motivo.
+- No celular a lista e a conversa aparecem uma de cada vez, com o botão "Voltar".
+- Cuidado: **excluir um número** em Configurações > WhatsApp também apaga as conversas dele aqui.
+- **Para ligar:** rode `npx prisma migrate deploy` uma vez e reinicie o `npm run dev`.
+- **O que você deve ver na tela:** uma lista de conversas e, ao clicar numa, as bolhas de mensagem.
+
 ---
 
 ## Fase 6: o cérebro dos agentes (LLM, SPEC-018/019)

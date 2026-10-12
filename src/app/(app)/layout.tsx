@@ -14,6 +14,7 @@ import { AppSidebar } from "@/components/layout/AppSidebar";
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 import { parseSidebarDefaultOpen } from "@/lib/sidebar-state";
 import { parseTheme, THEME_COOKIE_NAME } from "@/lib/theme-state";
+import { InboxUnreadProvider } from "@/components/inbox/InboxUnreadProvider";
 import { NotificationsProvider } from "@/components/notifications/NotificationsProvider";
 import { getNotificationSummary } from "@/lib/notifications/summary";
 import { EMPTY_SUMMARY } from "@/lib/notifications/client-types";
@@ -49,6 +50,7 @@ export default async function AppLayout({ children }: LayoutProps<"/">) {
   return (
     <SidebarProvider defaultOpen={defaultOpen} className="h-svh min-h-0 overflow-hidden">
       <NotificationsProvider initial={summary}>
+      <InboxUnreadProvider enabled={user.platformRole === "provider" && !restricted}>
       <AppSidebar user={{ name: user.name, email: user.email }} platformRole={user.platformRole} organizations={organizations} restricted={restricted} />
       <SidebarInset className="min-h-0 min-w-0 overflow-hidden">
         <Header user={{ name: user.name, email: user.email }} initialTheme={initialTheme} trial={trial} restricted={restricted} />
@@ -71,6 +73,7 @@ export default async function AppLayout({ children }: LayoutProps<"/">) {
         )}
         <div className="min-h-0 flex-1 overflow-y-auto p-4 md:p-6">{children}</div>
       </SidebarInset>
+      </InboxUnreadProvider>
       </NotificationsProvider>
     </SidebarProvider>
   );

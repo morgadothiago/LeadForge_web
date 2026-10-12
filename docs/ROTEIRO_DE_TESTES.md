@@ -382,6 +382,34 @@ Cortesia e admin da plataforma **não mudam**: entram direto, sem `/assinar`.
 ## U. Efeito da caixa de atendimento no envio automático (SPEC-068a)
 Quando a caixa estiver no ar: o limite diário de cada número agora guarda cerca de 20% para respostas manuais (limite 30 -> o automático envia até 24; limite 10 -> até 8; abaixo de 5 não reserva). Confira que o envio automático segue respeitando a janela, a pausa e o aquecimento e que uma resposta manual recente (menos de 3 s) adia o automático.
 
+## V. Caixa de atendimento: tela `/atendimento` (SPEC-068b)
+Pré-requisito: `npx prisma migrate deploy` (migration `20261021120000_inbox_whatsapp_068a`), reiniciar o `npm run dev`, opcional `npm run inbox:backfill`; uma instância WhatsApp conectada e um lead com mensagem recebida. Testar em **390 px** e **1280 px**, claro e escuro.
+
+| # | Passo | Esperado | OK | Obs |
+|---|---|---|---|---|
+| V1 | Menu lateral | Item "Atendimento" abaixo de Dashboard; com mensagens não lidas mostra o número (99+ no máximo) e o título da aba vira `(3) ...` | [ ] | |
+| V2 | Abrir `/atendimento` em 1280 px | Duas colunas: lista à esquerda (~360 px), chat à direita ("Selecione uma conversa") | [ ] | |
+| V3 | Abrir em 390 px | Só a lista; ao tocar numa conversa abre só o chat com botão "Voltar"; sem rolagem horizontal | [ ] | |
+| V4 | Abas Todas / Aguardando / Atendendo / Encerradas e busca por nome, empresa ou telefone | A lista filtra; vazio mostra "Nenhuma conversa encontrada"; setas esquerda/direita trocam de aba | [ ] | |
+| V5 | O lead manda mensagem pelo WhatsApp | Aparece na lista em até 10 s (nome, prévia, hora, bolinha de não lidas) e, com o chat aberto, em até 4 s | [ ] | |
+| V6 | Abrir a conversa | O não lido zera (lista, menu e título); a mensagem "Nova mensagem de ..." é anunciada por leitor de tela | [ ] | |
+| V7 | Rolar o chat para cima e o lead mandar outra | Não pula para o fim: aparece o botão "1 nova mensagem"; ao clicar desce | [ ] | |
+| V8 | Responder com texto (Enter envia, Shift+Enter quebra linha) | Bolha sai à direita com seu nome; ícone evolui enviada > entregue > lida (texto "Enviada/Entregue/Lida" para leitor de tela); a conversa vira "Atendendo" | [ ] | |
+| V9 | Dar duplo clique/Enter repetido ao enviar | Só uma mensagem sai | [ ] | |
+| V10 | Conversa com a última mensagem do lead há mais de 24 h | Campo de resposta trocado pelo aviso "A janela de 24 horas ... terminou" | [ ] | |
+| V11 | Lead que pediu "pare" (opt-out) | Aviso "pediu para não receber mensagens"; sem botão de enviar | [ ] | |
+| V12 | Lead com "possível opt-out" | Aviso vermelho; ao enviar pede confirmação "Enviar mesmo assim?" | [ ] | |
+| V13 | Número desconectado/pausado | Faixa vermelha com link "Abrir Configurações > WhatsApp"; composer bloqueado com o motivo | [ ] | |
+| V14 | Mensagem que falha (ex.: número sem WhatsApp) | Bolha com o erro e botão "Reenviar" (cria mensagem nova); toast em português | [ ] | |
+| V15 | Mudar o status no seletor do cabeçalho (Aguardando/Atendendo/Encerrada) | Muda na hora e na lista; se o servidor falhar volta ao anterior com toast | [ ] | |
+| V16 | Mensagem do lead com `<b>oi</b>` ou `javascript:alert(1)` | Aparece como texto; só links `http/https` viram link (abre em nova aba) | [ ] | |
+| V17 | Trocar de aba do navegador por 1 min e voltar | Sem requisições enquanto oculta (aba Rede do DevTools); ao voltar atualiza na hora; derrubar a rede = faixa "Sem conexão" e tentativas cada vez mais espaçadas (até 60 s) | [ ] | |
+| V18 | Teclado: Tab pela lista, abas, chat e composer | Foco sempre visível; alvos de toque >= 44 px em 390 px | [ ] | |
+| V19 | Usuário de **outra organização** abre `/atendimento?c=<id de uma conversa desta org>` | "Conversa não encontrada" (isolamento, bloqueante) | [ ] | |
+| V20 | Configurações > WhatsApp > Excluir instância | O aviso diz que apaga também as conversas da Caixa de atendimento daquele número | [ ] | |
+
+Ainda **não** existe: anexos (068c/d), etiquetas/atribuição (068e). Texto recebido sem legenda (imagem etc.) ainda é ignorado pelo backend.
+
 ## Se algo falhar, me mande
 
 1. O passo (ex.: `B5`), o e-mail logado e a URL.

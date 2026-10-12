@@ -164,7 +164,7 @@ Nao alterar a logica de envio automatico, janela, aquecimento e supressao da SPE
 | Etapa | Escopo | Status |
 |---|---|---|
 | 068a | Backend MVP | **implementada (2026-10-12), aguardando QA independente**; sem commit |
-| 068b | Frontend MVP | pendente (depende do QA da 068a) |
+| 068b | Frontend MVP | **implementada (2026-10-12), aguardando QA independente + E2E em navegador**; sem commit |
 | 068c | Backend anexos | pendente |
 | 068d | Frontend anexos | pendente |
 | 068e | Extras (etiquetas, atribuicao, notificacao) | pendente / opcional |
@@ -238,3 +238,55 @@ Nao alterar a logica de envio automatico, janela, aquecimento e supressao da SPE
 - **B4 (pendencia/068e):** bolha `sending` sem limpeza (processo morto entre a reserva e a resposta do provider) fica presa; expirar `sending` > N min em job.
 - **B5:** a rota `GET /api/inbox/conversations/{id}` e acrescimo fora da lista original da SPEC.
 - **Evolution v2.1.1** (`fromMe`, `read`, ordem do eco) continua PENDENTE de validacao real.
+
+## 16. Implementation Notes — 068b (Frontend MVP) — 2026-10-12
+
+**Status da etapa:** implementada; tsc, eslint (0 erros) e vitest verdes; **aguardando QA independente e E2E em navegador** (390/1280 px, claro/escuro, axe: NAO feitos, so raciocinio de layout). Nada commitado. Sem alteracao de backend/migration.
+
+### Arquivos
+- Pagina: `src/app/(app)/atendimento/{page,loading}.tsx` (`requirePageProviderOrg`, `?c=<uuid>` abre a conversa).
+- Cliente puro (sem servidor): `src/lib/inbox/{client-types,client-api,poller}.ts` (+ testes).
+- Componentes `src/components/inbox/`: `InboxShell`, `ConversationList`, `ChatPanel`, `MessageList`, `MessageBubble`, `Composer`, `InboxUnreadProvider`, `use-polling`, `use-inbox-data`, `inbox-format` (+ testes `inbox-ui`, `inbox-format`, `sidebar-badge`, `client-boundary`).
+- Alterados: `components/layout/{nav-items,AppSidebar}` (item "Atendimento" + badge), `app/(app)/layout.tsx` (`InboxUnreadProvider`, so provider sem trial expirado), `components/settings/WhatsAppInstanceList.tsx` (aviso M1: excluir o numero apaga a caixa), testes `nav-items.test`/`AppSidebar.test` (10 -> 11 itens).
+
+### Resultados (VERIFIED, banco `leadforge_inbox068b_test` novo, ja apagado; env do RETOMAR secao 0)
+`npx tsc --noEmit` 0 erros; `npx eslint src prisma` 0 erros (23 warnings pre-existentes); `vitest run` completo **210 arquivos / 2698 testes** passando (eram 203 / 2623).
+
+### Criterios (068b) x evidencia
+| Criterio | Status | Evidencia |
+|---|---|---|
+| Lista: nome, ultima mensagem, hora, nao lidas, abas, busca (servidor) | PASS (markup) | `inbox-ui.test` ConversationList; `inbox-format.test` |
+| Chat: bolhas, separador de data, origem, status de entrega com rotulo acessivel, Reenviar | PASS (markup) | `inbox-ui.test` MessageBubble/MessageList |
+| Composer bloqueado com motivo (24h, opt-out, instancia); confirmacao `possibleOptOut` | PASS (markup; dialogo nao exercitado por clique) | `inbox-ui.test` Composer |
+| Contrato B3 (`ok:true` + `duplicate:true` + `failed`) | PASS | `interpretSend` em `inbox-ui.test` |
+| Texto escapado; `javascript:` nao vira link; sem `dangerouslySetInnerHTML`; cliente sem import de servidor | PASS | `inbox-ui.test`, `inbox-format.test`, `client-boundary.test` |
+| Polling 4 s/10 s/20 s, pausa com aba oculta, backoff ate 60 s, Retry-After, sem sobreposicao | PASS (logica, timers falsos) | `poller.test`, `client-api.test` |
+| Badge no sidebar e prefixo no titulo | PASS (sidebar); titulo so por logica pura | `sidebar-badge.test`, `client-types.test` |
+| 390/1280 px, claro/escuro, teclado, axe, polling real com Evolution | **PENDENTE** | E2E manual: `docs/ROTEIRO_DE_TESTES.md` bloco V |
+
+### Decisoes e desvios (revisar no QA)
+1. **Sem jsdom/RTL no repo** (e sem dependencia nova, SPEC 13): testes de componente por `renderToStaticMarkup` + logica pura (hooks sem renderizacao). Interacoes (clique, Enter, dialogo, scroll) ficam para o E2E manual do bloco V. Sugestao: aprovar `@testing-library/react`+`jsdom` numa SPEC/decisao propria.
+2. **Abas** com `role=tablist` proprio (nao o `Tabs` do base-ui, trigger de 28 px nao atende 44 px). **Status** da conversa por `<select>` nativo (acessivel, 44 px).
+3. **Detalhe da conversa** (`GET /api/inbox/conversations/{id}`) consultado ao abrir e a cada 10 s: so ele confere supressao global; a lista nao.
+4. **`aria-live`**: o historico NAO e live region (a carga/prepend de historico ruidosa); um `<p role=status aria-live=polite>` separado anuncia "Nova mensagem de {nome}" so quando chega mensagem recebida.
+5. **Idempotencia no cliente:** o `clientMessageId` e mantido enquanto o texto nao muda e a rede falhou sem resposta (reenvio seguro); apos bolha `failed` o "Reenviar" gera id novo. Bolha enviada entra na tela pela resposta da action (sem bolha otimista antes).
+6. **Titulo da aba:** `MutationObserver` no `<head>` reaplica o prefixo `(n)` quando o Next reescreve o `<title>`; so conta mensagens nao lidas (nao conversas).
+7. Badge do sidebar e polling de nao lidas (20 s) so para `provider` sem trial expirado (`platform_admin`/restrito = sem requisicoes).
+8. **Layout:** a pagina usa `h-full min-h-[480px]` dentro do container `flex-1 overflow-y-auto` do layout; NAO verificado em navegador (se a altura nao propagar, trocar por `h-[calc(100svh-Xrem)]`).
+9. Anexos recebidos/enviados: nada na UI; mensagem sem texto mostra rotulo neutro (backend ainda ignora midia).
+
+### Pendencias / limitacoes
+- **E2E em navegador e axe** (criterio 7 e 9 da SPEC) e **QA independente**.
+- "Ultimo evento recebido ha X" por instancia (risco do tunel, secao 11): o DTO nao traz esse dado; exige acrescimo no backend (068a) ou fica para 068e.
+- Etiquetas, atribuicao, busca no conteudo (068e) e anexos (068c/d): fora do escopo.
+- B4 (bolha `sending` presa) continua sem job: a UI mostra "Enviando" indefinidamente nesse caso raro.
+
+### Correcoes do QA da 068b (2026-10-12) — QA: aprovado com ressalvas
+- **M1:** "Reenviar" de falha por timeout incerto (`...confirmar o envio...`) pede confirmacao ("verifique no WhatsApp do lead antes"); depois de reenviar (sucesso ou nova bolha), a bolha antiga some da tela (`superseded`), sem dois botoes/bolhas. Teste: `isUncertainFailure` em `inbox-ui.test`.
+- **M2:** conferido em `send-manual.ts` (~l.177): o servidor SEMPRE grava `status: "attending"` e `unreadCount: 0` ao enviar, inclusive de `closed`. Lista e detalhe agora espelham isso (antes o detalhe preservava `closed`).
+- **M3:** foco no mobile: ao escolher a conversa o foco vai ao titulo (`h2`, `tabIndex=-1`); ao voltar, ao item da lista (`data-conv-id`). **Limitacao aceita:** o botao Voltar do NAVEGADOR sai da pagina (a conversa aberta e estado em memoria, nao historico).
+- **B3:** o texto novo digitado durante o envio nao e apagado no sucesso; anuncios de falha reduzidos a no maximo 2 (bolha `role=alert` + toast; ou inline + toast quando nao ha bolha).
+- **B4:** erro de rede do chat depois de carregado mostra faixa "Sem conexao"; poll do detalhe nao desfaz o status otimista (`hold` enquanto a action roda). A lista ainda pode ter a mesma janela minima de corrida (aceito).
+- **B5:** `loadOlder` com guard sincrono (ref).
+- **B7:** `platform_admin` em `/atendimento` ve aviso amigavel (`requirePageUser` + `redirectIfTrialExpired`), nao a pagina de erro.
+- **Limitacoes aceitas (QA B1, B2, B6, B8):** B1 e B6 como registrados pelo QA; B2 = Home/End nas abas nao implementados (so setas); B8 sem acao nesta etapa.

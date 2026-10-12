@@ -2,15 +2,21 @@ import { describe, expect, it } from "vitest";
 import { ADMIN_NAV_ITEMS, NAV_ITEMS, NAV_SECTIONS, aggregateFresh, flattenItems, flattenSections, hasActiveChild, getPageTitle, isActivePath, type NavItem } from "./nav-items";
 
 describe("nav-items", () => {
-  it("mantém 10 itens na ordem e com rótulos PT-BR", () => {
-    expect(NAV_ITEMS.map((i) => i.label)).toEqual(["Dashboard", "Leads", "Pipeline", "Campanhas", "Sequences", "Calendário", "Criativos", "Aprovações", "Notificações", "Configurações"]);
+  it("mantém 11 itens na ordem e com rótulos PT-BR", () => {
+    expect(NAV_ITEMS.map((i) => i.label)).toEqual(["Dashboard", "Atendimento", "Leads", "Pipeline", "Campanhas", "Sequences", "Calendário", "Criativos", "Aprovações", "Notificações", "Configurações"]);
   });
   it("rotas novas e bolinha: Pipeline/Dashboard/Campanhas/Sequences sem badgeKey", () => {
-    expect(NAV_ITEMS).toHaveLength(10);
+    expect(NAV_ITEMS).toHaveLength(11);
     expect(NAV_ITEMS.find((i) => i.href === "/calendario")?.badgeKey).toBe("calendario");
     expect(NAV_ITEMS.find((i) => i.href === "/notificacoes")?.badgeKey).toBe("notificacoes");
     expect(NAV_ITEMS.filter((i) => i.badgeKey).map((i) => i.href)).toEqual(["/leads", "/calendario", "/aprovacoes", "/notificacoes", "/configuracoes"]);
-    expect(new Set(NAV_ITEMS.map((i) => i.href)).size).toBe(10);
+    expect(new Set(NAV_ITEMS.map((i) => i.href)).size).toBe(11);
+  });
+  it("SPEC-068b: Atendimento aponta para /atendimento, tem inboxBadge e nao usa o badgeKey das notificacoes", () => {
+    const a = NAV_ITEMS.find((i) => i.href === "/atendimento");
+    expect(a).toMatchObject({ label: "Atendimento", inboxBadge: true });
+    expect(a?.badgeKey).toBeUndefined();
+    expect(getPageTitle("/atendimento")).toBe("Atendimento");
   });
   it("isActivePath: exato, prefixo e falso-positivo", () => {
     expect(isActivePath("/leads", "/leads")).toBe(true);
@@ -39,7 +45,7 @@ describe("nav-items", () => {
     it("seções na ordem, com títulos e itens da SPEC", () => {
       expect(NAV_SECTIONS.map((s) => s.title)).toEqual([undefined, "Captação de leads", "Criativos", "Automação", "Conta"]);
       expect(NAV_SECTIONS.map((s) => s.items.map((i) => i.label))).toEqual([
-        ["Dashboard"],
+        ["Dashboard", "Atendimento"],
         ["Leads", "Pipeline", "Campanhas", "Sequences", "Calendário"],
         ["Criativos"],
         ["Aprovações"],
