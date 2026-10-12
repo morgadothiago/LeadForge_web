@@ -669,8 +669,16 @@ endereço direto. Se o build falhar aqui, o endereço direto está errado.
 
 ### 9.2 O bloquinho de recados (Redis)
 
-1. Crie um Redis na nuvem (Upstash ou Vercel Marketplace) e copie a URL (`rediss://...`).
-2. Na Vercel, crie `REDIS_URL`. Sem ele o app funciona, mas o limite de tentativas vale só por cópia do app (veja 2.9).
+**Caminho mais fácil (Marketplace da Vercel, o que foi usado neste projeto):**
+
+1. Abra o link `https://vercel.com/SEU-TIME/~/integrations/accept-terms/upstash` e **aceite os termos** (só dá para fazer no navegador, com a sua conta).
+2. No terminal, dentro do projeto (já ligado com `vercel link`): `vercel integration add upstash/upstash-kv -n leadforge-redis -e production -e preview --no-env-pull`.
+3. Isso cria o Redis (Upstash, plano grátis) e grava sozinho `REDIS_URL` e as `KV_*` na Vercel. O app só usa `REDIS_URL`; as `KV_*` ficam sem uso.
+4. A instalação cria `.agents/`, `.claude/` e `skills-lock.json` na pasta do projeto. Decida se entram no git ou no `.gitignore`.
+
+**Caminho manual:** crie um Redis no Upstash, copie a URL (`rediss://...`) e crie `REDIS_URL` na Vercel.
+
+Sem `REDIS_URL` o app funciona, mas o limite de tentativas vale só por cópia do app (veja 2.9). Só vale depois de um **novo deploy**.
 
 ### 9.3 Os segredos (gere cada um com seu próprio comando)
 
@@ -684,9 +692,22 @@ openssl rand -base64 32 | tr '+/' '-_' | tr -d '=\n'   # CRON_SECRET (rode de no
 
 Crie na Vercel: `AUTH_SECRET`, `ENCRYPTION_KEY`, `CRON_SECRET`.
 
+Dica para não deixar o valor aparecer na tela nem no histórico: gere o valor num arquivo e mande o arquivo para a Vercel.
+
+```bash
+openssl rand -hex 32 | tr -d '\n' > /caminho/seguro/cron.txt      # arquivo só seu: chmod 600
+vercel env add CRON_SECRET production --sensitive < /caminho/seguro/cron.txt
+gh secret set CRON_SECRET --repo SEU-USUARIO/SEU-REPO < /caminho/seguro/cron.txt   # o MESMO valor no GitHub
+```
+
+⚠️ A Vercel **não deixa ler de volta** um segredo gravado. Se perder o valor, só rotacionando (apague e crie de novo, nos dois lugares,
+e faça um novo deploy). Apague o arquivo depois de usar (`rm`). Para trocar um segredo: `vercel env rm NOME production --yes` e
+crie de novo.
+
 ### 9.4 O endereço e quem é o chefe
 
-1. Compre/aponte o domínio na Vercel (Settings > Domains). Use `https`.
+1. **Sem domínio próprio?** Dá para testar com o endereço grátis do projeto (ex.: `https://lead-forge-web-omega.vercel.app`; veja
+   com `vercel project ls`). Com domínio próprio: Settings > Domains. Use sempre `https`.
 2. Crie `AUTH_URL` e `APP_BASE_URL` com o endereço final (ex.: `https://app.seudominio.com`, **sem** barra no fim). Os links
    dos e-mails (convite, confirmar e-mail, excluir conta) usam esse endereço.
 3. Crie `TRUSTED_PROXY_IP_HEADER=x-real-ip`. **É obrigatória em produção**: sem ela o limite por IP fica desligado.
@@ -720,8 +741,16 @@ Sem Azure Blob, `/criativos` e downloads respondem 503 em produção.
 
 ### 9.7 Cobrança de verdade (AbacatePay)
 
-1. Crie a conta e pegue `ABACATEPAY_API_KEY` e invente um `ABACATEPAY_WEBHOOK_SECRET` (32+ caracteres).
-2. Na Vercel: `PAYMENT_PROVIDER=abacatepay`, e as duas chaves.
+⚠️ **Sem `PAYMENT_PROVIDER` o app usa o `mock`** (cobrança de mentirinha), mesmo que você tenha conectado a conta do AbacatePay em
+outro lugar. A conexão só existe para o LeadForge quando as 3 variáveis abaixo estão na Vercel.
+
+**Testar sem cobrar de verdade:** use o **modo de desenvolvimento (dev mode)** do AbacatePay, com a chave de dev. Troque para a chave de
+produção só quando for abrir ao público.
+
+1. Pegue a `ABACATEPAY_API_KEY` no painel (dev ou produção) e invente um `ABACATEPAY_WEBHOOK_SECRET` (32+ caracteres; use o comando
+   da 9.3 para gerar em arquivo). **Não cole a chave no chat nem no GitHub.**
+2. Na Vercel: `PAYMENT_PROVIDER=abacatepay`, `ABACATEPAY_API_KEY` e `ABACATEPAY_WEBHOOK_SECRET` (o mesmo segredo do passo 1). Faça um
+   novo deploy (`vercel deploy --prod`).
 3. No painel do AbacatePay, cadastre o webhook (o carteiro) apontando para `https://SEU-ENDERECO/api/billing/webhook`
    com o segredo, como o provedor pedir.
 4. Faça **um pagamento de teste** (PIX de valor baixo ou o modo de teste do provedor) antes de abrir ao público.
@@ -739,8 +768,14 @@ esse evento, Q-052-5). O cancelamento de cartão vale só dentro do LeadForge; c
    Vercel) e `APP_URL` (o endereço do app, ex.: `https://app.seudominio.com`, sem barra no fim). Teste em Actions > "Tick
    (agendador)" > Run workflow. ✅ Deve ver: o job verde e `HTTP 200`. (`HTTP 503` = falta `CRON_SECRET` na Vercel; `401` = valores diferentes.)
    Com plano Pro da Vercel você pode trocar para `* * * * *` no `vercel.json` e desligar o workflow.
-3. Sem o workflow, mensagens, criativos, cancelamentos e busca só andam 1 vez por dia. Alternativa ao GitHub: qualquer agendador
-   externo (ex.: cron-job.org) chamando `curl -X POST -H "Authorization: Bearer $CRON_SECRET" https://SEU-ENDERECO/api/cron/tick`.
+   ⚠️ **Se o job nem começa** e aparece *"your account is locked due to a billing issue"*, a conta do GitHub está com cobrança
+   bloqueada: resolva em GitHub > Settings > Billing and plans, ou use o agendador externo abaixo.
+3. **Agendador externo grátis (cron-job.org), se o GitHub não puder:** crie um cronjob com a URL
+   `https://SEU-ENDERECO/api/cron/tick`, a cada 5 minutos, método **POST**, e o cabeçalho (Advanced) `Authorization` com o valor
+   `Bearer <CRON_SECRET>`. Use **Test run**: deve dar `200`. Use **só um** agendador (GitHub ou externo); não verificamos se o tick é
+   seguro em duplicidade.
+4. Sem o workflow, mensagens, criativos, cancelamentos e busca só andam 1 vez por dia. Teste na mão: `curl -X POST -H "Authorization: Bearer $CRON_SECRET" https://SEU-ENDERECO/api/cron/tick`
+   (`200` = ok; `401` = segredo diferente; `503` = falta `CRON_SECRET` na Vercel).
 
 ### 9.9 Opcionais (deixe desligado no começo)
 
