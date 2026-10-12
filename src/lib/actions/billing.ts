@@ -14,6 +14,7 @@ import { SlidingLimiter } from "@/lib/integrations/rate-limit";
 import { getPaymentProvider } from "@/lib/billing/provider-factory";
 import { processBillingEvent } from "@/lib/billing/process-event";
 import { computeOrgStatus } from "@/lib/billing/status-map";
+import { isBillingUnavailableError } from "@/lib/billing/provider-errors";
 import { cancelLimiter, cancelSubscriptionForOrg, type SubscriptionChangeResult } from "@/lib/billing/cancel-subscription";
 import { SHELL_NAME, findUserShell, lockUser } from "@/lib/billing/shell";
 import { sendSignupEmails } from "@/lib/auth/email-verification";
@@ -54,15 +55,24 @@ export async function createCheckoutSession(input: unknown): Promise<ActionResul
     if (!parsed.success) return failure(zodErrors(parsed.error));
     const user = await prisma.user.findUniqueOrThrow({ where: { id: userId }, select: { email: true } });
     const provider = getPaymentProvider();
-    const result = await provider.createCheckoutSession({
-      orgId,
-      planKey: parsed.data.planKey,
-      cadence: parsed.data.cadence,
-      customerEmail: user.email,
-      successUrl: `${baseUrl()}/configuracoes/assinatura?checkout=success`,
-      cancelUrl: `${baseUrl()}/configuracoes/assinatura?checkout=cancel`,
-    });
-    return success({ url: result.url });
+    try {
+      const result = await provider.createCheckoutSession({
+        orgId,
+        planKey: parsed.data.planKey,
+        cadence: parsed.data.cadence,
+        customerEmail: user.email,
+        successUrl: `${baseUrl()}/configuracoes/assinatura?checkout=success`,
+        cancelUrl: `${baseUrl()}/configuracoes/assinatura?checkout=cancel`,
+      });
+      return success({ url: result.url });
+    } catch (e) {
+      // SPEC-063 (D-063-24): erro de configuracao/contrato do provedor nao e culpa do usuario.
+      if (isBillingUnavailableError(e)) {
+        console.error("[createCheckoutSession] falha ao abrir checkout:", safeErrorForLog(e));
+        return formError(BILLING_UNAVAILABLE);
+      }
+      throw e;
+    }
   });
 }
 
@@ -254,7 +264,8 @@ export async function startPlanCheckout(input: unknown): Promise<ActionResult<{ 
       });
       return success({ url: result.url });
     } catch (e) {
-      if (isAppError(e) && (e.code === "upstream" || e.code === "network" || e.code === "timeout" || e.code === "config")) {
+      // SPEC-063 (D-063-24): inclui validation/unauthorized/forbidden/not_found/conflict VINDOS do provedor (config/contrato nosso, nao do usuario).
+      if (isBillingUnavailableError(e)) {
         // Casca incompleta permanece valida (estado "aguardando"): o usuario tenta de novo, mesma casca.
         console.error("[startPlanCheckout] falha ao abrir checkout:", safeErrorForLog(e));
         return { ok: false, errors: { _form: [BILLING_UNAVAILABLE], code: ["billing_unavailable"] } };

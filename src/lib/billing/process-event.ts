@@ -131,12 +131,13 @@ export async function processBillingEvent(event: ParsedBillingEvent, now: Date):
             paidAt,
             paymentMethod: event.paymentMethod ?? null,
             cardLast4: event.cardLast4,
+            cardBrand: event.cardBrand,
             periodStart,
             periodEnd: event.currentPeriodEnd,
             orderId: event.externalPaymentId,
             link: absoluteAppUrl("/configuracoes/assinatura"),
           });
-          await notifyOrgOwners({ orgId: event.orgId, subject, html, text, scenario: "payment_receipt", dedupeKey: `${event.eventId}:receipt` });
+          await notifyOrgOwners({ orgId: event.orgId, subject, html, text, scenario: "payment_receipt", dedupeKey: event.externalPaymentId ? `payment:${event.externalPaymentId}:receipt` : `${event.eventId}:receipt` });
         }
       }
       if (event.status === "canceled" && canceledAt) {

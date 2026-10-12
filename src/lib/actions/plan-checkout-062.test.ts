@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 // SPEC-062 (062a): startPlanCheckout / completeOrganizationSetup / getPlanCheckoutState / cancelPendingSubscription / webhook ligando a casca.
-const holder = vi.hoisted(() => ({ mode: "fake" as "fake" | "real" | "fail", calls: [] as Array<{ orgId: string; planKey: string; cadence: string; successUrl: string; cancelUrl: string; method?: string }> }));
+const holder = vi.hoisted(() => ({ mode: "fake" as "fake" | "real" | "fail" | "http_4xx" | "local_validation", calls: [] as Array<{ orgId: string; planKey: string; cadence: string; successUrl: string; cancelUrl: string; method?: string }> }));
 vi.mock("@/lib/channels/system-mail", () => ({ sendSystemEmail: vi.fn(async () => ({ ok: true, messageId: "m1" })) }));
 vi.mock("@/lib/billing/provider-factory", async () => {
   const actual = await vi.importActual<typeof import("@/lib/billing/provider-factory")>("@/lib/billing/provider-factory");
@@ -24,6 +24,13 @@ vi.mock("@/lib/billing/provider-factory", async () => {
     ...actual,
     getPaymentProvider: (...a: Parameters<typeof actual.getPaymentProvider>) => {
       if (holder.mode === "real") return actual.getPaymentProvider(...a);
+      // SPEC-063 (D-063-24): 4xx VINDO do provedor (status presente) = config/contrato nosso; validation LOCAL (sem status) mantem a propria mensagem.
+      if (holder.mode === "http_4xx") {
+        return { ...fake, createCheckoutSession: async () => { throw new AppError({ code: "validation", userMessage: "AbacatePay rejeitou os dados enviados.", status: 422 }); } };
+      }
+      if (holder.mode === "local_validation") {
+        return { ...fake, createCheckoutSession: async () => { throw new AppError({ code: "validation", userMessage: "Este plano não tem cobrança anual disponível." }); } };
+      }
       if (holder.mode === "fail") {
         return { ...fake, createCheckoutSession: async () => { throw new AppError({ code: "upstream", userMessage: "Gateway fora do ar", status: 502 }); } };
       }
@@ -203,6 +210,23 @@ describe("startPlanCheckout (D-062-10/12/24)", () => {
     holder.mode = "fake";
     expect((await startPlanCheckout({ planKey: "starter", cadence: "monthly" })).ok).toBe(true);
     expect(await shellOf(u.id)).toHaveLength(1);
+  });
+
+  it("SPEC-063 (D-063-24): 422/401/403/404/409 do PROVEDOR viram billing_unavailable (nao 'rejeitou os dados'); erro local de validacao mantem a mensagem", async () => {
+    const u = await mkUser();
+    await asNoOrg(u.id);
+    holder.mode = "http_4xx";
+    const r = await startPlanCheckout({ planKey: "starter", cadence: "monthly" });
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.errors.code).toEqual(["billing_unavailable"]);
+      expect(JSON.stringify(r.errors)).not.toMatch(/rejeitou/);
+    }
+    expect((await shellOf(u.id))[0].subscription?.status).toBe("incomplete"); // casca valida para nova tentativa
+    holder.mode = "local_validation";
+    const r2 = await startPlanCheckout({ planKey: "starter", cadence: "yearly" });
+    expect(r2.ok).toBe(false);
+    if (!r2.ok) expect(JSON.stringify(r2.errors)).toMatch(/cobrança anual/);
   });
 
   it("mock em PRODUCAO recusado (billing_unavailable) e NENHUMA casca criada; ALLOW_MOCK_BILLING=true libera (D-062-23)", async () => {

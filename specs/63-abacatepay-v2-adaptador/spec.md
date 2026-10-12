@@ -1,5 +1,5 @@
 # SPEC-063 — Adaptador AbacatePay v2 (corrige o 422): catalogo de produtos, `subscriptions/create` real, correlacao do pagamento, webhook v2, cancelamento e erros
-- status: APPROVED (usuario, 2026-10-12, `APROVAR SPEC-063`) | domain: backend (so `dev-backend` -> QA; sem frontend novo) | depende de: 047, 052, 053, 062 | corrige: 047 (adapter nunca testado contra a API real)
+- status: APPROVED (usuario, 2026-10-12, `APROVAR SPEC-063`); **063a IMPLEMENTED (2026-10-12, sem commit, aguarda QA); 063b PENDENTE** (ver "Implementation Notes") | domain: backend (so `dev-backend` -> QA; sem frontend novo) | depende de: 047, 052, 053, 062 | corrige: 047 (adapter nunca testado contra a API real)
 - Marcacao: **CONFIRMADO-DOC** = lido na documentacao oficial em 2026-10-11 (docs.abacatepay.com, paginas `.md`); **INFERRED** = premissa minha, revisavel; **NAO-DOCUMENTADO** = a doc nao diz, vira pergunta ou verificacao do implementador em dev mode. Nada foi criado na conta do usuario para escrever esta SPEC (so leitura de docs e do codigo).
 
 ## Objetivo
@@ -199,3 +199,54 @@ Tela/QR de PIX no `/assinar`; aposentar `pix-renewal` (depende de Q-063-14); aca
 - **Q-063-13.** O id em `data.transparent.id` do webhook e o mesmo `pix_char_...` da criacao? (fallback por `externalId` ja previsto.)
 - **Q-063-14.** Assinatura com `methods:["PIX"]` funciona (PIX recorrente nativo)? Se sim, SPEC futura aposenta o job de renovacao PIX.
 - **Q-063-15.** Esta SPEC mexe em `abacatepay.ts`, `provider.ts`, `webhook-handler.ts`, `process-event.ts`, `actions/billing.ts` e `schema.prisma` (migration aditiva) — aprovada nessa abrangencia?
+
+## Implementation Notes — 063a (2026-10-12; dev-backend; SEM commit; QA pendente)
+
+### Escopo desta entrega (decidido pelo usuario) e o que fica na 063b
+- **063a (feito):** catalogo `BillingProduct` + migration; corpo real de `subscriptions/create` + `Subscription.externalCheckoutId`; webhook v2 (parser com fixtures literais da doc, correlacao em cascata, `parseWebhookEvent` assincrono, `completed|renewed|payment_failed|cancelled|transparent.completed`, demais ignorados com log, idempotencia); `?webhookSecret=` mantido; PIX com corpo real; `simulatePixPayment` (so teste); log 4xx mascarado; D-063-24.
+- **063b (NAO feito):** `cancelSubscription`/`resumeSubscription`/`changePlan` no provedor (continuam `providerConfirmed:false`, D-053-5 ainda vale), D-063-21 (empilhar periodo ao reassinar), D-063-10 (reaproveitar checkout pendente + `checkouts/delete`), D-063-20 (reconciliacao em `/assinar/retorno`), **HMAC `X-Webhook-Signature`/`ABACATEPAY_REQUIRE_HMAC`** (D-063-16), `.env.example` das duas envs opcionais de 063b, roteiro E2E com pagamento real. **Limitacao enquanto a 063b nao sai:** cancelar no app NAO cancela a recorrencia do cartao no AbacatePay (so la, no painel).
+
+### Arquivos
+- Migration (a mao, aditiva, NAO aplicada no banco de dev; so em bancos `*_test` pelo setup do vitest): `prisma/migrations/20261018120000_abacatepay_v2_catalogo/migration.sql` + `prisma/schema.prisma` (`BillingProduct`, `Subscription.externalCheckoutId` + 2 indices). `prisma migrate diff` do banco de teste contra o schema = vazio.
+- Novos: `src/lib/billing/providers/abacatepay-catalog.ts`, `abacatepay-client.ts`, `abacatepay-errors.ts`, `abacatepay-webhook.ts`, `src/lib/billing/provider-errors.ts`; testes `abacatepay.test.ts` (reescrito), `abacatepay-webhook.test.ts`, `abacatepay-errors.test.ts`, `provider-errors.test.ts`; `abacatepay.test-helper.ts` (API falsa com `z.strictObject` do OpenAPI) e `__fixtures__/abacatepay/*.json` (9 eventos copiados LITERALMENTE de docs.abacatepay.com + 4 respostas/erros reais do sandbox).
+- Alterados: `providers/abacatepay.ts` (reescrito), `provider.ts` (`parseWebhookEvent` pode ser `Promise`; `cardBrand`), `webhook-handler.ts` (`await`), `process-event.ts` (dedupe de recibo por `payment.id`; `cardBrand`), `templates/payment-receipt.ts` (bandeira), `pix-renewal.ts` (`periodEndMs`), `actions/billing.ts` (D-063-24 em `startPlanCheckout` e `createCheckoutSession`), `plan-checkout-062.test.ts` (+1 caso).
+
+### Achados REAIS no sandbox (dev mode, chave de dev, tudo com prefixo `lf-`; `devMode:true` conferido em cada resposta) — respondem Q-063-10 a 14
+| Q | Resultado |
+|---|---|
+| **Q-063-10** `ANNUALLY` x `YEARLY` | **`ANNUALLY` aceito (200, `cycle:"ANNUALLY"`); `YEARLY` = 422 `"Expected kind 'UnionEnum'"`.** Mapa: `monthly->MONTHLY`, `yearly->ANNUALLY`. |
+| **D-063-3** unicidade de `externalId` | **PREMISSA DA SPEC ERRADA em parte.** (a) `externalId` duplicado = **HTTP 400** `{"success":false,"data":null,"error":"Product with externalId already exists"}` (sem codigo proprio). (b) **Nao e atomico:** em 1 de 2 testes de 2 `create` paralelos, ambos deram 200 e **ficaram 2 produtos com o mesmo `externalId`** (22 ms de diferenca); no outro, 200 + 400. (c) `GET /products/list?externalId=` pode ficar **defasado** logo apos o create (devolveu 0 resultados com 2 existentes). **Solucao implementada (dentro da intencao de D-063-3):** find-or-create sob `pg_advisory_xact_lock` por `externalId` + cache `BillingProduct` (so 1 `create` por vez, vale entre instancias); reprovado no sandbox com 2 `createCheckoutSession` simultaneos: 1 produto no provedor, 1 linha no cache. Se o cache for perdido e a lista estiver defasada, ainda pode haver duplicata no provedor (inofensiva; o cache decide qual `prod_` usar). |
+| `subscriptions/create` | Corpo da D-063-6 aceito (200). Resposta: `data.id` (`bill_...`), `data.url` (`https://app.abacatepay.com/pay/bill_...`), `status:"PENDING"`, `devMode`, `items`, `methods`, `metadata` (devolvido), `externalId`, `amount`, `nextChargeAt:null`, `trialDays:null`, `payerInformation:null`. **`externalId` REPETIDO devolve o MESMO checkout (idempotente, nao da erro)** — mantido um `externalId` novo por tentativa. Campo extra (`cancelUrl`) foi **aceito** em runtime (a API nao e estrita na pratica; o contrato estrito vive no teste). Sem `items` = 422 `"Property 'items' is missing"`. Produto anual cria checkout com `amount` do anual. |
+| **Q-063-14** `methods:["PIX"]` na assinatura | **400 `"PIX Automático is not available for this store"`** (nesta loja/dev). Sem PIX recorrente nativo agora; `pix-renewal` segue necessario. |
+| PIX `transparents/create` | Corpo antigo = 422 `"Value should be one of 'object', 'object', 'object'"`. Corpo `{method,data:{...}}` = 200: `data.id` = **`pix_char_...`**, `amount`, `status`, `devMode`, `brCode`, `brCodeBase64` (`data:image/png;base64,...`), `expiresAt` (+24 h), `platformFee`, `receiptUrl`, `metadata` (**`externalId` nao e devolvido**). **`description` rejeita nao-ASCII** (400 `Disallowed character in description: "—" (U+2014)`): a descricao e sanitizada para ASCII. **`externalId` repetido devolve a MESMA cobranca (mesmo expirada)** -> o `externalId` PIX ganhou sufixo por tentativa (`lf-pix:<orgId>:<periodEndMs>:<rand8>`; ajuste em D-063-18). |
+| simulate-payment | `POST /transparents/simulate-payment?id=pix_char_...` -> 200, `status:"PAID"` (confirmado por `GET /transparents/check`). Implementado como `simulatePixPayment` (recusado em producao). |
+| Erros | Formato `{"success":false,"data":null,"error":"<texto>"}`. **"Nao encontrado" e HTTP 400** `"Subscription not found"` (nao 404) — a 063b deve reconhecer pelo texto, nao pelo status. Chave invalida: 401 `"Invalid or inactive API key"`. |
+| Limpeza | Checkouts (`bill_`) e produtos `lf-*` criados por mim foram removidos (`checkouts/delete` e `products/delete` = 200). Cobrancas PIX de teste nao tem delete (expiram). |
+| **Q-063-13** id de `transparent.completed` x `pix_char_` | **NAO VERIFICADO**: exige webhook publico recebendo o evento (nao autorizado criar webhook na conta). Mitigacao no codigo: casa `pixChargeId` por `id`, sem o prefixo `pix_` e com ele, e cai em `externalId` `lf-pix:`. A doc de `transparent.completed` **nao mostra `id` no envelope** -> sem `id`, o `eventId` e `abacatepay:transparent.completed:<sha256(corpo)>` (retentativas = mesmo corpo). |
+| **Q-063-11/12** | Nao testaveis sem pagar o checkout hospedado (so o usuario, cartao 4242). `nextChargeAt` existe no objeto do checkout (`null` antes do pagamento): candidato para a 063b substituir a aproximacao D-063-15, **a confirmar depois do 1o pagamento**. |
+| `subscriptions/get` `checkoutId` | **NAO VERIFICADO** (sem assinatura paga): o fallback por API le `checkoutId`/`externalId` de forma defensiva. |
+
+### Decisoes de implementacao (dentro da SPEC)
+- `yearly` sem preco anual: `AppError(validation)` local (sem `status`), antes de qualquer rede; D-063-24 so mapeia 4xx COM `status` (resposta do provedor), entao a mensagem "plano sem cobranca anual" continua visivel.
+- Periodo (D-063-15): mes/ano de calendario UTC com clamp (31/jan+1m = 28/fev); a data de pagamento do provedor so vale se tiver <=2 dias (replay de fixtures antigas usa "agora").
+- `cancelled` com cancelamento agendado pelo usuario e periodo valido vira "confirmacao" (`updated`, mesma data, `cancelAtPeriodEnd:true`); `cancelled` por `max_payment_retries_exceeded` suspende sempre; local ja `canceled` -> ignorado (sem e-mail duplicado). Assinatura antiga (D-063-13) -> ignorada com log. `transparent.completed` nunca grava o id PIX como `externalSubscriptionId`.
+- Recibo: dedupe tambem por `payment.id` (`payment:<id>:receipt`); bandeira entra no e-mail ("Cartao VISA final 1234").
+- Guarda D-063-5 (`ABACATEPAY_EXPECT_DEVMODE`) implementada (sem a env: so `console.warn` 1x). Sem `.env.example` novo nesta entrega.
+
+### Resultados dos gates
+- `npx tsc --noEmit`: limpo. ESLint nos arquivos tocados: 0 erros (so warnings pre-existentes de `_input`). Vitest COMPLETO em banco `*_test` novo (migration aplicada pelo setup): **176 arquivos / 2321 testes verdes** (ambiente do comando com `PAYMENT_PROVIDER=mock`, `ABACATEPAY_*` vazios e `APP_BASE_URL=http://app.test`, pois o `.env` local aponta para o AbacatePay e para um tunel; sem isso 9 testes antigos do webhook e 1 de e-mail falham, ja antes da 063a). `npx next build`: ok. Curl real contra `next start` (porta 3099, banco de teste): 401 sem/errado secret, `completed` processed, retentativa duplicate, `trial_started` ignored, `payment_failed` processed, `cancelled` (max retries) processed -> `canceled`/org `suspended`.
+
+### Criterios de aceitacao (063a)
+| Criterio | Status | Evidencia |
+|---|---|---|
+| `subscriptions/create` real em dev mode: 200 + `data.url` | PASS | script contra a API real: `bill_...` + `https://app.abacatepay.com/pay/bill_...` (mensal e anual) |
+| Corpos validos em esquemas estritos (subscriptions/products/transparents) | PASS | `abacatepay.test.ts` ("corpo EXATO", "1a vez", "PIX") |
+| 1 produto por plano x cadencia x preco; cache; preco novo = produto novo; concorrencia sem duplicar | PASS (com lock; ver D-063-3) | `abacatepay.test.ts` catalogo + sandbox (1 produto com 2 checkouts simultaneos) |
+| `ANNUALLY` confirmado; yearly sem preco anual recusado | PASS | sandbox (`YEARLY`=422); teste "D-063-4" |
+| `externalCheckoutId` gravado; webhook `completed` ativa a casca sem `metadata` | PASS | `abacatepay.test.ts`; `abacatepay-webhook.test.ts`; curl real contra `next start` (`processed`) |
+| `payment_failed` -> `past_due`; `cancelled` manual/automatico; assinatura velha ignorada | PASS | `abacatepay-webhook.test.ts` |
+| `?webhookSecret` mantido; nenhum 410; retentativa = `duplicate` | PASS | `abacatepay-webhook.test.ts` + curl |
+| HMAC verificado; cancelamento chama `subscriptions/cancel` | **063b** | — |
+| 4xx logado mascarado; usuario ve "pagamento indisponivel" | PASS | `abacatepay-errors.test.ts`, `abacatepay.test.ts`, `plan-checkout-062.test.ts` |
+| PIX `{method,data}` aceito e simulado em dev | PASS | sandbox (`PAID`) + teste de contrato |
+| Roteiro E2E com cartao 4242 | **PENDENTE (usuario)** | so o usuario paga o checkout hospedado |

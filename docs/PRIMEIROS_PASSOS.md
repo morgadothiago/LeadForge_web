@@ -164,7 +164,8 @@ Abra http://localhost:3000/login e use `ADMIN_EMAIL` e `ADMIN_PASSWORD` do seu `
 - ⚠️ O mock **ativa o plano só de clicar**. Por isso, em produção ele é recusado (aparece "Pagamento indisponível no
   momento"), a não ser que você escreva `ALLOW_MOCK_BILLING=true` de propósito. No seu computador (desenvolvimento) não precisa.
 - A Stripe é só um "esqueleto" (stub). O adaptador da AbacatePay (SPEC-047) existe, mas pede conta e chaves
-  `ABACATEPAY_*`. Ele **não foi testado com conta de verdade**.
+  `ABACATEPAY_*`. Ele foi corrigido na SPEC-063a e **validado no modo de teste (dev mode)** do AbacatePay, mas ainda falta você
+  pagar um checkout de teste com o cartão `4242 4242 4242 4242` (9.7).
 - `MOCK_WEBHOOK_SECRET` só serve para chamar a rota do carteiro `POST /api/billing/webhook` na mão. Sem ele, a rota
   responde 503. O checkout interno não precisa dele.
 - **O que você deve ver na tela:** depois de criar a conta, você escolhe um plano e cai num pagamento de faz de conta.
@@ -773,12 +774,21 @@ produção só quando for abrir ao público.
    da 9.3 para gerar em arquivo). **Não cole a chave no chat nem no GitHub.**
 2. Na Vercel: `PAYMENT_PROVIDER=abacatepay`, `ABACATEPAY_API_KEY` e `ABACATEPAY_WEBHOOK_SECRET` (o mesmo segredo do passo 1). Faça um
    novo deploy (`vercel deploy --prod`).
-3. No painel do AbacatePay, cadastre o webhook (o carteiro) apontando para `https://SEU-ENDERECO/api/billing/webhook`
-   com o segredo, como o provedor pedir.
-4. Faça **um pagamento de teste** (PIX de valor baixo ou o modo de teste do provedor) antes de abrir ao público.
+3. No painel do AbacatePay (ou pela API `POST /webhooks/create`), cadastre o webhook (o carteiro): endereço **HTTPS público**
+   `https://SEU-ENDERECO/api/billing/webhook`, o **mesmo segredo** do passo 1 e estes eventos: `subscription.completed`,
+   `subscription.renewed`, `subscription.payment_failed`, `subscription.cancelled` e `transparent.completed`. Em casa (sem endereço
+   público) use um túnel (ex.: `cloudflared tunnel --url http://localhost:3000`). Webhook criado no modo de teste só recebe eventos de teste.
+4. A chave de API precisa das permissões de **produtos** (criar/ler), **assinaturas** (criar/ler/cancelar) e **cobrança PIX** (criar). Sem elas
+   o pagamento falha com "Pagamento indisponível" e o motivo aparece no log do servidor (linha `[abacatepay] ... -> 401/403`, sem segredos).
+5. Faça **um pagamento de teste** antes de abrir ao público. No modo de teste: escolha um plano, abra o pagamento, use o cartão
+   `4242 4242 4242 4242`, validade futura e CVV `123`. Cartões que o teste recusa: final `0002`, `0069` (vencido) e `0127` (CVV).
+   Quando o pagamento passar, a tela segue sozinha para "criar organização" e chegam "Assinatura confirmada" e o recibo, **1 vez cada**.
 
-⚠️ Ainda **não validado** com o AbacatePay real: o formato do recibo e o aviso de **falha de cartão** (a documentação não tem
-esse evento, Q-052-5). O cancelamento de cartão vale só dentro do LeadForge; cancele também no painel do AbacatePay. **Não** use
+O LeadForge cria os **produtos** (um por plano, mensal/anual e preço) no AbacatePay sozinho, na primeira compra; os que começam com `lf-`
+são dele. Se você mudar o preço de um plano, nasce um produto novo (quem já assina continua no preço antigo).
+
+⚠️ O que **ainda não** está pronto (SPEC-063b): cancelar no app **não** cancela a cobrança do cartão no AbacatePay (cancele também no
+painel); reativar depois de cancelar; troca de plano; conferência automática se o webhook demorar. **Não** use
 `PAYMENT_PROVIDER=stripe` (é só um esqueleto).
 
 ### 9.8 O despertador (tick) e o plano da Vercel

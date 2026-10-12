@@ -1,0 +1,31 @@
+{
+  "id": "log_abc123xyz",
+  "event": "subscription.cancelled",
+  "apiVersion": 2,
+  "devMode": false,
+  "data": {
+    "subscription": {
+      "id": "subs_tAFqDWBhcEYTjQh2K0ZYDHau",
+      "amount": 2990,
+      "currency": "BRL",
+      "method": "CARD",
+      "status": "CANCELLED",
+      "frequency": "MONTHLY",
+      "retryPolicy": {
+        "maxRetry": 3,
+        "retryEvery": 2
+      },
+      "createdAt": "2024-12-06T20:00:00.000Z",
+      "updatedAt": "2025-01-06T20:00:05.000Z",
+      "canceledAt": "2025-01-06T20:00:05.000Z",
+      "cancelPolicy": "NOW",
+      "cancelledDueTo": "max_payment_retries_exceeded"
+    },
+    "customer": {
+      "id": "cust_def456",
+      "name": "Maria Santos",
+      "email": "maria@exemplo.com",
+      "taxId": "12.***.***/0001-**"
+    }
+  }
+}

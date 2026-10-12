@@ -13,6 +13,8 @@ export interface PaymentReceiptTemplateInput {
   paymentMethod: "card" | "pix" | null;
   /** So 4 digitos; qualquer outro formato e ignorado (nunca exibe numero completo). */
   cardLast4?: string | null;
+  /** SPEC-063: bandeira (ex.: VISA); texto livre curto, escapado pelo layout. */
+  cardBrand?: string | null;
   periodStart: Date | null;
   periodEnd: Date | null;
   /** Numero do pedido/cobranca no provedor; omitido se ausente. */
@@ -26,7 +28,8 @@ export const RECEIPT_FOOTER = "Este e-mail não é nota fiscal.";
 export function paymentReceiptTemplate(i: PaymentReceiptTemplateInput): EmailTemplate {
   const subject = `Recibo de pagamento — plano ${i.planName} — LeadForge`;
   const last4 = i.cardLast4 && /^\d{4}$/.test(i.cardLast4) ? i.cardLast4 : null;
-  const method = i.paymentMethod === "pix" ? "PIX" : i.paymentMethod === "card" ? (last4 ? `Cartão final ${last4}` : "Cartão") : null;
+  const brand = i.cardBrand && /^[A-Za-z0-9 ]{2,20}$/.test(i.cardBrand) ? i.cardBrand : null;
+  const method = i.paymentMethod === "pix" ? "PIX" : i.paymentMethod === "card" ? `Cartão${brand ? ` ${brand}` : ""}${last4 ? ` final ${last4}` : ""}` : null;
   const period = i.periodStart && i.periodEnd ? `${formatDateBR(i.periodStart)} a ${formatDateBR(i.periodEnd)}` : i.periodEnd ? `até ${formatDateBR(i.periodEnd)}` : null;
 
   const rows: Array<[string, string]> = [
