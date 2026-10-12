@@ -1,6 +1,50 @@
 # Para retomar: o que está pronto, o que depende de você e o que vem depois
 
-Atualizado em 2026-10-12 (**SPEC-064 senha 6+ confirmar+força implementada na branch feat/spec-064-senha-cadastro, SEM commit, ver seção 7**; **SPEC-063a implementada na branch `feat/spec-063a-abacatepay-v2`, SEM commit, aguarda QA; migration `20261018120000_abacatepay_v2_catalogo` NAO aplicada no dev; ver seção 7**; emenda D-062-25 da SPEC-062 registrada, so documentacao; SPEC-062a commitada em `dd2ce4e` na branch `feat/spec-062a-backend`; 062b implementada, sem commit, ver seção 7). **Tudo o que está commitado está na `main`** (PR #2 mergeado em 2026-10-11, commit `0943fa0`): SPECs 048 a 060, E2E e Fase 9. A SPEC-045 (react-hook-form em Configurações/Admin) está implementada, aprovada no QA e mergeada (PR #8, `48175e5`). Produção já está no ar em https://lead-forge-web-omega.vercel.app (seção 7). Repo: git@github.com:morgadothiago/LeadForge_web.git.
+Atualizado em 2026-10-12 (fim de sessão). **A seção 0 abaixo manda; as seções 1 a 8 são histórico detalhado e podem estar desatualizadas (cheque o `git log`).**
+
+## 0. RETOMAR AMANHÃ: leia isto primeiro (2026-10-12, fim de sessão)
+
+### Onde paramos
+- **`main` = `771121e`** (PR #17), igual no GitHub e no local. **Produção na Vercel já roda esse código** (`https://lead-forge-web-omega.vercel.app`). Cada merge na `main` **publica sozinho** em produção (Git integrado).
+- **Em produção e na `main`:** SPEC-062a/b (cadastro só com usuário, sem trial, casca de cobrança, telas `/assinar`, `/assinar/retorno`, `/organizacao/nova`, `/entrar-em-organizacao`, `/minha-conta`), SPEC-063a (adaptador AbacatePay v2: catálogo de produtos, checkout real, webhook v2, PIX, logs sem segredos; validado no sandbox), SPEC-064 (senha mínima 6, confirmar senha, barra de força), Vercel Analytics e Speed Insights. 179 arquivos / 2343 testes verdes, QA independente aprovado em todas.
+- **Teste real de pagamento (local, com túnel):** cadastro → e-mail no Mailpit → `/assinar` → checkout do AbacatePay criado sem 422 → webhook respondeu 200 → `/organizacao/nova` liberada. Funcionou. **Não pagamos ainda com o cartão `4242 4242 4242 4242` até o fim** (parou ao nomear a organização).
+- **Em DRAFT (aguardando você):** `specs/65-free-trial-7-dias-limites/spec.md` (Free de 7 dias, org automática no cadastro, limites baixos aplicados no código, bloqueio total ao expirar; **reverte parte da 062**). 14 perguntas abertas, as bloqueantes com recomendação: Q-065-1 cartão no cadastro = NÃO; Q-065-2 pagar durante o trial cobra na hora = SIM; Q-065-4 retenção dos dados de quem não assinou = 90 dias com aviso aos 75; Q-065-9 usuário sem org segue a 062b e a 062d fica cancelada = SIM. Para liberar: "aceito as recomendações" (ou ajuste) e `APROVAR SPEC-065`.
+- **Prompt pronto (não executado):** `docs/PROMPT_ADMIN_NOTIFICACOES_SIDEBAR.md` (sino do admin com todos os eventos + sidebar de admin agrupada). Colar no `project-orchestrator`, ou pedir ao Claude para executar.
+- **Fora do escopo:** app móvel (SPECs 021-023 ficam no código, sem manutenção).
+
+### Pendências SUAS (nada disso eu consigo fazer sozinho)
+1. **Webhook de produção no AbacatePay** (dev mode/Sandbox ligado; é um 2º webhook, ao lado do local): URL em `~/.leadforge-secrets/prod_webhook_url.txt` (copiar com `pbcopy < arquivo`), Secret em `~/.leadforge-secrets/prod_webhook_secret.txt`. Eventos: `subscription.completed`, `subscription.renewed`, `subscription.payment_failed`, `subscription.cancelled`, `transparent.completed`.
+2. **E-mail real em produção** (Resend ou Azure ACS com domínio verificado; ver `docs/PRIMEIROS_PASSOS.md` Fase 9.5). **Sem isso, na Vercel ninguém verifica o e-mail e ninguém paga** (a 062 exige e-mail verificado para pagar). Hoje o teste completo só funciona local.
+3. Responder as perguntas da SPEC-065 e dar `APROVAR SPEC-065`.
+4. Q-062-2: conferir no Neon se há assinaturas reais `trialing` (SQL no RETOMAR seção 7); se a 065 for adiante, a política A vale.
+5. Preços e limites dos planos (PLACEHOLDER), parecer jurídico da retenção, termos de uso e privacidade (continuam sem páginas).
+6. `AUTH_URL` na Vercel: conferir que é exatamente `https://lead-forge-web-omega.vercel.app`.
+
+### Fila de trabalho (ordem sugerida)
+1. **SPEC-065** (assim que aprovada): 065a backend (plano `free`, trial de 7 dias, limites, bloqueio, jobs) → QA → 065b frontend → QA. Antes, decidir se publica a 065 junto do webhook de produção.
+2. **Toasts e erros do backend no front** (sonner já existe, ~146 usos; falta helper único + `userMessage` PT-BR em toda exceção). O teste mostrou `ForbiddenError: Sem permissão` cru em `/dashboard` para usuário sem organização: a 065 e este item resolvem.
+3. **Admin:** sino com eventos + sidebar (prompt acima).
+4. **SPEC-063b:** cancelar/reativar/trocar plano no provedor (hoje cancelar no app NÃO cancela a recorrência do cartão no AbacatePay), HMAC do webhook, reconciliação em `/assinar/retorno`, e 2 achados médios do QA da 063a (evento `payment_failed`/`renewed` fora de ordem sobrescrevendo `canceled`; `transparent.completed` sem validar valor/cobrança atual).
+5. **Correção do seed/migrations em Preview** (risco D3): todo `git push` de branch gera deploy Preview que roda `prisma migrate deploy` e o seed no **mesmo banco da produção** (as migrations `20261017120000` e `20261018120000` já foram aplicadas assim). Mudar o `buildCommand` para só migrar em `VERCEL_ENV=production` e dar banco próprio ao Preview.
+6. Pendências da auditoria: cabeçalhos de segurança (`next.config.ts` vazio), `npm audit` (Next 16.3.5 com advisory crítico, correção em 16.4.0; `swagger-ui-react` não usado), textos da landing que prometem o que só tem mock, limites dos planos não aplicados (a 065 cobre).
+
+### Como religar o ambiente local de teste (o túnel e o monitor foram DESLIGADOS)
+1. `colima start` (se `docker ps` falhar) e `docker compose up -d` (Postgres 5434, Redis 6379, Mailpit 8025/1025).
+2. `npm run dev` e, em outro terminal, `npm run dev:tick` (podem ainda estar rodando; confira `lsof -nP -iTCP:3000 -sTCP:LISTEN`).
+3. **Túnel:** `cloudflared tunnel --url http://localhost:3000` (já instalado). O endereço `*.trycloudflare.com` **muda a cada vez**: atualize `AUTH_URL` e `APP_BASE_URL` no `.env` com ele, reinicie o `npm run dev`, e **recadastre o webhook local** no AbacatePay (`<túnel>/api/billing/webhook?webhookSecret=<segredo>`; segredo local em `~/.leadforge-secrets/abacatepay_webhook_secret.txt`). `next.config.ts` está **modificado localmente** (`allowedDevOrigins: ["*.trycloudflare.com"]`): **não commitar**.
+4. O `.env` local ficou com `PAYMENT_PROVIDER=abacatepay`, `ABACATEPAY_API_KEY` (dev, também em `~/abacatepay_dev_key.txt`), `ABACATEPAY_WEBHOOK_SECRET` e `AUTH_URL`/`APP_BASE_URL` apontando para o túnel antigo (morto). Para voltar ao normal: copie `~/.leadforge-secrets/env.backup-pre062` para `.env`. **Testes automatizados** devem rodar com `PAYMENT_PROVIDER=mock ABACATEPAY_API_KEY= ABACATEPAY_WEBHOOK_SECRET= APP_BASE_URL=http://app.test APP_URL=http://app.test` no comando (senão 18 testes antigos falham por causa do `.env`), e sempre com `TEST_DATABASE_URL` de um banco `*_test` novo.
+5. Para repetir o pagamento: `/signup` pelo endereço do túnel (não `localhost`), e-mail no Mailpit, `/assinar`, cartão de teste `4242 4242 4242 4242` (validade `12/30`, CVV `123`); recusa: final `0002`. O dev mode **não** tem API para simular pagamento de cartão: só na página hospedada.
+
+### Cuidados (aprendidos nesta sessão)
+- **Nunca `prisma migrate dev`.** Migrations só com `migrate deploy`; o banco de dev já tem as 45 (inclui `20261017120000` e `20261018120000`); o drift `20260928*` continua.
+- **Segredos** ficam em `~/.leadforge-secrets/` (700) e na Vercel (não dá para ler de volta). A pasta de scratchpad da sessão em `/private/tmp` pode sumir. Perdeu um segredo de produção: rotacionar (apagar e recriar na Vercel e onde mais ele vive) e refazer o deploy. **Nunca colar chave/segredo no chat.** Chave do AbacatePay: criar em Integrar → API Keys (valor só aparece uma vez, começa com `abc_dev_`); o script `~/save_abacate_key.sh` grava em `~/abacatepay_dev_key.txt` sem eco.
+- **Produção usa a chave de DEV do AbacatePay** (nada é cobrado de verdade). Trocar para a de produção só ao abrir ao público, com `ABACATEPAY_EXPECT_DEVMODE` revisado.
+- A trava do mock está ativa: em produção, `PAYMENT_PROVIDER=mock` é recusado (a menos de `ALLOW_MOCK_BILLING=true`).
+- Dev server: **não rode `next build`/`pkill next` com o app em uso**; derruba o `next dev`.
+- O adaptador do AbacatePay v2 exige produto no catálogo + checkout com `items`; o `metadata` NÃO volta no webhook (a correlação é por IDs).
+- Arquivos não rastreados que ficam de fora de commits: `.claude/`, `skills-lock.json` (Upstash), e a mudança local de `next.config.ts`.
+- Vários agentes imprimiram a senha do Postgres **de desenvolvimento** (local) nos próprios logs; é só do seu Docker, mas rotacione se algum log for compartilhado.
+
 
 ## 1. Como conferir o estado em 1 minuto
 
