@@ -14,6 +14,7 @@ import type { ParsedBillingEvent } from "./provider";
 import { classifyBillingEvent, type PriorSubscriptionState } from "./classify-event";
 import { notifyPaymentFailed } from "./past-due-email";
 import { computeOrgStatus, CANCEL_RETENTION_MS } from "./status-map";
+import { recordChargeFromEvent } from "./billing-charge";
 
 export type ProcessBillingEventResult = "processed" | "duplicate" | "org_not_found" | "plan_not_found";
 
@@ -88,6 +89,9 @@ export async function processBillingEvent(event: ParsedBillingEvent, now: Date):
             const orgStatus = computeOrgStatus({ status: event.status, pastDueSince, cancelAtPeriodEnd, currentPeriodEnd: event.currentPeriodEnd, trialEndsAt }, now);
             // SPEC-065 (D-065-15): org reativada pelo pagamento limpa o motivo da suspensao (automatica do trial expirado/inadimplencia).
             await tx.organization.update({ where: { id: event.orgId }, data: { status: orgStatus, ...(orgStatus === "active" ? { suspendedReason: null } : {}) } });
+
+            // SPEC-066a (D-066-3): historico de cobrancas na MESMA transacao (consistencia > disponibilidade: erro aborta e o provedor reenvia).
+            await recordChargeFromEvent(tx, event, { now, priorPeriodEnd: existing?.currentPeriodEnd ?? null, planAmountCents: event.cadence === "yearly" ? plan.priceYearlyCents : plan.priceMonthlyCents });
 
             return { canceledAt, prior, pastDueSince, cancelAtPeriodEnd };
           },

@@ -34,6 +34,7 @@ export class MockPaymentProvider implements PaymentProvider {
       cancelAtPeriodEnd: false,
       externalCustomerId: `mock_cus_${input.orgId}`,
       externalSubscriptionId: `mock_sub_${randomUUID()}`,
+      provider: "mock",
       paymentMethod: "card",
       externalPaymentId: eventId,
       paidAt: now,
@@ -101,6 +102,10 @@ function parseMockEventShape(json: unknown): ParsedBillingEvent | null {
     paymentMethod: o.paymentMethod === "card" || o.paymentMethod === "pix" ? o.paymentMethod : null,
     cardLast4: typeof o.cardLast4 === "string" && /^\d{4}$/.test(o.cardLast4) ? o.cardLast4 : null,
     externalPaymentId: typeof o.externalPaymentId === "string" ? o.externalPaymentId : null,
+    provider: "mock",
+    installmentId: typeof o.installmentId === "string" && o.installmentId ? o.installmentId : null,
+    retryNumber: typeof o.retryNumber === "number" && Number.isInteger(o.retryNumber) && o.retryNumber >= 0 ? o.retryNumber : null,
+    receiptUrl: typeof o.receiptUrl === "string" ? o.receiptUrl : null,
     paidAt: typeof o.paidAt === "string" && !Number.isNaN(new Date(o.paidAt).getTime()) ? new Date(o.paidAt) : null,
   };
 }

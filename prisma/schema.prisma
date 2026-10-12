@@ -153,6 +153,7 @@ model Organization {
 
   subscription         Subscription?
   usageCounters        UsageCounter[]
+  billingCharges       BillingCharge[]
   memberships          Membership[]
   orgInvites           OrgInvite[]
   orgAuditLogs         OrgAuditLog[]
@@ -1338,4 +1339,51 @@ model CreativeJob {
   @@unique([creativeId, runNo])
   @@index([status, nextRunAt])
   @@index([orgId, creativeId])
+}
+
+/// SPEC-066a (D-066-1): uma linha por mensalidade/tentativa de cobranca, alimentada por `processBillingEvent` e pelo job PIX. "overdue" NAO e gravado: e derivado na leitura (`pending` com `dueAt` vencido).
+/// Nunca guarda numero de cartao, taxId, e-mail do pagador nem payload bruto. `externalId`: payment.id (cartao/PIX pagos), installmentId (falha de cartao) ou pixChargeId sem prefixo `pix_` (PIX pendente/expirado).
+enum BillingChargeStatus {
+  pending
+  paid
+  failed
+  refunded
+  canceled
+}
+
+enum BillingChargeMethod {
+  card
+  pix
+}
+
+model BillingCharge {
+  id             String              @id @default(uuid())
+  orgId          String
+  org            Organization        @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  /// Sem FK dura: a cobranca sobrevive a recriacao da Subscription.
+  subscriptionId String?
+  provider       String
+  externalId     String
+  amountCents    Int
+  currency       String              @default("BRL")
+  status         BillingChargeStatus
+  method         BillingChargeMethod
+  planKey        String
+  cadence        BillingCadence
+  periodStart    DateTime?
+  periodEnd      DateTime?
+  dueAt          DateTime?
+  paidAt         DateTime?
+  retryCount     Int                 @default(0)
+  /// Texto curto sem dado de cartao; hoje sempre null (o provedor nao envia motivo, D-066-5).
+  failureReason  String?
+  cardBrand      String?
+  cardLast4      String?
+  receiptUrl     String?
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+
+  @@unique([provider, externalId])
+  @@index([orgId, createdAt(sort: Desc), id])
+  @@index([orgId, status])
 }

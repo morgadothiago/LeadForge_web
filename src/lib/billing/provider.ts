@@ -72,6 +72,14 @@ export interface ParsedBillingEvent {
   /** Identificador do pagamento/cobranca no provedor (numero do pedido do recibo). */
   externalPaymentId?: string | null;
   paidAt?: Date | null;
+  /** SPEC-066a (D-066-3) — campos OPCIONAIS para o historico (`BillingCharge`); so preenchidos se o provedor enviar. */
+  provider?: "mock" | "stripe" | "abacatepay";
+  /** Id da parcela/cobranca que FALHOU (AbacatePay `intl_...`; PIX expirado = id da cobranca PIX). Identidade da linha de falha. */
+  installmentId?: string | null;
+  installmentNumber?: number | null;
+  retryNumber?: number | null;
+  /** URL do recibo do provedor (so e gravada se for `https` do dominio abacatepay.com). */
+  receiptUrl?: string | null;
 }
 
 /** SPEC-053a — cancelamento VOLUNTARIO pela app. `atPeriodEnd=false` = imediato (trial, D-053-3). */

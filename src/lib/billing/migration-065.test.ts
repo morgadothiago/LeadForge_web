@@ -26,9 +26,9 @@ describe("migration 065a e ADITIVA (D-065-25, plano de testes 9)", () => {
     expect(s).toContain("ADD VALUE 'trial_expired'");
   });
 
-  it("a migration e a ULTIMA e o plano `free` NAO entra por migration (so pelo seed)", () => {
+  it("a migration existe e o plano `free` NAO entra por migration (so pelo seed)", () => {
     const all = readdirSync(DIR).filter((d) => /^\d{14}_/.test(d)).sort();
-    expect(all.at(-1)).toBe(NAME);
+    expect(all).toContain(NAME); // migrations posteriores (ex.: 066a) sao permitidas; a 065a deixou de ser a ultima
     expect(sql()).not.toMatch(/INSERT/i);
   });
 

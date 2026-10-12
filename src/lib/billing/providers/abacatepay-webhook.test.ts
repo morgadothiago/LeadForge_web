@@ -112,6 +112,7 @@ describe("parseWebhookEvent — mapeamento dos eventos (fixtures da doc)", () =>
       currentPeriodEnd: new Date("2026-10-27T12:00:00Z"), // data 2024 da fixture e antiga -> base = "agora" (clock); +1 mes de calendario
       cancelAtPeriodEnd: false, externalCustomerId: "cust_def456", externalSubscriptionId: SUBS,
       amountCents: 2990, paymentMethod: "card", cardLast4: "1234", cardBrand: "VISA", externalPaymentId: "char_xyz789", paidAt: NOW,
+      provider: "abacatepay", receiptUrl: "https://app.abacatepay.com/receipt/...",
     });
   });
 

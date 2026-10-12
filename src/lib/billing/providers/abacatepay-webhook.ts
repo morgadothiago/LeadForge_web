@@ -43,6 +43,7 @@ type Obj = Record<string, unknown>;
 const obj = (v: unknown): Obj => (v && typeof v === "object" && !Array.isArray(v) ? (v as Obj) : {});
 const str = (v: unknown): string | null => (typeof v === "string" && v ? v : null);
 const cents = (v: unknown): number | null => (typeof v === "number" && Number.isInteger(v) && v > 0 ? v : null);
+const intOrNull = (v: unknown): number | null => (typeof v === "number" && Number.isInteger(v) && v >= 0 ? v : null);
 function date(v: unknown): Date | null {
   if (typeof v !== "string") return null;
   const d = new Date(v);
@@ -169,6 +170,7 @@ function paymentFields(data: Obj, fallbackMethod: "card" | "pix") {
     cardLast4: method === "card" && digits.length >= 4 ? digits.slice(-4) : null,
     cardBrand: method === "card" ? str(card.brand) : null,
     externalPaymentId: str(payment.id),
+    receiptUrl: str(payment.receiptUrl),
   };
 }
 
@@ -208,7 +210,7 @@ export async function parseAbacatePayWebhook(rawBody: string, ctx: WebhookContex
       // Id da cobranca PIX NAO e id de assinatura: preserva o que ja esta gravado (D-063-13).
       externalCustomerId: r.local.externalCustomerId, externalSubscriptionId: r.local.externalSubscriptionId,
       amountCents: cents(t.paidAmount) ?? cents(t.amount), paymentMethod: "pix", cardLast4: null, cardBrand: null,
-      externalPaymentId: str(t.id), paidAt,
+      externalPaymentId: str(t.id), paidAt, provider: "abacatepay", receiptUrl: str(t.receiptUrl),
     };
   }
 
@@ -230,7 +232,7 @@ export async function parseAbacatePayWebhook(rawBody: string, ctx: WebhookContex
   const customerId = str(obj(data.customer).id) ?? local?.externalCustomerId ?? null;
   const pay = paymentFields(data, "card");
   const paidAt = recentOrNow(date(obj(data.payment).paidAt) ?? date(obj(data.payment).updatedAt) ?? date(obj(data.payment).createdAt), now);
-  const common = { orgId: r.orgId, planKey, cadence, externalCustomerId: customerId, ...pay, paidAt };
+  const common = { orgId: r.orgId, planKey, cadence, externalCustomerId: customerId, ...pay, paidAt, provider: "abacatepay" as const };
 
   if (eventName === "subscription.completed") {
     return { ...common, eventId, type: "subscription.created", status: "active", currentPeriodEnd: addCycle(paidAt, cadence), cancelAtPeriodEnd: false, externalSubscriptionId: subsId };
@@ -248,6 +250,8 @@ export async function parseAbacatePayWebhook(rawBody: string, ctx: WebhookContex
       currentPeriodEnd: local?.currentPeriodEnd ?? null, cancelAtPeriodEnd: local?.cancelAtPeriodEnd ?? false,
       externalCustomerId: customerId, externalSubscriptionId: subsId ?? local?.externalSubscriptionId ?? null,
       amountCents: cents(subscription.amount), paymentMethod: subscription.method === "PIX" ? "pix" : "card", cardLast4: null, cardBrand: null,
+      // SPEC-066a: identidade da parcela que falhou (o provedor nao envia motivo/vencimento/link).
+      provider: "abacatepay", installmentId: str(data.installmentId), installmentNumber: intOrNull(data.installmentNumber), retryNumber: intOrNull(data.retryNumber),
     };
   }
 
@@ -269,6 +273,6 @@ export async function parseAbacatePayWebhook(rawBody: string, ctx: WebhookContex
   return {
     eventId, type: "subscription.canceled", orgId: r.orgId, planKey, cadence, status: "canceled",
     currentPeriodEnd: local?.currentPeriodEnd ?? null, cancelAtPeriodEnd: false,
-    externalCustomerId: customerId, externalSubscriptionId: subsId ?? local?.externalSubscriptionId ?? null,
+    externalCustomerId: customerId, externalSubscriptionId: subsId ?? local?.externalSubscriptionId ?? null, provider: "abacatepay",
   };
 }

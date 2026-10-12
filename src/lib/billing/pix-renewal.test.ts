@@ -24,6 +24,7 @@ beforeAll(async () => {
   planId = (await prisma.plan.findUniqueOrThrow({ where: { key: "starter" }, select: { id: true } })).id;
 });
 afterEach(async () => {
+  await prisma.billingCharge.deleteMany({ where: { orgId: org.orgId } });
   await prisma.subscription.deleteMany({ where: { orgId: org.orgId } });
   await prisma.webhookEvent.deleteMany({ where: { orgId: org.orgId } });
 });
@@ -190,5 +191,31 @@ describe("runPixRenewalJob (SPEC-047, D-047-1)", () => {
     expect(r).toEqual({ generated: 0, markedPastDue: 0, errors: 0 });
     const untouched = await prisma.subscription.findUniqueOrThrow({ where: { id: sub.id } });
     expect(untouched.pixChargeId).toBeNull();
+  });
+});
+
+describe("runPixRenewalJob alimenta o historico de cobrancas (SPEC-066a)", () => {
+  it("gera cobranca PIX -> 1 linha pending (id sem prefixo pix_, vencimento = fim do ciclo, valor do plano, sem brCode); rodar de novo nao duplica", async () => {
+    const due = new Date(NOW.getTime() - 60_000);
+    await makeSub({ currentPeriodEnd: due });
+    const provider = providerWith([{ status: 200, data: { data: { id: "pix_char_066", brCode: "000201SEGREDO", brCodeBase64: "b64", expiresAt: "2026-09-28T00:00:00Z" } } }]);
+    await runPixRenewalJob(NOW, provider);
+    const rows = await prisma.billingCharge.findMany({ where: { orgId: org.orgId } });
+    expect(rows).toHaveLength(1);
+    const plan = await prisma.plan.findUniqueOrThrow({ where: { key: "starter" } });
+    expect(rows[0]).toMatchObject({ provider: "abacatepay", externalId: "char_066", status: "pending", method: "pix", amountCents: plan.priceMonthlyCents, planKey: "starter", cadence: "monthly" });
+    expect(rows[0]!.dueAt).toEqual(due);
+    expect(rows[0]!.periodStart).toEqual(due);
+    expect(JSON.stringify(rows[0])).not.toContain("SEGREDO");
+  });
+
+  it("PIX expirado sem pagar -> a linha pending vira failed (mesma transacao do evento payment.failed); reprocessar nao duplica", async () => {
+    const due = new Date(NOW.getTime() - 3600_000);
+    await makeSub({ currentPeriodEnd: due, pixChargeId: "pix_char_exp", pixChargeExpiresAt: new Date(NOW.getTime() - 60_000) });
+    await prisma.billingCharge.create({ data: { orgId: org.orgId, provider: "abacatepay", externalId: "char_exp", amountCents: 2990, status: "pending", method: "pix", planKey: "starter", cadence: "monthly", dueAt: due } });
+    await runPixRenewalJob(NOW, providerWith([]));
+    const rows = await prisma.billingCharge.findMany({ where: { orgId: org.orgId } });
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.status).toBe("failed");
   });
 });

@@ -3,6 +3,8 @@ import { prisma } from "@/lib/prisma";
 import { processBillingEvent } from "./process-event";
 import { getPaymentProvider } from "./provider-factory";
 import { AbacatePayPaymentProvider } from "./providers/abacatepay";
+import { findAnchor, nextDueFromAnchor, snapToAnchor } from "./cycle-anchor";
+import { normalizeChargeId } from "./billing-charge";
 
 /**
  * SPEC-047 (D-047-1) — job de renovação PIX. Só existe porque o AbacatePay não tem recorrência nativa
@@ -53,7 +55,7 @@ export async function runPixRenewalJob(now: Date, injectedProvider?: AbacatePayP
     where: { pixManaged: true, cancelAtPeriodEnd: false, status: { in: [...ELIGIBLE_STATUSES] } },
     select: {
       orgId: true, cadence: true, currentPeriodEnd: true, pixChargeId: true, pixChargeExpiresAt: true,
-      plan: { select: { key: true } },
+      plan: { select: { key: true, priceMonthlyCents: true, priceYearlyCents: true } },
       org: { select: { memberships: { where: { orgRole: "owner" }, take: 1, select: { user: { select: { email: true } } } } } },
     },
   });
@@ -84,6 +86,10 @@ export async function runPixRenewalJob(now: Date, injectedProvider?: AbacatePayP
             cancelAtPeriodEnd: false,
             externalCustomerId: null,
             externalSubscriptionId: pendingChargeId,
+            // SPEC-066a: a cobranca PIX pendente vira `failed` no historico (mesma transacao do evento).
+            provider: "abacatepay",
+            paymentMethod: "pix",
+            installmentId: pendingChargeId,
           },
           now,
         );
@@ -97,7 +103,21 @@ export async function runPixRenewalJob(now: Date, injectedProvider?: AbacatePayP
       const owner = sub.org.memberships[0]?.user.email;
       if (!owner) continue; // sem owner -> não há para quem mandar o PIX (não deveria acontecer fora de dado inconsistente de teste).
       const charge = await provider.createPixCharge({ orgId: sub.orgId, planKey: sub.plan.key, cadence: sub.cadence, customerEmail: owner, periodEndMs: sub.currentPeriodEnd?.getTime() });
-      await prisma.subscription.update({ where: { orgId: sub.orgId }, data: { pixChargeId: charge.chargeId, pixChargeExpiresAt: charge.expiresAt } });
+      // SPEC-066a: cobranca PENDENTE no historico (sem brCode/QR, D-066-12), atomica com o registro na Subscription. Vencimento = fim do ciclo
+      // (ancora, Q-066-1); competencia = ciclo que esta cobranca paga. Valor: preco do plano x cadencia (a API de criacao nao devolve o valor).
+      const amountCents = sub.cadence === "yearly" ? sub.plan.priceYearlyCents : sub.plan.priceMonthlyCents;
+      const anchor = await findAnchor(prisma, sub.orgId, sub.cadence);
+      const dueAt = sub.currentPeriodEnd ? snapToAnchor(sub.currentPeriodEnd, anchor, sub.cadence) : now;
+      const externalId = normalizeChargeId(charge.chargeId, "pix")!;
+      await prisma.$transaction([
+        prisma.subscription.update({ where: { orgId: sub.orgId }, data: { pixChargeId: charge.chargeId, pixChargeExpiresAt: charge.expiresAt } }),
+        ...(amountCents != null
+          ? [prisma.billingCharge.createMany({
+              skipDuplicates: true,
+              data: [{ orgId: sub.orgId, provider: "abacatepay", externalId, amountCents, status: "pending" as const, method: "pix" as const, planKey: sub.plan.key, cadence: sub.cadence, periodStart: dueAt, periodEnd: nextDueFromAnchor(dueAt, anchor, sub.cadence), dueAt }],
+            })]
+          : []),
+      ]);
       result.generated++;
     } catch (e) {
       result.errors++;

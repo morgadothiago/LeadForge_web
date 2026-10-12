@@ -49,6 +49,8 @@ describe("bloqueio total do trial expirado — varredura estatica (SPEC-065, D-0
       "src/lib/actions/billing.ts": ["createCheckoutSession", "createPortalSession", "reactivateSubscription"],
       "src/lib/actions/org.ts": ["leaveOrganization", "listMyOrganizations", "switchActiveOrganization"],
       "src/lib/queries/billing.ts": ["getBillingSummary", "getOrgBannerState", "getOrgStatusForBanner"],
+      // SPEC-066a (spec 8.5): historico de mensalidades abre com a org suspensa/trial expirado (so leitura da PROPRIA org, sem dado de campanha/lead).
+      "src/lib/queries/billing-history.ts": ["getBillingHistory"],
     };
     const found: Record<string, string[]> = {};
     for (const f of prod) {
