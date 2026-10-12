@@ -433,13 +433,13 @@ describe("todas as Server Actions chamam requireUser (exceto auth.ts)", async ()
     const fns = parts.map((c) => ({ name: /function (\w+)/.exec(c)![1], exported: c.startsWith("export"), body: c }));
     const ok = (fn: (typeof fns)[number], seen = new Set<string>()): boolean => {
       // SPEC-030/033: requireProviderOrg()/requireActiveProviderOrg()/requirePlatformAdmin() chamam requireUser() por dentro.
-      if (/\brequireUser\(\)|\brequireOrgMember\(\)|\brequireOrgOwner\(\)|\brequireProviderOrg\(\)|\brequireActiveProviderOrg\(\)|\brequirePlatformAdmin\(\)/.test(fn.body)) return true;
+      if (/\brequireUser\(\)|\brequireOrgMember\(\)|\brequireOrgOwner\(\)|\brequireProviderOrg\(\)|\brequireProviderUser\(\)|\brequireActiveProviderOrg\(\)|\brequirePlatformAdmin\(\)/.test(fn.body)) return true;
       seen.add(fn.name);
       return fns.some((o) => !seen.has(o.name) && new RegExp(`\\b${o.name}\\(`).test(fn.body) && ok(o, seen));
     };
-    // SPEC-033: signUpAndStartCheckout (billing.ts) é pública como login/logout (cria a própria sessão) — allowlist pontual, mesmo critério de src/lib/use-server-auth.test.ts.
+    // SPEC-062: signUp (billing.ts, antes signUpAndStartCheckout) é pública como login/logout (cria a própria sessão) — allowlist pontual, mesmo critério de src/lib/use-server-auth.test.ts.
     // SPEC-049: signUpAndJoin/previewInvite (org.ts) são públicas (signup via convite/código; pré-visualização por token) — mesma allowlist de use-server-auth.test.ts. requireOrgMember/requireOrgOwner (src/lib/org/guards.ts) chamam requireProviderOrg() por dentro.
-    const exported = fns.filter((x) => x.exported && !(f === "billing.ts" && x.name === "signUpAndStartCheckout") && !(f === "org.ts" && ["signUpAndJoin", "previewInvite"].includes(x.name)) && !(f === "account-deletion.ts" && ["previewAccountDeletionToken", "confirmAccountDeletion", "cancelAccountDeletionByToken", "cancelAccountDeletionWithPassword"].includes(x.name)));
+    const exported = fns.filter((x) => x.exported && !(f === "billing.ts" && x.name === "signUp") && !(f === "org.ts" && ["signUpAndJoin", "previewInvite"].includes(x.name)) && !(f === "account-deletion.ts" && ["previewAccountDeletionToken", "confirmAccountDeletion", "cancelAccountDeletionByToken", "cancelAccountDeletionWithPassword"].includes(x.name)));
     expect(exported.length).toBeGreaterThan(0);
     for (const fn of exported) expect(ok(fn), `${f}:${fn.name} não chama requireUser`).toBe(true);
   });

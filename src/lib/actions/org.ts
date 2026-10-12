@@ -3,12 +3,11 @@
 import { headers } from "next/headers";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { requireProviderOrg } from "@/lib/auth/require-admin";
+import { requireProviderOrg, requireProviderUser } from "@/lib/auth/require-admin";
 import { createSession } from "@/lib/auth/session";
 import { hashPassword } from "@/lib/auth/password";
 import { getClientIpKey } from "@/lib/auth/client-ip";
-import { TRIAL_DAYS } from "@/lib/billing/status-map";
-import { sendTrialStartedEmail } from "@/lib/billing/trial-email";
+import { NOT_SHELL } from "@/lib/billing/shell";
 import { sendSystemEmail } from "@/lib/channels/system-mail";
 import { orgInviteTemplate } from "@/lib/channels/email/templates/org-invite";
 import { safeErrorForLog } from "@/lib/errors";
@@ -17,14 +16,12 @@ import { notifyOrgMemberEvent } from "@/lib/org/notify";
 import { actorIsOwner, lockOrg, requireOrgMember, revokeOwnerArtifacts, requireOrgOwner } from "@/lib/org/guards";
 import { AlreadyMemberError, JoinInvalidError, joinWithCode, joinWithInvite } from "@/lib/org/join";
 import {
-  createOrgLimiter,
   inviteByActorLimiter,
   inviteByTargetLimiter,
   joinByIpLimiter,
   joinByUserLimiter,
   signupJoinLimiter,
 } from "@/lib/org/rate-limit";
-import { uniqueOrgSlug } from "@/lib/org/slug";
 import {
   formatJoinCode,
   hashInviteToken,
@@ -39,7 +36,6 @@ import {
 import {
   acceptInviteSchema,
   changeMemberRoleSchema,
-  createOrganizationSchema,
   generateJoinCodeSchema,
   inviteMemberSchema,
   joinByCodeSchema,
@@ -104,8 +100,9 @@ export interface MyOrganization {
 export async function listMyOrganizations(): Promise<ActionResult<{ organizations: MyOrganization[]; activeOrgId: string }>> {
   return safeAction(async () => {
     const { user, orgId } = await requireProviderOrg();
+    // SPEC-062 (D-062-5): a casca de cobranca NUNCA aparece na lista/seletor.
     const rows = await prisma.membership.findMany({
-      where: { userId: user.id },
+      where: { userId: user.id, org: NOT_SHELL },
       orderBy: { createdAt: "asc" },
       select: { orgRole: true, org: { select: { id: true, name: true, slug: true, status: true } } },
     });
@@ -124,50 +121,13 @@ export async function switchActiveOrganization(input: unknown): Promise<ActionRe
     if (!parsed.success) return failure(zodErrors(parsed.error));
     const m = await prisma.membership.findUnique({
       where: { userId_orgId: { userId: user.id, orgId: parsed.data.orgId } },
-      select: { orgId: true, org: { select: { status: true } } },
+      select: { orgId: true, org: { select: { status: true, setupPendingSince: true } } },
     });
-    // Mesma resposta para "não existe" e "não sou membro" (não confirma a existência de orgs alheias).
-    if (!m || m.org.status === "cancelled") return formError("Organização não encontrada.");
+    // Mesma resposta para "não existe" e "não sou membro" (não confirma a existência de orgs alheias). SPEC-062: casca nunca vira org ativa.
+    if (!m || m.org.status === "cancelled" || m.org.setupPendingSince) return formError("Organização não encontrada.");
     await prisma.user.update({ where: { id: user.id }, data: { lastOrgId: m.orgId } });
     await createSession(user.id, m.orgId, "provider");
     return success({ orgId: m.orgId, redirectTo: "/dashboard" });
-  });
-}
-
-/** Cria uma nova organização para o usuário logado (vira owner) com trial próprio (D-049-3) e a torna a org ativa. */
-export async function createOrganization(input: unknown): Promise<ActionResult<{ orgId: string; redirectTo: string }>> {
-  return safeAction(async () => {
-    const { user } = await requireProviderOrg();
-    if (await createOrgLimiter.hit(`user:${user.id}`) > 0) return formError(TOO_MANY);
-    const parsed = createOrganizationSchema.safeParse(input);
-    if (!parsed.success) return failure(zodErrors(parsed.error));
-    const { name, planKey } = parsed.data;
-    const plan = await prisma.plan.findUnique({ where: { key: planKey }, select: { id: true, name: true, active: true, selfServiceCheckout: true } });
-    if (!plan || !plan.active || !plan.selfServiceCheckout) {
-      return failure({ planKey: ["Este plano não está disponível para assinatura self-service. Fale com vendas."] });
-    }
-    const trialEndsAt = new Date(Date.now() + TRIAL_DAYS * 24 * 3600_000);
-
-    let orgId: string | null = null;
-    for (let attempt = 0; attempt < 3 && !orgId; attempt++) {
-      const slug = await uniqueOrgSlug(name, attempt);
-      try {
-        orgId = await prisma.$transaction(async (tx) => {
-          const org = await tx.organization.create({ data: { name, slug, status: "active" }, select: { id: true } });
-          await tx.membership.create({ data: { userId: user.id, orgId: org.id, orgRole: "owner" } });
-          await tx.subscription.create({ data: { orgId: org.id, planId: plan.id, status: "trialing", cadence: "monthly", trialEndsAt } });
-          await tx.user.update({ where: { id: user.id }, data: { lastOrgId: org.id } });
-          await recordOrgAudit(tx, { orgId: org.id, actorUserId: user.id, action: "org_created", meta: { planKey } });
-          return org.id;
-        });
-      } catch (e) {
-        if (!(e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002")) throw e; // colisão de slug: tenta de novo
-      }
-    }
-    if (!orgId) return formError("Não foi possível criar a organização. Tente novamente.");
-    await sendTrialStartedEmail(orgId, plan.name, trialEndsAt);
-    await createSession(user.id, orgId, "provider");
-    return success({ orgId, redirectTo: "/dashboard" });
   });
 }
 
@@ -288,7 +248,7 @@ export async function revokeInvite(input: unknown): Promise<ActionResult<{ revok
 /** Aceita convite nominal (usuário logado; e-mail da conta = e-mail do convite, case-insensitive). Torna a org ativa. */
 export async function acceptInvite(input: unknown): Promise<ActionResult<{ orgId: string; redirectTo: string }>> {
   return safeAction(async () => {
-    const { user } = await requireProviderOrg();
+    const { user } = await requireProviderUser(); // SPEC-062 (D-062-15): funciona com sessao SEM org (entra sem checkout)
     if (await joinLimited(`user:${user.id}`)) return formError(TOO_MANY);
     const parsed = acceptInviteSchema.safeParse(input);
     if (!parsed.success) return failure(zodErrors(parsed.error));
@@ -310,7 +270,7 @@ export async function acceptInvite(input: unknown): Promise<ActionResult<{ orgId
 /** Entra numa org por código reutilizável (cria Membership `member`, sem aprovação — D-049-2). Torna a org ativa. */
 export async function joinByCode(input: unknown): Promise<ActionResult<{ orgId: string; redirectTo: string }>> {
   return safeAction(async () => {
-    const { user } = await requireProviderOrg();
+    const { user } = await requireProviderUser(); // SPEC-062 (D-062-15): funciona com sessao SEM org (entra sem checkout)
     if (await joinLimited(`user:${user.id}`)) return formError(TOO_MANY);
     const parsed = joinByCodeSchema.safeParse(input);
     if (!parsed.success) return failure(zodErrors(parsed.error));
@@ -421,7 +381,7 @@ export async function leaveOrganization(): Promise<ActionResult<{ orgId: string;
     const { user, orgId } = await requireOrgMember();
     const result = await prisma.$transaction(async (tx) => {
       await lockOrg(tx, orgId);
-      const mine = await tx.membership.findMany({ where: { userId: user.id }, orderBy: { createdAt: "asc" }, select: { id: true, orgId: true, orgRole: true } });
+      const mine = await tx.membership.findMany({ where: { userId: user.id, org: NOT_SHELL }, orderBy: { createdAt: "asc" }, select: { id: true, orgId: true, orgRole: true } });
       const current = mine.find((m) => m.orgId === orgId);
       if (!current) return { ok: false as const, error: "Organização não encontrada." } as const;
       if (mine.length <= 1) return { ok: false as const, error: "Esta é a sua única organização. Crie ou entre em outra antes de sair." } as const;
@@ -454,18 +414,18 @@ export async function previewInvite(input: unknown): Promise<ActionResult<{ vali
     if (!parsed.success) return failure(zodErrors(parsed.error));
     const inv = await prisma.orgInvite.findUnique({
       where: { tokenHash: hashInviteToken(parsed.data.token) },
-      select: { email: true, orgRole: true, usedAt: true, revokedAt: true, expiresAt: true, org: { select: { name: true, status: true } } },
+      select: { email: true, orgRole: true, usedAt: true, revokedAt: true, expiresAt: true, org: { select: { name: true, status: true, setupPendingSince: true } } },
     });
-    if (!inv || inv.usedAt || inv.revokedAt || inv.expiresAt <= new Date() || inv.org.status === "cancelled") return success({ valid: false as const });
+    if (!inv || inv.usedAt || inv.revokedAt || inv.expiresAt <= new Date() || inv.org.status === "cancelled" || inv.org.setupPendingSince) return success({ valid: false as const });
     const exists = await prisma.user.findUnique({ where: { email: inv.email }, select: { id: true } });
     return success({ valid: true as const, orgName: inv.org.name, email: inv.email, orgRole: inv.orgRole, userExists: Boolean(exists) });
   });
 }
 
 /**
- * Signup "participar de organização existente" (convite OU código; sem checkout — a assinatura é da org). Ação
- * PÚBLICA. Convite: o e-mail da conta é o do convite (posse do token). Código: e-mail informado; conta já existente
- * => erro genérico (anti-enumeration, mesmo texto do signup). Cria User + Membership atomicamente e abre a sessão.
+ * Signup por CONVITE (link `/convite/[token]`; sem checkout — a assinatura é da org). Ação PÚBLICA. O e-mail da conta é o do
+ * convite (posse do token => verificado, D-055-6). SPEC-062 (D-062-15): o ramo por CÓDIGO saiu (o código é digitado logado,
+ * em `joinByCode`). Cria User + Membership atomicamente e abre a sessão na org.
  */
 export async function signUpAndJoin(input: unknown): Promise<ActionResult<{ orgId: string; redirectTo: string }>> {
   return safeAction(async () => {
@@ -473,41 +433,31 @@ export async function signUpAndJoin(input: unknown): Promise<ActionResult<{ orgI
     if (await signupJoinLimiter.hit(`ip:${ip}`) > 0) return formError(TOO_MANY);
     const parsed = signupJoinSchema.safeParse(input);
     if (!parsed.success) return failure(zodErrors(parsed.error));
-    const { name, password, token, code } = parsed.data;
-    const emailInput = parsed.data.email;
+    const { name, password, token } = parsed.data;
     const GENERIC_SIGNUP = "Não foi possível concluir o cadastro com os dados informados. Verifique as informações e tente novamente, ou entre em contato com o suporte.";
-    // D-049-11: no fluxo por código, código inválido E e-mail já cadastrado devolvem a MESMA mensagem (sem oráculo de enumeração).
 
-    let email: string;
-    let tokenHash: string | undefined;
-    if (token) {
-      tokenHash = hashInviteToken(token);
-      const inv = await prisma.orgInvite.findUnique({ where: { tokenHash }, select: { email: true, usedAt: true, revokedAt: true, expiresAt: true } });
-      if (!inv || inv.usedAt || inv.revokedAt || inv.expiresAt <= new Date()) return formError(INVITE_INVALID);
-      email = inv.email;
-      if (await prisma.user.findUnique({ where: { email }, select: { id: true } })) return formError("Este e-mail já possui cadastro. Entre na sua conta e aceite o convite.");
-    } else {
-      email = emailInput!;
-      if (await joinByIpLimiter.hit(`ip:${ip}`) > 0) return formError(TOO_MANY);
-    }
+    const tokenHash = hashInviteToken(token);
+    const inv = await prisma.orgInvite.findUnique({ where: { tokenHash }, select: { email: true, usedAt: true, revokedAt: true, expiresAt: true } });
+    if (!inv || inv.usedAt || inv.revokedAt || inv.expiresAt <= new Date()) return formError(INVITE_INVALID);
+    const email = inv.email;
+    if (await prisma.user.findUnique({ where: { email }, select: { id: true } })) return formError("Este e-mail já possui cadastro. Entre na sua conta e aceite o convite.");
 
     const passwordHash = await hashPassword(password);
     const now = new Date();
     try {
       const joined = await prisma.$transaction(async (tx) => {
-        // SPEC-055 (D-055-6): convite valido para ESTE e-mail (posse da caixa provada pelo token) => verificado; entrada por codigo NAO.
-        const created = await tx.user.create({ data: { name, email, role: "provider", passwordHash, emailVerifiedAt: tokenHash ? now : null }, select: { id: true } });
-        return tokenHash
-          ? joinWithInvite(tx, { tokenHash, userId: created.id, userEmail: email, now, via: "signup_invite" }).then((j) => ({ ...j, userId: created.id }))
-          : joinWithCode(tx, { code: normalizeJoinCode(code!), userId: created.id, now, via: "signup_code" }).then((j) => ({ ...j, userId: created.id }));
+        // SPEC-055 (D-055-6): convite valido para ESTE e-mail (posse da caixa provada pelo token) => verificado.
+        const created = await tx.user.create({ data: { name, email, role: "provider", passwordHash, emailVerifiedAt: now }, select: { id: true } });
+        const j = await joinWithInvite(tx, { tokenHash, userId: created.id, userEmail: email, now, via: "signup_invite" });
+        return { ...j, userId: created.id };
       });
-      // SPEC-055: boas-vindas pos-commit (idempotente, best-effort); verificacao so quando o convite nao provou o e-mail.
-      await sendSignupEmails({ id: joined.userId, name, email }, { verify: !tokenHash });
+      // SPEC-055: boas-vindas pos-commit (idempotente, best-effort); o convite ja provou o e-mail (sem verificacao). O novo membro ja tem org: copy "app", sem "escolha seu plano".
+      await sendSignupEmails({ id: joined.userId, name, email }, { verify: false, hasOrg: true });
       await notifyJoined(joined.orgId, joined.userId, joined.orgRole);
       await createSession(joined.userId, joined.orgId, "provider");
       return success({ orgId: joined.orgId, redirectTo: "/dashboard" });
     } catch (e) {
-      if (e instanceof JoinInvalidError) return formError(token ? INVITE_INVALID : GENERIC_SIGNUP);
+      if (e instanceof JoinInvalidError) return formError(INVITE_INVALID);
       if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") return formError(GENERIC_SIGNUP);
       throw e;
     }

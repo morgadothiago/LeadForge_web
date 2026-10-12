@@ -1,7 +1,7 @@
 "use server";
 
 import { headers } from "next/headers";
-import { requireProviderOrg } from "@/lib/auth/require-admin";
+import { requireProviderUser } from "@/lib/auth/require-admin";
 import { requireUser } from "@/lib/auth/require-user";
 import { destroySession, getSession } from "@/lib/auth/session";
 import { getClientIpKey } from "@/lib/auth/client-ip";
@@ -44,10 +44,10 @@ function coded<T>(code: string, message: string, extra: Record<string, string[]>
   return { ok: false, errors: { _form: [message], code: [code], ...extra } };
 }
 
-/** Estado da exclusao do usuario logado + bloqueios tipados. Qualquer papel; nao exige org ativa (so sessao de provider). */
+/** Estado da exclusao do usuario logado + bloqueios tipados. Qualquer papel; SPEC-062 (D-062-21): nao exige org (usuario sem plano/so com casca tambem pode excluir a conta). So sessao de provider. */
 export async function getAccountDeletionState(): Promise<ActionResult<DeletionState>> {
   return safeAction(async () => {
-    const { user } = await requireProviderOrg();
+    const { user } = await requireProviderUser();
     return success(await getDeletionState(user.id));
   });
 }
@@ -55,7 +55,7 @@ export async function getAccountDeletionState(): Promise<ActionResult<DeletionSt
 /** Passo 1: reautentica com a senha e envia o e-mail de confirmacao (link `/conta/excluir/<token>`). */
 export async function requestAccountDeletion(input: unknown): Promise<ActionResult<{ emailSent: boolean; expiresAt: Date }>> {
   return safeAction(async () => {
-    const { user } = await requireProviderOrg();
+    const { user } = await requireProviderUser();
     const parsed = requestAccountDeletionSchema.safeParse(input);
     if (!parsed.success) return failure(zodErrors(parsed.error));
     const r = await requestDeletion(user.id, parsed.data.password);

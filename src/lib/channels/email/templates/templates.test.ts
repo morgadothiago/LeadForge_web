@@ -6,7 +6,8 @@ import { subscriptionSuccessTemplate } from "./subscription-success";
 import { subscriptionCanceledTemplate } from "./subscription-canceled";
 import { cancelRequestedTemplate } from "./cancel-requested";
 import { subscriptionReactivatedTemplate } from "./subscription-reactivated";
-import { trialStartedTemplate } from "./trial-started";
+import { orgSetupReminderTemplate } from "./org-setup-reminder";
+import { welcomeTemplate } from "./welcome";
 import { paymentReceiptTemplate } from "./payment-receipt";
 import { paymentFailedTemplate } from "./payment-failed";
 import { paymentRecoveredTemplate } from "./payment-recovered";
@@ -120,14 +121,29 @@ describe("subscriptionReactivatedTemplate (SPEC-053a #12)", () => {
   });
 });
 
-describe("trialStartedTemplate (SPEC-052a)", () => {
-  it("assunto, data de fim do teste, link absoluto e escape", () => {
-    const { subject, html, text } = trialStartedTemplate({ planName: "<b>Pro</b>", trialEndsAt: new Date("2026-03-15T00:00:00Z"), link: "https://app.x.com/dashboard" });
-    expect(subject).toBe("Seu teste do plano <b>Pro</b> começou — LeadForge");
-    expect(text).toContain("15 de março de 2026");
-    expect(text).toContain("https://app.x.com/dashboard");
-    expect(html).not.toContain("<b>Pro</b>");
-    expect(html).toContain("https://app.x.com/dashboard");
+describe("welcomeTemplate / orgSetupReminderTemplate (SPEC-062)", () => {
+  it("welcome padrao (cadastro so com usuario): sem trial, proximo passo = escolher o plano, link /assinar", () => {
+    const { text, html } = welcomeTemplate({ name: "Ana Souza", link: "https://app.x.com/assinar" });
+    expect(text).toContain("escolha seu plano");
+    expect(text).toContain("https://app.x.com/assinar");
+    expect(html).toContain("https://app.x.com/assinar");
+    expect(text).not.toMatch(/teste|grátis|gratis|14 dias|sem cartão/i);
+    expect(text).not.toMatch(/primeira campanha/);
+  });
+  it("welcome de quem ja entrou em organizacao (convite) mantem os passos de uso, sem trial", () => {
+    const { text } = welcomeTemplate({ name: "Ana", link: "https://app.x.com/dashboard", nextStep: "app" });
+    expect(text).toMatch(/primeira campanha/);
+    expect(text).not.toMatch(/teste|grátis|gratis|14 dias/i);
+  });
+  it("org_setup_reminder: plano pago, link absoluto, escape e sem trial", () => {
+    for (const step of ["d1", "d3", "d7"] as const) {
+      const { subject, html, text } = orgSetupReminderTemplate({ step, planName: "<b>Pro</b>", link: "https://app.x.com/organizacao/nova" });
+      expect(subject).toMatch(/organização/);
+      expect(text).toContain("https://app.x.com/organizacao/nova");
+      expect(html).not.toContain("<b>Pro</b>");
+      expect(html).toContain("https://app.x.com/organizacao/nova");
+      expect(text).not.toMatch(/teste|grátis|14 dias/i);
+    }
   });
 });
 

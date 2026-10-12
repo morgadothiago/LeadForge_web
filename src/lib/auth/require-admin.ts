@@ -37,6 +37,17 @@ export async function requireProviderOrg(): Promise<{ user: CurrentUser; orgId: 
 }
 
 /**
+ * SPEC-062 (D-062-8): exige sessão de `provider` SEM exigir org. Para as ações do usuário que ainda não tem organização
+ * (escolher plano/checkout, nomear a organização paga, entrar por convite/código, conta). NÃO substitui `requireProviderOrg`:
+ * as demais ações continuam recusando sessão sem org. `platform_admin` é recusado (`ForbiddenError`).
+ */
+export async function requireProviderUser(): Promise<{ user: CurrentUser; orgId: string | null }> {
+  const user = await requireUser();
+  if (user.platformRole !== "provider") throw new ForbiddenError();
+  return { user, orgId: user.orgId };
+}
+
+/**
  * SPEC-030: exige sessão de `platform_admin` (cross-tenant, sem org). Usado pelas SPECs 031-034 (admin
  * cross-tenant) — nenhum endpoint desta SPEC-030 chama isto ainda (fora de escopo, ver spec.md).
  */

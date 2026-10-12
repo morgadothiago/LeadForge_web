@@ -9,7 +9,8 @@ import { emailKey, isRateLimited, loginKey, recordFailure, resetFailures } from 
 import { newResetToken, hashResetToken, RESET_TOKEN_TTL_MS, forgotByEmailLimiter, forgotByIpLimiter } from "@/lib/auth/password-reset";
 import { getPendingDeletion } from "@/lib/account-deletion/service";
 import { safeNext } from "@/lib/auth/safe-redirect";
-import { homeRouteFor } from "@/lib/auth/require-user";
+import { resolveHomeRoute } from "@/lib/auth/account-stage";
+import { NOT_SHELL } from "@/lib/billing/shell";
 import { loginSchema, forgotPasswordSchema, resetPasswordSchema, type LoginInput } from "@/lib/schemas/auth";
 import { sendSystemEmail } from "@/lib/channels/system-mail";
 import { passwordResetTemplate } from "@/lib/channels/email/templates/password-reset";
@@ -30,7 +31,7 @@ const INVALID = "E-mail ou senha inválidos.";
 
 /**
  * SPEC-038: mensagem SEMPRE genérica de `forgotPassword` — nunca revela se o e-mail existe ou não no
- * sistema (mesmo cuidado anti-enumeration de `signUpAndStartCheckout`, SPEC-033/034). O rate limit
+ * sistema (mesmo cuidado anti-enumeration de `signUp`, SPEC-033/034/062). O rate limit
  * (abaixo) é verificado ANTES de qualquer consulta ao usuário, então "muitas tentativas" também não
  * revela nada (é checado igual para e-mail existente ou não).
  */
@@ -54,7 +55,7 @@ export async function login(input: LoginInput): Promise<ActionResult<{ redirectT
     const user = await prisma.user.findUnique({
       where: { email },
       // SPEC-049 (D-049-4): todas as orgs (ordem de entrada) — o login abre `lastOrgId` se ainda for membro, senão a primeira.
-      select: { id: true, passwordHash: true, role: true, lastOrgId: true, memberships: { select: { orgId: true }, orderBy: { createdAt: "asc" } } },
+      select: { id: true, passwordHash: true, role: true, lastOrgId: true, memberships: { where: { org: NOT_SHELL }, select: { orgId: true }, orderBy: { createdAt: "asc" } } }, // SPEC-062: a escolha da org ignora casca de cobranca
     });
     // Tempo constante: sempre executa um verify (contra hash dummy se não há usuário/senha).
     const ok = await verifyPassword(user?.passwordHash ?? (await getDummyHash()), password);
@@ -76,17 +77,14 @@ export async function login(input: LoginInput): Promise<ActionResult<{ redirectT
         },
       };
     }
-    // SPEC-030: platform_admin nunca tem Membership (D-30-1); provider sem Membership é estado inconsistente (nunca deveria existir pós-migração) -> erro tratado, nunca sessão sem org.
+    // SPEC-030: platform_admin nunca tem Membership (D-30-1). SPEC-062 (D-062-8): provider SEM organizacao real (ainda sem plano, ou
+    // so com casca de cobranca) passa a ENTRAR com sessao `orgId = null`; o destino vem do estado da conta (`resolveHomeRoute`).
     const platformRole = user.role === "platform_admin" ? "platform_admin" : "provider";
     const orgId = user.memberships.find((m) => m.orgId === user.lastOrgId)?.orgId ?? user.memberships[0]?.orgId ?? null;
-    if (platformRole === "provider" && !orgId) {
-      await recordFailure(key, ek);
-      return formError("Conta sem organização associada. Contate o suporte.");
-    }
     await resetFailures(key, ek);
     if (orgId && orgId !== user.lastOrgId) await prisma.user.update({ where: { id: user.id }, data: { lastOrgId: orgId } });
     await createSession(user.id, orgId, platformRole);
-    return success({ redirectTo: safeNext(next, homeRouteFor(platformRole)) });
+    return success({ redirectTo: safeNext(next, await resolveHomeRoute(user.id, platformRole)) });
   });
 }
 

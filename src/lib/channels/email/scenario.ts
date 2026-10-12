@@ -12,7 +12,7 @@
  * Fallback em cascata, sempre que o env específico do cenário não estiver setado (nunca erro fatal):
  * env do cenário -> `RESEND_FROM_EMAIL` (genérico, opcional) -> `SMTP_USER` -> "no-reply@leadforge.local".
  */
-export type EmailScenario = "password_reset" | "courtesy_welcome" | "billing_reminder" | "subscription_success" | "subscription_canceled" | "org_invite" | "trial_started" | "payment_receipt" | "payment_failed" | "payment_recovered" | "renewal_upcoming" | "plan_changed" | "cancel_requested" | "subscription_reactivated" | "account_deletion_confirm" | "account_deletion_requested" | "account_deletion_cancelled" | "account_deleted" | "welcome" | "email_verification" | "password_changed" | "org_member_joined" | "org_member_left" | "org_member_removed" | "org_role_changed";
+export type EmailScenario = "password_reset" | "courtesy_welcome" | "billing_reminder" | "subscription_success" | "subscription_canceled" | "org_invite" | "org_setup_reminder" | "payment_receipt" | "payment_failed" | "payment_recovered" | "renewal_upcoming" | "plan_changed" | "cancel_requested" | "subscription_reactivated" | "account_deletion_confirm" | "account_deletion_requested" | "account_deletion_cancelled" | "account_deleted" | "welcome" | "email_verification" | "password_changed" | "org_member_joined" | "org_member_left" | "org_member_removed" | "org_role_changed";
 
 const SCENARIO_ENV_VAR: Record<EmailScenario, string> = {
   password_reset: "RESEND_FROM_NOREPLY",
@@ -22,8 +22,9 @@ const SCENARIO_ENV_VAR: Record<EmailScenario, string> = {
   subscription_canceled: "RESEND_FROM_BILLING",
   // SPEC-049: convite de organização sai do remetente transacional (noreply).
   org_invite: "RESEND_FROM_NOREPLY",
+  // SPEC-062 (D-062-19): lembrete "plano pago, falta criar a organizacao" sai do remetente transacional (noreply).
+  org_setup_reminder: "RESEND_FROM_NOREPLY",
   // SPEC-052a: e-mails de ciclo de assinatura/cobranca saem do remetente billing.
-  trial_started: "RESEND_FROM_BILLING",
   payment_receipt: "RESEND_FROM_BILLING",
   // SPEC-052b: falha/regua, recuperacao, proxima cobranca e troca de plano tambem saem do remetente billing.
   payment_failed: "RESEND_FROM_BILLING",
@@ -57,7 +58,7 @@ const ACS_SCENARIO_ENV_VAR: Record<EmailScenario, string> = {
   subscription_success: "ACS_FROM_BILLING",
   subscription_canceled: "ACS_FROM_BILLING",
   org_invite: "ACS_FROM_NOREPLY",
-  trial_started: "ACS_FROM_BILLING",
+  org_setup_reminder: "ACS_FROM_NOREPLY",
   payment_receipt: "ACS_FROM_BILLING",
   payment_failed: "ACS_FROM_BILLING",
   payment_recovered: "ACS_FROM_BILLING",

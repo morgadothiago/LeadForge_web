@@ -10,8 +10,13 @@ describe("computeOrgStatus (SPEC-033 D-33-3/D-33-4)", () => {
   it("sem Subscription -> active (nunca bloqueia por omissão)", () => {
     expect(computeOrgStatus(null, now)).toBe("active");
   });
-  it("trialing -> active", () => {
-    expect(computeOrgStatus({ status: "trialing", pastDueSince: null }, now)).toBe("active");
+  it("SPEC-062 (D-062-17): trial legado vale active so ate trialEndsAt (futuro); vencido, no limite exato ou sem data -> suspended", () => {
+    const future = new Date(now.getTime() + 1000);
+    expect(computeOrgStatus({ status: "trialing", pastDueSince: null, trialEndsAt: future }, now)).toBe("active");
+    expect(computeOrgStatus({ status: "trialing", pastDueSince: null, trialEndsAt: new Date(now.getTime() - 1000) }, now)).toBe("suspended");
+    expect(computeOrgStatus({ status: "trialing", pastDueSince: null, trialEndsAt: new Date(now.getTime()) }, now)).toBe("suspended");
+    expect(computeOrgStatus({ status: "trialing", pastDueSince: null, trialEndsAt: null }, now)).toBe("suspended");
+    expect(computeOrgStatus({ status: "trialing", pastDueSince: null }, now)).toBe("suspended");
   });
   it("active -> active", () => {
     expect(computeOrgStatus({ status: "active", pastDueSince: null }, now)).toBe("active");

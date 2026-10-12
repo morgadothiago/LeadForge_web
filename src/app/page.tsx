@@ -1,7 +1,8 @@
 import type { Metadata } from "next";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
-import { requireUser, UnauthorizedError, homeRouteFor } from "@/lib/auth/require-user";
+import { resolveSessionHomeRoute } from "@/lib/auth/account-stage";
+import { requireUser, UnauthorizedError } from "@/lib/auth/require-user";
 import { listActivePlans } from "@/lib/billing/plans";
 import { parseTheme, THEME_COOKIE_NAME } from "@/lib/theme-state";
 import { LandingNav } from "@/components/landing/LandingNav";
@@ -35,7 +36,7 @@ export default async function Home() {
   let homeRoute: string | null = null;
   try {
     const user = await requireUser();
-    homeRoute = homeRouteFor(user.platformRole);
+    homeRoute = await resolveSessionHomeRoute(user);
   } catch (e) {
     if (!(e instanceof UnauthorizedError)) throw e;
   }

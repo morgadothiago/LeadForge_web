@@ -5,13 +5,6 @@ const orgRole = z.enum(["owner", "member"], { error: "Papel inválido." });
 const token = z.string({ error: "Token é obrigatório." }).trim().min(1, "Token é obrigatório.").max(512, "Token inválido.");
 const id = z.string().trim().min(1).max(64);
 
-/** SPEC-049: criar 2ª+ organização (trial próprio, D-049-3). */
-export const createOrganizationSchema = z.object({
-  name: z.string({ error: "Nome da organização é obrigatório." }).trim().min(1, "Nome da organização é obrigatório.").max(120),
-  planKey: z.string({ error: "Plano é obrigatório." }).trim().min(1, "Plano é obrigatório.").max(50),
-});
-export type CreateOrganizationInput = z.input<typeof createOrganizationSchema>;
-
 export const switchOrganizationSchema = z.object({ orgId: id });
 export const inviteMemberSchema = z.object({ email, orgRole: orgRole.default("member") });
 export type InviteMemberInput = z.input<typeof inviteMemberSchema>;
@@ -25,30 +18,13 @@ export const generateJoinCodeSchema = z.object({
   maxUses: z.number().int().min(1).max(100).optional(),
 });
 
-/** Signup "participar de organização existente": convite (token) OU código; sem checkout (assinatura é da org). */
-export const signupJoinSchema = z
-  .object({
-    name: z.string({ error: "Nome é obrigatório." }).trim().min(1, "Nome é obrigatório.").max(120),
-    email: email.optional(),
-    password: z.string({ error: "Senha é obrigatória." }).min(12, "Senha deve ter ao menos 12 caracteres.").max(256, "Senha muito longa."),
-    token: token.optional(),
-    code: z.string().trim().min(1).max(64).optional(),
-  })
-  .refine((v) => Boolean(v.token) !== Boolean(v.code), { message: "Informe o convite ou o código (apenas um).", path: ["_form"] })
-  .refine((v) => Boolean(v.token) || Boolean(v.email), { message: "E-mail é obrigatório.", path: ["email"] });
-export type SignupJoinInput = z.input<typeof signupJoinSchema>;
-
-/**
- * SPEC-049b — formulário de signup "participar de organização" (só UI): um único campo `joinInput` aceita o CÓDIGO de
- * entrada ou o LINK do convite. O servidor revalida tudo com `signupJoinSchema` (fonte da verdade).
- */
-export const signupJoinFormSchema = z.object({
+/** Signup por CONVITE (SPEC-062 D-062-15: o ramo por codigo saiu): token do link + nome + senha; o e-mail vem do convite. */
+export const signupJoinSchema = z.object({
   name: z.string({ error: "Nome é obrigatório." }).trim().min(1, "Nome é obrigatório.").max(120),
-  email,
   password: z.string({ error: "Senha é obrigatória." }).min(12, "Senha deve ter ao menos 12 caracteres.").max(256, "Senha muito longa."),
-  joinInput: z.string({ error: "Informe o código de entrada." }).trim().min(1, "Informe o código de entrada ou o link do convite.").max(600, "Valor muito longo."),
+  token,
 });
-export type SignupJoinFormInput = z.input<typeof signupJoinFormSchema>;
+export type SignupJoinInput = z.input<typeof signupJoinSchema>;
 
 /** Convite por link (aceite de usuário novo, `/convite/[token]`): só nome e senha; o e-mail vem do convite. */
 export const inviteSignupFormSchema = z.object({

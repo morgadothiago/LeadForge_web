@@ -3,7 +3,6 @@ import { prisma } from "@/lib/prisma";
 import { withSerializableRetry } from "@/lib/db/tx-conflict";
 import { safeErrorForLog } from "@/lib/errors";
 import { notifyOrgOwners, absoluteAppUrl } from "@/lib/channels/email/send-once";
-import { trialStartedTemplate } from "@/lib/channels/email/templates/trial-started";
 import { paymentReceiptTemplate } from "@/lib/channels/email/templates/payment-receipt";
 import { subscriptionSuccessTemplate } from "@/lib/channels/email/templates/subscription-success";
 import { paymentRecoveredTemplate } from "@/lib/channels/email/templates/payment-recovered";
@@ -14,7 +13,7 @@ import { subscriptionCanceledTemplate } from "@/lib/channels/email/templates/sub
 import type { ParsedBillingEvent } from "./provider";
 import { classifyBillingEvent, type PriorSubscriptionState } from "./classify-event";
 import { notifyPaymentFailed } from "./past-due-email";
-import { computeOrgStatus, TRIAL_DAYS, CANCEL_RETENTION_MS } from "./status-map";
+import { computeOrgStatus, CANCEL_RETENTION_MS } from "./status-map";
 
 export type ProcessBillingEventResult = "processed" | "duplicate" | "org_not_found" | "plan_not_found";
 
@@ -33,7 +32,11 @@ export type ProcessBillingEventResult = "processed" | "duplicate" | "org_not_fou
  */
 export async function processBillingEvent(event: ParsedBillingEvent, now: Date): Promise<ProcessBillingEventResult> {
   const org = await prisma.organization.findUnique({ where: { id: event.orgId }, select: { id: true } });
-  if (!org) return "org_not_found";
+  if (!org) {
+    // SPEC-062 (D-062-18): pagamento para org inexistente (ex.: casca apagada cedo) — linha estruturada, so ids/tipo/status (sem PII), para conciliacao manual.
+    console.error(`[billing-orphan-payment] eventId=${event.eventId} orgId=${event.orgId} type=${event.type} status=${event.status}`);
+    return "org_not_found";
+  }
   const plan = await prisma.plan.findUnique({
     where: { key: event.planKey },
     select: { id: true, name: true, priceMonthlyCents: true, priceYearlyCents: true },
@@ -41,7 +44,7 @@ export async function processBillingEvent(event: ParsedBillingEvent, now: Date):
   if (!plan) return "plan_not_found";
 
   try {
-    const { canceledAt, prior, trialEndsAt: appliedTrialEndsAt, pastDueSince: appliedPastDueSince, cancelAtPeriodEnd: appliedCancelAtPeriodEnd } = await withSerializableRetry(
+    const { canceledAt, prior, pastDueSince: appliedPastDueSince, cancelAtPeriodEnd: appliedCancelAtPeriodEnd } = await withSerializableRetry(
       () =>
         prisma.$transaction(
           async (tx) => {
@@ -59,7 +62,8 @@ export async function processBillingEvent(event: ParsedBillingEvent, now: Date):
             const prior: PriorSubscriptionState | null = existing ? { status: existing.status, planId: existing.planId, cadence: existing.cadence, currentPeriodEnd: existing.currentPeriodEnd, cancelAtPeriodEnd: existing.cancelAtPeriodEnd } : null;
             const pastDueSince = event.status === "past_due" ? (existing?.pastDueSince ?? now) : null;
             const canceledAt = event.status === "canceled" ? (existing?.canceledAt ?? now) : null;
-            const trialEndsAt = event.status === "trialing" ? (existing?.trialEndsAt ?? new Date(now.getTime() + TRIAL_DAYS * 24 * 3600_000)) : (existing?.trialEndsAt ?? null);
+            // SPEC-062 (D-062-2): nada novo cria trial — `trialEndsAt` so e PRESERVADO (org legada); nunca mais calculado (+14d).
+            const trialEndsAt = existing?.trialEndsAt ?? null;
 
             // SPEC-053 (#12): so a action de reativar desfaz um cancelamento agendado; evento externo com
             // `cancelAtPeriodEnd:false` (ex.: AbacatePay sempre manda false) o preserva. `canceled` efetiva e zera.
@@ -80,10 +84,10 @@ export async function processBillingEvent(event: ParsedBillingEvent, now: Date):
             };
             await tx.subscription.upsert({ where: { orgId: event.orgId }, create: { orgId: event.orgId, ...data }, update: data });
 
-            const orgStatus = computeOrgStatus({ status: event.status, pastDueSince, cancelAtPeriodEnd, currentPeriodEnd: event.currentPeriodEnd }, now);
+            const orgStatus = computeOrgStatus({ status: event.status, pastDueSince, cancelAtPeriodEnd, currentPeriodEnd: event.currentPeriodEnd, trialEndsAt }, now);
             await tx.organization.update({ where: { id: event.orgId }, data: { status: orgStatus } });
 
-            return { canceledAt, prior, trialEndsAt, pastDueSince, cancelAtPeriodEnd };
+            return { canceledAt, prior, pastDueSince, cancelAtPeriodEnd };
           },
           { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
         ),
@@ -97,11 +101,7 @@ export async function processBillingEvent(event: ParsedBillingEvent, now: Date):
       // SPEC-052a: classe do evento (estado anterior x novo + type) decide o e-mail; chave `eventId:<classe>`.
       const cls = classifyBillingEvent(prior, event, plan.id);
       const planAmount = event.cadence === "yearly" ? plan.priceYearlyCents : plan.priceMonthlyCents;
-      if (cls === "trial_started") {
-        // Mesma chave do e-mail de signup (`trial_started:<orgId>`): nunca 2 avisos de trial por org.
-        const { subject, html, text } = trialStartedTemplate({ planName: plan.name, trialEndsAt: appliedTrialEndsAt, link: absoluteAppUrl("/dashboard") });
-        await notifyOrgOwners({ orgId: event.orgId, subject, html, text, scenario: "trial_started", dedupeKey: `trial_started:${event.orgId}` });
-      } else if (cls === "activated") {
+      if (cls === "activated") {
         const { subject, html, text } = subscriptionSuccessTemplate({ planName: plan.name, amountCents: event.amountCents ?? planAmount ?? null, nextBillingDate: event.currentPeriodEnd });
         await notifyOrgOwners({ orgId: event.orgId, subject, html, text, scenario: "subscription_success", dedupeKey: `${event.eventId}:activated` });
       } else if (cls === "payment_failed" && appliedPastDueSince) {

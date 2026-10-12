@@ -62,7 +62,7 @@ export interface CreateCourtesyOrganizationResult {
  * SPEC-040 (D-040-1/2/3/4) — cria manualmente uma Organization de cortesia com acesso completo e sem
  * cobrança real: User(`provider`)+Organization+Membership(owner)+Subscription (plano "courtesy",
  * `status: active`, SEM vínculo a checkout/PaymentProvider — `externalCustomerId`/`externalSubscriptionId`
- * ficam null, igual ao trial de `signUpAndStartCheckout` antes do 1º checkout; como nenhum checkout é
+ * ficam null (SPEC-062: org completa, `setupPendingSince` nulo, sem casca de cobrança); como nenhum checkout é
  * criado pra esta org, nenhum evento de webhook chega com o `orgId` dela — `processBillingEvent` nunca é
  * acionado por construção). PERMANENTE (D-040-1): sem prazo/expiração; revogação futura é
  * `suspendOrganization` (SPEC-031), já existente. Só `platform_admin` (D-040-4, `requirePlatformAdmin()`).
@@ -107,8 +107,7 @@ export async function createCourtesyOrganization(input: unknown): Promise<Action
       userId = created.userId;
       orgId = created.orgId;
     } catch (e) {
-      // Admin já autenticado/autorizado criando a conta (sem risco de enumeração aqui, diferente de
-      // `signUpAndStartCheckout`) — mensagem direta é aceitável e mais útil.
+      // Admin já autenticado/autorizado criando a conta (sem risco de enumeração aqui, diferente do cadastro público `signUp`) — mensagem direta é aceitável e mais útil.
       if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") {
         return formError("Já existe uma conta cadastrada com este e-mail.");
       }

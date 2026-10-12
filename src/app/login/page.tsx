@@ -2,7 +2,8 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { LoginForm } from "@/components/auth/LoginForm";
-import { requireUser, UnauthorizedError, homeRouteFor } from "@/lib/auth/require-user";
+import { resolveSessionHomeRoute } from "@/lib/auth/account-stage";
+import { requireUser, UnauthorizedError } from "@/lib/auth/require-user";
 
 export const metadata: Metadata = {
   title: "Entrar | LeadForge",
@@ -14,7 +15,7 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
   let homeRoute: string | null = null;
   try {
     const user = await requireUser();
-    homeRoute = homeRouteFor(user.platformRole);
+    homeRoute = await resolveSessionHomeRoute(user);
   } catch (e) {
     if (!(e instanceof UnauthorizedError)) throw e;
   }

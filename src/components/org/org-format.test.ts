@@ -2,7 +2,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { filterOrganizations, orgInitials, applyServerErrors, countOwners, formatDate, joinCodeState, joinCodeSummary, parseJoinInput, roleLabel, safeInternalPath } from "./org-format";
 import { confirmCopy } from "./TeamPanel";
-import { inviteSignupFormSchema, joinCodeFormSchema, signupJoinFormSchema } from "@/lib/schemas/org";
+import { inviteSignupFormSchema, joinCodeFormSchema, signupJoinSchema } from "@/lib/schemas/org";
 
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: vi.fn() }) }));
 vi.mock("@/lib/actions/org", () => ({ changeMemberRole: vi.fn(), disableJoinCode: vi.fn(), removeMember: vi.fn(), revokeInvite: vi.fn(), inviteMember: vi.fn(), generateJoinCode: vi.fn() }));
@@ -45,8 +45,10 @@ describe("org-format (SPEC-049b)", () => {
     expect(msg).toBe("Falhou.");
   });
   it("schemas de formulário (zod) validam o que a UI envia", () => {
-    expect(signupJoinFormSchema.safeParse({ name: "A", email: "A@X.com", password: "123456789012", joinInput: " COD " }).data?.email).toBe("a@x.com");
-    expect(signupJoinFormSchema.safeParse({ name: "A", email: "a@x.com", password: "curta", joinInput: "x" }).success).toBe(false);
+    // SPEC-062: signUpAndJoin so por convite (token + nome + senha)
+    expect(signupJoinSchema.safeParse({ name: "A", password: "123456789012", token: " tok " }).data?.token).toBe("tok");
+    expect(signupJoinSchema.safeParse({ name: "A", password: "curta", token: "x" }).success).toBe(false);
+    expect(signupJoinSchema.safeParse({ name: "A", password: "123456789012" }).success).toBe(false);
     expect(inviteSignupFormSchema.safeParse({ name: "", password: "123456789012" }).success).toBe(false);
     expect(joinCodeFormSchema.safeParse({ expiresInDays: "7", maxUses: "10" }).data).toEqual({ expiresInDays: 7, maxUses: 10 });
     expect(joinCodeFormSchema.safeParse({ expiresInDays: "31", maxUses: "10" }).success).toBe(false);

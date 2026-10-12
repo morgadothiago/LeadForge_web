@@ -10,6 +10,7 @@ const item = (over: Partial<OrgListItem> = {}): OrgListItem => ({
   slug: "acme",
   status: "active",
   createdAt: new Date("2026-01-15T10:00:00.000Z"),
+  setupPendingSince: null,
   ownerName: "Ana Souza",
   ownerEmail: "ana@acme.com",
   activeCampaigns: 2,

@@ -57,13 +57,10 @@ describe("processBillingEvent — e-mail de assinatura efetuada (SPEC-046, D-046
     expect(content).toMatchObject({ html: expect.stringContaining("Starter"), text: expect.stringContaining("Starter") });
   });
 
-  it("trialing (novo trial): dispara e-mail de INICIO DE TRIAL (cenario trial_started, SPEC-052a), nao 'assinatura confirmada'", async () => {
+  it("SPEC-062: trialing nao dispara e-mail nenhum (trial_started removido)", async () => {
     const r = await processBillingEvent(baseEvent({ status: "trialing", currentPeriodEnd: null }), NOW);
     expect(r).toBe("processed");
-    expect(sendSystemEmail).toHaveBeenCalledTimes(1);
-    const [, subject, , scenario] = vi.mocked(sendSystemEmail).mock.calls[0];
-    expect(scenario).toBe("trial_started");
-    expect(subject).toMatch(/teste/i);
+    expect(sendSystemEmail).not.toHaveBeenCalled();
   });
 
   it("SPEC-052b (D-052-10): troca de plano (active->active, planId mudou) envia e-mail plan_changed (regressao D-046-3 resolvida)", async () => {

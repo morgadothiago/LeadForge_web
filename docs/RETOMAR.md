@@ -1,6 +1,6 @@
 # Para retomar: o que está pronto, o que depende de você e o que vem depois
 
-Atualizado em 2026-10-11. **Tudo está na `main`** (PR #2 mergeado em 2026-10-11, commit `0943fa0`): SPECs 048 a 060, E2E e Fase 9. A SPEC-045 (react-hook-form em Configurações/Admin) está implementada, aprovada no QA e mergeada (PR #8, `48175e5`). Produção já está no ar em https://lead-forge-web-omega.vercel.app (seção 7). Repo: git@github.com:morgadothiago/LeadForge_web.git.
+Atualizado em 2026-10-11 (SPEC-062a implementada, sem commit, ver seção 7). **Tudo o que está commitado está na `main`** (PR #2 mergeado em 2026-10-11, commit `0943fa0`): SPECs 048 a 060, E2E e Fase 9. A SPEC-045 (react-hook-form em Configurações/Admin) está implementada, aprovada no QA e mergeada (PR #8, `48175e5`). Produção já está no ar em https://lead-forge-web-omega.vercel.app (seção 7). Repo: git@github.com:morgadothiago/LeadForge_web.git.
 
 ## 1. Como conferir o estado em 1 minuto
 
@@ -182,13 +182,10 @@ E2E em navegador real e Fase 9. **Produção no ar na Vercel** (`https://lead-fo
 `/login` respondem 200; no build, "43 migrations found, no pending" e seed em modo produção (só planos e admin). Falta o bloco O do
 ROTEIRO à mão (desktop e 390px). Não há SPEC em implementação; há SPECs em DRAFT (061 e 062, abaixo).
 
-**SPEC-062 APPROVED (usuario, 2026-10-11)**: `specs/62-cadastro-sem-trial-plano-obrigatorio/spec.md`. **A decisão de produto veio do **Respostas registradas em 2026-10-11:** casca de cobrança (Q-062-1), limpeza em 7 dias (Q-062-3), e-mail verificado antes de pagar quando o SMTP real estiver ligado (Q-062-4), uma assinatura por org (Q-062-5), `mock` proibido em produção (Q-062-7) e só cartão em `/assinar` (Q-062-8). **Só falta a Q-062-2:** conferir no Neon (SQL Editor de produção) se há assinaturas reais `trialing`: `SELECT s.status, count(*), min(o."createdAt") FROM "Subscription" s JOIN "Organization" o ON o.id = s."orgId" GROUP BY s.status;`.
-usuário (2026-10-11)**: (1) `/signup` cria só o usuário (nome, e-mail, senha); criar/participar de organização é ação interna da área logada;
-(2) **não existe trial de 14 dias** (remover a funcionalidade); (3) sem assinatura o usuário vai para escolher plano + checkout (AbacatePay) e só
-depois de pagar cria a organização; (4) convite ou código de org que já tem assinatura entra sem pagar. O resto da SPEC (casca de cobrança,
-estados, guards, migração dos trials existentes, limpeza) é INFERRED. Perguntas abertas que bloqueiam: Q-062-1 (como ligar o pagamento a uma org
-que ainda não existe), Q-062-2 (há trials reais? política dos existentes), Q-062-7 (cobrança `mock` em produção). Achado: hoje uma org em trial
-**nunca expira** (`computeOrgStatus` ignora `trialEndsAt`). Nada foi implementado, nenhuma migration criada.
+**SPEC-062 (cadastro so com usuario, sem trial, plano obrigatorio) — `specs/62-cadastro-sem-trial-plano-obrigatorio/spec.md`, APPROVED em 2026-10-11.**
+- **062a (backend) IMPLEMENTADA em 2026-10-11, na branch `feat/spec-062a-backend`, SEM commit** (ver "Implementation Notes — 062a" na SPEC): migration `20261017120000_cadastro_sem_trial` (aditiva, **ainda nao aplicada no dev/producao**: rode `prisma migrate deploy` so quando decidir), casca de cobranca (`Organization.setupPendingSince`), guard `requireProviderUser`, actions `signUp`/`startPlanCheckout`/`getPlanCheckoutState`/`cancelPendingSubscription`/`completeOrganizationSetup`/`getAccountStage`, convite/codigo sem checkout, trial removido do codigo, jobs de limpeza (7 dias) e lembretes D+1/3/7, trava do `mock` em producao (`ALLOW_MOCK_BILLING`), relatorio de trials legados (`npm run billing:trials-report`, somente leitura). Gates: tsc, eslint (0 erros), vitest completo (170 arquivos, 2171 testes, banco `leadforge_062a_test` novo) e `next build` verdes.
+- **062b (frontend) pendente:** telas `/assinar`, `/assinar/retorno`, `/organizacao/nova`, `/entrar-em-organizacao`, `/minha-conta`, banner "Finalize sua organizacao", textos de landing/pricing, docs de usuario. Enquanto isso o `/signup` ja cria so o usuario e manda a `/assinar` (que ainda da 404).
+- **Antes de publicar:** (1) Q-062-2 segue aberta: rode `npm run billing:trials-report` no Neon de producao (a regra nova suspende trial vencido/sem data; antes trial nunca expirava); (2) producao esta em `mock`: com a trava o checkout fica indisponivel ate haver AbacatePay real (ou `ALLOW_MOCK_BILLING=true`); (3) **achado:** `src/proxy.ts` nao isenta `/api/billing/webhook` no `matcher` (so `api/webhooks`, `api/cron`, `api/integrations`, `api/mobile/v1`), entao o webhook do provedor sem sessao tende a levar 307 para `/login`: confirmar com webhook real e decidir a isencao (a SPEC-062 mandou nao mexer na lista do proxy).
 
 **Etapa 1: destravar o deploy (FEITA em 2026-10-11, com 3 pendências suas)**
 - Vercel (Production) com: `DATABASE_URL`, `DATABASE_URL_UNPOOLED`, `AUTH_SECRET`, `AUTH_URL`, `ENCRYPTION_KEY`, `CRON_SECRET`,

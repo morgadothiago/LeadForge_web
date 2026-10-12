@@ -20,7 +20,7 @@ export interface BillingSummary {
   orgStatus: OrgStatus;
   /** Só o `owner` (Membership.orgRole) gerencia a assinatura — UX só; a barreira real é `requireOwner()` nas actions. */
   isOwner: boolean;
-  /** null só deveria acontecer para orgs pré-SPEC-033/dado inconsistente; nunca para orgs criadas por `signUpAndStartCheckout`. */
+  /** null só deveria acontecer para orgs pré-SPEC-033/dado inconsistente; nunca para orgs criadas por `startPlanCheckout`/`completeOrganizationSetup` (SPEC-062: o signUp cria só o usuário; a casca nasce no checkout). */
   subscription: SubscriptionView | null;
 }
 

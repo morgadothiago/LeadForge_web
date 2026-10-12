@@ -27,3 +27,15 @@ describe("proxy: /verificar-email pública (SPEC-055b)", () => {
     expect(res.headers.get("location")).toBeNull();
   });
 });
+
+describe("proxy: rotas da SPEC-062 exigem sessao; lista publica inalterada", () => {
+  it.each(["/assinar", "/assinar/retorno", "/organizacao/nova", "/entrar-em-organizacao", "/minha-conta"])("%s sem sessao -> /login", async (p) => {
+    const res = await run(p);
+    expect(res.status).toBe(307);
+    expect(res.headers.get("location")).toContain("/login?next=");
+  });
+  it.each(["/", "/login", "/signup", "/esqueci-senha", "/redefinir-senha", "/verificar-email", "/convite", "/convite/tok", "/conta/excluir/t"])("%s segue publica", async (p) => {
+    const res = await run(p);
+    expect(res.status, p).toBe(200);
+  });
+});

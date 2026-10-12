@@ -1,10 +1,9 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { SignupFlow } from "@/components/auth/SignupFlow";
-import { listActivePlans } from "@/lib/billing/plans";
-import { requireUser, UnauthorizedError, homeRouteFor } from "@/lib/auth/require-user";
-import type { BillingCadence } from "@prisma/client";
+import { SignupForm } from "@/components/auth/SignupForm";
+import { requireUser, UnauthorizedError } from "@/lib/auth/require-user";
+import { resolveSessionHomeRoute } from "@/lib/auth/account-stage";
 
 export const metadata: Metadata = {
   title: "Criar conta | LeadForge",
@@ -12,7 +11,7 @@ export const metadata: Metadata = {
 };
 export const dynamic = "force-dynamic";
 
-function resolveCadence(v: string | string[] | undefined): BillingCadence {
+function resolveCadence(v: string | string[] | undefined): "monthly" | "yearly" {
   const raw = Array.isArray(v) ? v[0] : v;
   return raw === "yearly" ? "yearly" : "monthly";
 }
@@ -21,37 +20,16 @@ export default async function SignupPage({ searchParams }: { searchParams: Promi
   let homeRoute: string | null = null;
   try {
     const user = await requireUser();
-    homeRoute = homeRouteFor(user.platformRole);
+    homeRoute = await resolveSessionHomeRoute(user);
   } catch (e) {
     if (!(e instanceof UnauthorizedError)) throw e;
   }
   if (homeRoute) redirect(homeRoute);
 
+  // SPEC-062 (D-062-1/7): o cadastro so cria o usuario. `?plan=&cadence=` (landing) e apenas INTENCAO, repassada a `signUp`,
+  // que valida o plano no servidor (invalido e ignorado). `?modo=participar` antigo (D-062-15) apenas abre `/signup`.
   const sp = await searchParams;
-  const requestedPlanRaw = Array.isArray(sp.plan) ? sp.plan[0] : sp.plan;
-  const cadence = resolveCadence(sp.cadence);
-  const modoRaw = Array.isArray(sp.modo) ? sp.modo[0] : sp.modo;
-  const initialMode = modoRaw === "participar" ? "join" : "create";
-
-  const plans = await listActivePlans();
-  const selfServicePlans = plans.filter((p) => p.selfServiceCheckout);
-  const requested = requestedPlanRaw ? selfServicePlans.find((p) => p.key === requestedPlanRaw) : undefined;
-  // D-33-2: "starter" é o plano de entrada self-service; se o param veio ausente/inválido/de um plano sem
-  // checkout self-service (ex. "business"), cai para o mais barato disponível — nunca bloqueia o cadastro.
-  const plan = requested ?? selfServicePlans[0];
-
-  if (!plan) {
-    // Nenhum plano self-service ativo (catálogo mal configurado) — não é um erro de usuário; sem plano não há como iniciar o trial.
-    return (
-      <main className="flex min-h-screen items-center justify-center px-4 py-10">
-        <p className="max-w-sm text-center text-sm text-muted-foreground">
-          Nenhum plano disponível para cadastro no momento. Tente novamente mais tarde ou entre em contato com o suporte.
-        </p>
-      </main>
-    );
-  }
-
-  const price = cadence === "monthly" ? plan.priceMonthlyCents : plan.priceYearlyCents;
+  const planRaw = Array.isArray(sp.plan) ? sp.plan[0] : sp.plan;
 
   return (
     <main className="flex min-h-screen items-center justify-center px-4 py-10">
@@ -61,7 +39,7 @@ export default async function SignupPage({ searchParams }: { searchParams: Promi
           <h1 className="font-heading text-lg font-semibold">Criar sua conta</h1>
           <p className="text-sm text-muted-foreground">Comece a prospectar em minutos.</p>
         </div>
-        <SignupFlow initialMode={initialMode} planKey={plan.key} planName={plan.name} planPriceCents={price} cadence={cadence} intentCheckout={Boolean(requested)} />
+        <SignupForm plan={planRaw} cadence={resolveCadence(sp.cadence)} />
         <p className="text-center text-xs text-muted-foreground">
           Já tem conta?{" "}
           <Link href="/login" className="font-medium text-primary underline-offset-2 hover:underline">

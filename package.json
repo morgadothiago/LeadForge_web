@@ -19,6 +19,7 @@
     "openapi:export": "tsx src/scripts/export-openapi.ts",
     "secrets:reencrypt": "tsx src/scripts/reencrypt-secrets.ts",
     "billing:purge": "tsx src/scripts/purge-canceled-orgs.ts",
+    "billing:trials-report": "tsx src/scripts/legacy-trials-report.ts",
     "org:backfill-last": "tsx src/scripts/backfill-last-org.ts"
   },
   "dependencies": {

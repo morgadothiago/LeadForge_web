@@ -4,7 +4,6 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } 
 import { prisma } from "@/lib/prisma";
 import { createTestOrg, purgeTestOrg, type TestOrg } from "@/lib/test-utils/org-fixture";
 import { sendSystemEmail } from "@/lib/channels/system-mail";
-import { sendTrialStartedEmail } from "./trial-email";
 import type { ParsedBillingEvent } from "./provider";
 import { processBillingEvent } from "./process-event";
 
@@ -67,8 +66,8 @@ describe("processBillingEvent — classificacao e e-mail (SPEC-052a)", () => {
     expect(calls()[0][2].text).toContain(brl.replace(/ /g, " ").slice(2).trim().slice(0, 3));
   });
 
-  it("PIX pago (transparent.completed) em org em trial: confirmacao + recibo PIX", async () => {
-    await processBillingEvent(ev({ status: "trialing", currentPeriodEnd: null }), NOW);
+  it("PIX pago (transparent.completed) em org ainda nao ativa (incomplete): confirmacao + recibo PIX", async () => {
+    await processBillingEvent(ev({ status: "incomplete", currentPeriodEnd: null }), NOW);
     vi.mocked(sendSystemEmail).mockClear();
     await processBillingEvent(ev({ type: "subscription.updated", paymentMethod: "pix", amountCents: 9900, externalPaymentId: "pix_1" }), NOW);
     expect(scenarios().sort()).toEqual(["payment_receipt", "subscription_success"]);
@@ -115,17 +114,21 @@ describe("processBillingEvent — classificacao e e-mail (SPEC-052a)", () => {
     expect(sub.currentPeriodEnd).toEqual(NEXT2);
   });
 
-  it("trial: webhook trialing + e-mail do signup compartilham a chave trial_started:<orgId> (1 so aviso)", async () => {
-    await sendTrialStartedEmail(org.orgId, "Starter", NEXT);
+  it("SPEC-062: evento externo `trialing` e noop de e-mail (sem trial_started) e NAO calcula trialEndsAt (+14d)", async () => {
     await processBillingEvent(ev({ status: "trialing", currentPeriodEnd: null }), NOW);
-    await sendTrialStartedEmail(org.orgId, "Starter", NEXT);
-    expect(scenarios()).toEqual(["trial_started"]);
+    expect(scenarios()).toEqual([]);
+    const sub = await prisma.subscription.findUniqueOrThrow({ where: { orgId: org.orgId }, select: { trialEndsAt: true, status: true } });
+    expect(sub.trialEndsAt).toBeNull();
+    expect(sub.status).toBe("trialing");
   });
 
-  it("e-mail de trial do signup tem link absoluto e vai ao owner", async () => {
-    await sendTrialStartedEmail(org.orgId, "Starter", NEXT);
-    const [, subject, content] = calls()[0];
-    expect(subject).toMatch(/teste/i);
-    expect(content.text).toMatch(/https?:\/\/\S+\/dashboard/);
+  it("SPEC-062: trialEndsAt de org legada em trial e PRESERVADO (nunca estendido) ao ativar", async () => {
+    const legacy = new Date("2026-03-10T00:00:00Z");
+    await prisma.subscription.create({ data: { orgId: org.orgId, planId: (await prisma.plan.findUniqueOrThrow({ where: { key: "starter" } })).id, status: "trialing", trialEndsAt: legacy } });
+    await processBillingEvent(ev(), NOW);
+    const sub = await prisma.subscription.findUniqueOrThrow({ where: { orgId: org.orgId }, select: { trialEndsAt: true, status: true } });
+    expect(sub.status).toBe("active");
+    expect(sub.trialEndsAt).toEqual(legacy);
+    expect(scenarios()).toEqual(["subscription_success"]);
   });
 });

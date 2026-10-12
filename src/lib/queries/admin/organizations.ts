@@ -47,6 +47,8 @@ export interface OrgListItem extends OrgCounters {
   slug: string;
   status: OrgStatus;
   createdAt: Date;
+  /** SPEC-062: nao nulo = casca de cobranca paga, ainda sem organizacao nomeada ("Em configuracao"). */
+  setupPendingSince: Date | null;
   ownerName: string | null;
   ownerEmail: string | null;
 }
@@ -63,7 +65,9 @@ export interface OrgListPage {
 export async function listOrganizations(input: unknown = {}): Promise<OrgListPage> {
   await requirePlatformAdmin();
   const { page, pageSize, search, status } = listOrganizationsSchema.parse(input ?? {});
+  // SPEC-062 (D-062-5, Q-062-9): casca PAGA aparece ("Em configuracao"); casca sem pagamento (`incomplete`/sem assinatura) e ruido e fica fora do padrao.
   const where = {
+    NOT: { AND: [{ setupPendingSince: { not: null } }, { OR: [{ subscription: { is: null } }, { subscription: { is: { status: "incomplete" as const } } }] }] },
     ...(status ? { status } : {}),
     ...(search ? { OR: [{ name: { contains: search, mode: "insensitive" as const } }, { slug: { contains: search, mode: "insensitive" as const } }] } : {}),
   };
@@ -80,6 +84,7 @@ export async function listOrganizations(input: unknown = {}): Promise<OrgListPag
         slug: true,
         status: true,
         createdAt: true,
+        setupPendingSince: true,
         memberships: { where: { orgRole: "owner" }, take: 1, orderBy: { createdAt: "asc" }, select: { user: { select: { name: true, email: true } } } },
       },
     }),
@@ -95,6 +100,7 @@ export async function listOrganizations(input: unknown = {}): Promise<OrgListPag
         slug: o.slug,
         status: o.status,
         createdAt: o.createdAt,
+        setupPendingSince: o.setupPendingSince,
         ownerName: owner?.name ?? null,
         ownerEmail: owner?.email ?? null,
         ...(counters.get(o.id) ?? EMPTY_COUNTERS),

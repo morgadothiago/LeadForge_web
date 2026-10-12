@@ -15,6 +15,7 @@ import { EMPTY_SUMMARY } from "@/lib/notifications/client-types";
 import { listActivePlans } from "@/lib/billing/plans";
 import { listMyOrganizations } from "@/lib/actions/org";
 import { requireUser, UnauthorizedError, type CurrentUser } from "@/lib/auth/require-user";
+import { resolveSessionHomeRoute } from "@/lib/auth/account-stage";
 
 export const dynamic = "force-dynamic";
 
@@ -26,6 +27,9 @@ export default async function AppLayout({ children }: LayoutProps<"/">) {
     if (e instanceof UnauthorizedError) redirect("/login");
     throw e;
   }
+  // SPEC-062 (D-062-8): provider SEM organizacao na sessao nunca ve o tenant — vai ao destino do estado (`/assinar`,
+  // `/organizacao/nova`...). Caso anomalo (tem org mas a sessao nao) => `/login`, que reemite a sessao (sem laco: o login nao redireciona nesse caso).
+  if (user.platformRole === "provider" && !user.orgId) redirect((await resolveSessionHomeRoute(user)) ?? "/login");
   const cookieStore = await cookies();
   const defaultOpen = parseSidebarDefaultOpen(cookieStore.get("sidebar_state")?.value);
   const initialTheme = parseTheme(cookieStore.get(THEME_COOKIE_NAME)?.value);

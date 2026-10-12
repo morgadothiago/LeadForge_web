@@ -1,5 +1,5 @@
 # SPEC-062 — Cadastro so com usuario, sem trial: plano obrigatorio (checkout) antes de criar a organizacao
-- status: APPROVED (usuario, 2026-10-11, `APROVAR SPEC-062`; Q-062-2 segue aberta: conferir trials reais em producao, vale a politica A ate la) | domain: fullstack (062a backend / 062b frontend; `## Backend`, `## Frontend`) | depende de: 033, 034 (billing/checkout), 047 (AbacatePay), 049 (orgs, convite, codigo, org ativa), 052 (e-mails, `sendOnce`), 053 (cancelar/reativar), 054 (exclusao de conta), 055 (verificacao de e-mail), 040 (cortesia), 035 (landing) | tambem toca: 039 (lembretes), 061 (DRAFT, tela de conta)
+- status: IN_PROGRESS — **062a (backend) IMPLEMENTED em 2026-10-11 (sem commit)**; 062b (frontend) pendente; aprovada pelo usuario em 2026-10-11 (`APROVAR SPEC-062`; Q-062-2 segue aberta: conferir trials reais em producao, vale a politica A ate la) | domain: fullstack (062a backend / 062b frontend; `## Backend`, `## Frontend`) | depende de: 033, 034 (billing/checkout), 047 (AbacatePay), 049 (orgs, convite, codigo, org ativa), 052 (e-mails, `sendOnce`), 053 (cancelar/reativar), 054 (exclusao de conta), 055 (verificacao de e-mail), 040 (cortesia), 035 (landing) | tambem toca: 039 (lembretes), 061 (DRAFT, tela de conta)
 - A **decisao de produto veio do usuario (2026-10-11)**: D-062-1..4 abaixo. Todo o resto e **INFERRED** (premissa minha, revisavel) ou pergunta aberta Q-062-n. Nada aqui e parecer juridico/fiscal. NENHUM codigo foi escrito, nenhuma migration rodada.
 
 ## Objetivo
@@ -209,6 +209,60 @@ Dadas na conversa de 2026-10-11 ("sim, registra as respostas na SPEC-062"). **A 
 - **Q-062-2 -> AINDA ABERTA (bloqueante).** O usuario vai conferir no Neon se ha assinaturas reais `trialing` em producao: `SELECT s.status, count(*), min(o."createdAt") FROM "Subscription" s JOIN "Organization" o ON o.id = s."orgId" GROUP BY s.status;`. Se nao houver cliente real em trial, a migracao e trivial (nada a honrar); se houver, vale a politica A (D-062-17: honrar `trialEndsAt` e depois bloquear).
 - **Q-062-6 e Q-062-9 -> sem resposta;** valem os defaults propostos (so link/codigo, sem listar convites por e-mail; admin ve as cascas pagas "Em configuracao") ate o usuario dizer o contrario.
 - **Nao resolvido por resposta (externo):** AbacatePay real (chave de dev + webhook), termos de uso, parecer juridico de retencao e politica de reembolso (CDC art. 49).
+
+
+## Implementation Notes — 062a (backend), 2026-10-11
+**Status 062a: IMPLEMENTED (nao commitado).** 062b (UI) e 062c (limpeza de schema) NAO foram feitas; por isso a SPEC inteira segue `IN_PROGRESS` e os criterios de aceitacao visuais (marcados abaixo) dependem da 062b.
+
+### Arquivos
+- **Migration** `prisma/migrations/20261017120000_cadastro_sem_trial/migration.sql` (a mao; aditiva): `Organization.setupPendingSince TIMESTAMP(3)` + indice, `Subscription.status SET DEFAULT 'incomplete'`. `prisma/schema.prisma` atualizado. Aplicada SO em bancos `*_test` (via `migrate deploy` do setup do vitest); `prisma migrate diff` banco de teste x schema = "No difference detected". Dev/producao: `migrate deploy` fica para o usuario.
+- **Trava do mock (item 1, isolado):** `src/lib/billing/provider-factory.ts` (+ `isProductionEnv` e `ALLOW_MOCK_BILLING` em `src/lib/env.ts`, `.env.example`), teste `provider-factory.test.ts`.
+- **Casca:** `src/lib/billing/shell.ts` (`NOT_SHELL`/`IS_SHELL`, `findUserShell`, `lockUser`), `src/lib/billing/shell-jobs.ts` (`purgeAbandonedShells`, `sendOrgSetupReminders`), `templates/org-setup-reminder.ts`, cenario `org_setup_reminder` (`scenario.ts`).
+- **Estados/guards:** `src/lib/auth/account-stage.ts` (`resolveAccountStage`, `resolveStageRoute`, `loadAccountStage`, `resolveHomeRoute`, `resolveSessionHomeRoute`), `requireProviderUser` em `require-admin.ts`.
+- **Actions:** `src/lib/actions/billing.ts` (`signUp`, `getAccountStage`, `startPlanCheckout`, `getPlanCheckoutState`, `cancelPendingSubscription`, `completeOrganizationSetup`; removido `signUpAndStartCheckout`), `src/lib/billing/cancel-subscription.ts` (`cancelSubscriptionForOrg`, extraido sem mudar a 053), `src/lib/actions/org.ts` (removido `createOrganization`; `acceptInvite`/`joinByCode` com `requireProviderUser`; `signUpAndJoin` so convite; `listMyOrganizations`/`switchActiveOrganization`/`leaveOrganization`/`previewInvite` ignoram casca), `src/lib/org/join.ts` (recusa casca), `src/lib/actions/auth.ts` (login sem recusa de org, escolha de org ignora casca, destino por estado), `src/lib/actions/account-deletion.ts` (D-062-21: `getAccountDeletionState`/`requestAccountDeletion` em `requireProviderUser`), schemas (`signupSchema` so usuario, `completeOrgSetupSchema`, `signupJoinSchema` so convite).
+- **Trial removido (so codigo):** `status-map.ts` (`TRIAL_DAYS` removido; `trialing` so vale ate `trialEndsAt`), `process-event.ts`/`classify-event.ts` (sem `trial_started`, `trialEndsAt` nunca calculado), removidos `trial-email.ts` e `templates/trial-started.ts`; `welcome.ts` reescrito (proximo passo = escolher plano, `/assinar`). Mantidos: enum `trialing`, `trialEndsAt`, `trial_ending` (legado).
+- **Filtros da casca:** `run-tick.ts` e `mobile/alerts.ts` (`setupPendingSince: null`), `queries/admin/organizations.ts` (padrao esconde casca sem pagamento; expoe `setupPendingSince`).
+- **Jobs no tick:** `purgeAbandonedShells`, `sendOrgSetupReminders` (isolados com `.catch`). **Orfao:** linha `[billing-orphan-payment]` em `process-event.ts`.
+- **Relatorio de trials legados (somente leitura):** `src/lib/billing/legacy-trials-report.ts` + `src/scripts/legacy-trials-report.ts` (`npm run billing:trials-report`). Sem `--apply`: nada e alterado.
+- **UI minima (so para compilar/nao quebrar):** `SignupForm.tsx` (3 campos, usa `signUp`), `signup/page.tsx`, `CreateOrganizationDialog.tsx` (vira aviso + link `/assinar?nova=1`), `SignupFlow.tsx`/`JoinWithCodeForm.tsx` removidos, redirects por estado em `(app)/layout.tsx`, `login/page.tsx`, `signup/page.tsx` e `app/page.tsx`.
+
+### Decisoes de implementacao (dentro da SPEC)
+- Estado `incomplete` da casca = `aguardando_pagamento`; `canceled`/`past_due`/sem assinatura = `sem_plano` (a tabela da SPEC listava `incomplete` nas duas linhas).
+- Casca nasce `status=suspended` (= `computeOrgStatus(incomplete)`); ao pagar vira `active` pelo `processBillingEvent`; `completeOrganizationSetup` recalcula pelo `computeOrgStatus`.
+- Purga de casca: apaga so sem sinal de pagamento (sem `active`/`past_due`/`externalSubscriptionId`/periodo pago/`WebhookEvent`) com `setupPendingSince` > 7d, ou cancelada e EFETIVADA ha > 7d (D-062-20); sob `lockOrg`, revalida antes de apagar. Casca sem membros sem pagamento tambem sai.
+- Lembretes D+1/3/7: ancora = primeiro `WebhookEvent` de billing da casca (quando pagou), senao `setupPendingSince`; so o passo mais recente devido; janela ate D+8.
+- `resolveSessionHomeRoute`: sessao de provider sem org mas com Membership real (anomalia) => `null` (login/landing/signup nao redirecionam; layout manda a `/login`), evita laco.
+- Seed de dev: NAO foram adicionados os 2 usuarios de demonstracao opcionais (a SPEC os marca como opcionais; ficam para a 062b/ROTEIRO).
+
+### Correcao do achado do QA (ALTO)
+- `src/lib/mobile/org.ts` (`resolveOrgId`): SQL cru agora faz JOIN em `Organization` com `setupPendingSince IS NULL` (casca nunca e org ativa no mobile). Testes (a)(b)(c) em `src/lib/mobile/org.test.ts`. Varredura dos demais pontos de escolha de org: ok. Comentarios `signUpAndStartCheckout` atualizados (so texto).
+
+### Testes (executados)
+- `npx tsc --noEmit`: VERIFIED (0 erros). `npx eslint`: VERIFIED (0 erros; 23 warnings, nenhum novo relevante). `npx next build`: VERIFIED.
+- `npx vitest run` completo em banco novo `leadforge_062a_test` (TEST_DATABASE_URL derivado do .env, senha nao impressa): VERIFIED, 170 arquivos / 2171 testes verdes.
+- Novos: `provider-factory.test.ts`, `account-stage.test.ts`, `plan-checkout-062.test.ts`, `shell-jobs.test.ts`, `org-062.test.ts`, `spec062-regression.test.ts`, `provider-user-coverage.test.ts`, ajustes em `proxy.test.ts` e nos testes que citavam trial/signup antigo.
+
+### Criterios de aceitacao (062a)
+| Criterio | Status | Evidencia |
+|---|---|---|
+| Cadastro cria so o usuario | PASS (backend) / UI pendente 062b | `billing.test.ts` "signUp cria SO o User", `org-ui.test.tsx` SignupForm 3 campos |
+| Sem plano/sem org -> `/assinar`; tenant redireciona | PASS (estado/guards/layout) / paginas pendentes 062b | `account-stage.test.ts`, `org-062.test.ts` login por estado |
+| Pagar -> ativa a casca -> nomear -> dono | PASS (actions) | `plan-checkout-062.test.ts` |
+| Sem duplicidade (casca/assinatura/org/e-mail) | PASS | concorrencia e idempotencia em `plan-checkout-062.test.ts` |
+| Abandono: limpeza 7d, casca paga nunca apagada, orfao logado | PASS | `shell-jobs.test.ts`, `plan-checkout-062.test.ts` |
+| Convite/codigo sem checkout; nao entram em casca; `signUpAndJoin` so convite | PASS | `org-062.test.ts`, `org.test.ts` |
+| Nenhum trial criado; `trial_started` removido; default `incomplete` | PASS (codigo/banco) / textos de landing pendentes 062b | `spec062-regression.test.ts` |
+| Trials legados: vigentes ate `trialEndsAt`, depois suspensos; relatorio | PASS | `status-map.test.ts`, `spec062-regression.test.ts` |
+| Cortesia/admin/seed inalterados | PASS | `spec062-regression.test.ts`, suites existentes |
+| 053/054 sem regressao; casca paga tratavel | PASS | suites 053/054 verdes; `spec062-regression.test.ts` (bloqueio por casca paga) |
+| Isolamento multi-tenant com casca; `tsc`/lint/vitest; migration aditiva | PASS | `org-062.test.ts`, gates acima |
+
+### Limitacoes conhecidas / pendencias
+- **Achado fora do escopo (nao alterado):** `src/proxy.ts` nao isenta `/api/billing/webhook` no `matcher`; sem sessao a requisicao do provedor tende a ser redirecionada a `/login` (307). Verificar com webhook real; a SPEC manda nao mexer na lista publica do proxy nesta entrega.
+- Q-062-2 segue aberta: nenhum dado de producao foi alterado; rodar `npm run billing:trials-report` no ambiente alvo antes de publicar (a regra nova suspende trial vencido/sem data).
+- Producao hoje esta em `PAYMENT_PROVIDER=mock`: com a trava, o checkout fica indisponivel (`billing_unavailable`) ate haver AbacatePay real ou `ALLOW_MOCK_BILLING=true`.
+- AbacatePay real/PIX/E2E em navegador: NOT VERIFIED (fora da 062a).
+- Documentacao de usuario (`PRIMEIROS_PASSOS.md`, `ROTEIRO_DE_TESTES.md`, `TESTES_PRIORITARIOS.md`) fica para a 062b (o fluxo visivel so existe com as telas).
 
 ## Decisoes pendentes (perguntas abertas — dependem do usuario)
 - **Q-062-1 (bloqueante; recomendo a opcao A):** como ligar o pagamento a uma org que ainda nao existe? **A) casca de cobranca** (D-062-5: org tecnica invisivel criada ao iniciar o checkout, "nomeada" depois do pagamento; reaproveita todo o billing existente; custo baixo, risco no filtro de listagens/scheduler) ou **B) credito de compra por usuario** (`PlanPurchase`; a org criada depois consome o credito; exige reescrever correlacao de webhook/renovacoes; fiel ao literal "a org so existe depois", custo e risco bem maiores).

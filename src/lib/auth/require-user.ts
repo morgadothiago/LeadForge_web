@@ -60,8 +60,9 @@ export async function requireUser(): Promise<CurrentUser> {
 }
 
 /**
- * SPEC-032/037: destino pós-login/pós-signup/pós-"/" para usuário autenticado — nunca "/dashboard"
- * fixo. `platform_admin` não tem Organization (D-30-1), então `/dashboard` (que exige
+ * SPEC-032/037: destino de `platform_admin` x `provider` com org. SPEC-062: o destino real do usuario logado vem do ESTADO da
+ * conta (`resolveHomeRoute`/`resolveSessionHomeRoute` em `account-stage.ts`; sem org => `/assinar` etc.); esta funcao so
+ * descreve o caso "com org". `platform_admin` nunca fica no "/dashboard" fixo. `platform_admin` não tem Organization (D-30-1), então `/dashboard` (que exige
  * `requireProviderOrg()`) lançaria `ForbiddenError`; o home dele é a área cross-tenant.
  */
 export function homeRouteFor(platformRole: PlatformRole): string {

@@ -4,7 +4,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { prisma } from "@/lib/prisma";
 import { createTestOrg, purgeTestOrg, type TestOrg } from "@/lib/test-utils/org-fixture";
 import { signInAs, signOut } from "@/lib/auth/test-helpers";
-import { createCheckoutSession, createPortalSession, signUpAndStartCheckout } from "./billing";
+import { createCheckoutSession, createPortalSession, signUp } from "./billing";
 
 let org: TestOrg;
 let memberUserId: string;
@@ -94,68 +94,46 @@ describe("createPortalSession (SPEC-033)", () => {
   });
 });
 
-describe("signUpAndStartCheckout (SPEC-033/D-35-1) — trial ponta a ponta em modo mock, sem credencial externa", () => {
+describe("signUp (SPEC-062, D-062-1/7) — so o usuario, sem organizacao nem trial", () => {
   const created: string[] = [];
   afterAll(async () => {
-    const users = await prisma.user.findMany({ where: { email: { in: created } }, select: { id: true, memberships: { select: { orgId: true } } } });
-    for (const u of users) {
-      for (const m of u.memberships) {
-        await prisma.subscription.deleteMany({ where: { orgId: m.orgId } });
-        await prisma.membership.deleteMany({ where: { orgId: m.orgId } });
-        await prisma.organization.deleteMany({ where: { id: m.orgId } });
-      }
-      await prisma.user.deleteMany({ where: { id: u.id } });
-    }
+    await prisma.user.deleteMany({ where: { email: { in: created } } });
   });
 
-  it("cria User+Organization+Membership(owner)+Subscription(trialing, 14 dias) e já autentica", async () => {
+  it("cria SO o User (nao verificado): nenhuma Organization/Membership/Subscription; redireciona ao /assinar", async () => {
     const email = `zz-signup-${randomUUID().slice(0, 8)}@test.local`;
     created.push(email);
-    const r = await signUpAndStartCheckout({ name: "Fulano", email, password: "senha-forte-123456", orgName: "Empresa Teste Zz", planKey: "starter" });
+    const orgsBefore = await prisma.organization.count();
+    const subsBefore = await prisma.subscription.count();
+    const r = await signUp({ name: "Fulano", email, password: "senha-forte-123456" });
     expect(r.ok).toBe(true);
     if (!r.ok) return;
-    expect(r.data.redirectTo).toBe("/dashboard");
-    const user = await prisma.user.findUniqueOrThrow({ where: { email }, select: { id: true, memberships: { select: { orgId: true, orgRole: true } } } });
-    expect(user.memberships).toHaveLength(1);
-    expect(user.memberships[0].orgRole).toBe("owner");
-    const sub = await prisma.subscription.findUniqueOrThrow({ where: { orgId: user.memberships[0].orgId } });
-    expect(sub.status).toBe("trialing");
-    expect(sub.trialEndsAt).not.toBeNull();
-    const days = (sub.trialEndsAt!.getTime() - Date.now()) / (24 * 3600_000);
-    expect(days).toBeGreaterThan(13.9);
-    expect(days).toBeLessThan(14.1);
-    const org2 = await prisma.organization.findUniqueOrThrow({ where: { id: user.memberships[0].orgId } });
-    expect(org2.status).toBe("active");
+    expect(r.data.redirectTo).toBe("/assinar");
+    const user = await prisma.user.findUniqueOrThrow({ where: { email }, select: { role: true, emailVerifiedAt: true, memberships: true } });
+    expect(user.role).toBe("provider");
+    expect(user.emailVerifiedAt).toBeNull();
+    expect(user.memberships).toHaveLength(0);
+    expect(await prisma.organization.count()).toBe(orgsBefore);
+    expect(await prisma.subscription.count()).toBe(subsBefore);
   });
 
-  it("e-mail já cadastrado -> erro genérico (sem criar org duplicada, sem confirmar existência da conta)", async () => {
-    // QA fix (achado menor, SPEC-033 rodada 2): mensagem não pode confirmar "já existe" (anti-enumeração).
+  it("e-mail já cadastrado -> erro genérico (sem confirmar existência da conta)", async () => {
     const email = `zz-signup-dup-${randomUUID().slice(0, 8)}@test.local`;
     created.push(email);
-    const input = { name: "Fulano", email, password: "senha-forte-123456", orgName: "Empresa Dup", planKey: "starter" };
-    const r1 = await signUpAndStartCheckout(input);
-    expect(r1.ok).toBe(true);
-    const r2 = await signUpAndStartCheckout(input);
+    const input = { name: "Fulano", email, password: "senha-forte-123456" };
+    expect((await signUp(input)).ok).toBe(true);
+    const r2 = await signUp(input);
     expect(r2.ok).toBe(false);
     if (!r2.ok) {
       expect(r2.errors._form?.[0]).toBeDefined();
-      const message = JSON.stringify(r2.errors);
-      expect(message).not.toMatch(/já existe|already exists|cadastrado/i);
+      expect(JSON.stringify(r2.errors)).not.toMatch(/já existe|already exists|cadastrado/i);
     }
   });
 
-  it("plano 'business' (sem self-service) -> recusado", async () => {
-    const email = `zz-signup-biz-${randomUUID().slice(0, 8)}@test.local`;
-    const r = await signUpAndStartCheckout({ name: "Fulano", email, password: "senha-forte-123456", orgName: "Empresa Biz", planKey: "business" });
-    expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.errors.planKey?.[0]).toMatch(/self-service/);
-    const user = await prisma.user.findUnique({ where: { email } });
-    expect(user).toBeNull();
-  });
-
-  it("senha curta -> erro de validação", async () => {
+  it("senha curta -> erro de validação (e nenhum usuario)", async () => {
     const email = `zz-signup-weak-${randomUUID().slice(0, 8)}@test.local`;
-    const r = await signUpAndStartCheckout({ name: "Fulano", email, password: "curta", orgName: "Empresa", planKey: "starter" });
+    const r = await signUp({ name: "Fulano", email, password: "curta" });
     expect(r.ok).toBe(false);
+    expect(await prisma.user.findUnique({ where: { email } })).toBeNull();
   });
 });
