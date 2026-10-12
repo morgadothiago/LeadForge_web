@@ -182,7 +182,7 @@ Rotas: `/assinar`, `/assinar/retorno`, `/organizacao/nova`, `/entrar-em-organiza
 - **J11 (enumeracao de e-mail no cadastro) continua aberta**; esta SPEC nao a resolve.
 
 ## Ordem de execucao
-1. **Aprovar SPEC-062** + responder Q-062-1..8 (as marcadas bloqueantes: Q-062-1, Q-062-2, Q-062-7).
+1. **Aprovar SPEC-062** (`APROVAR SPEC-062`). Q-062-1, 3, 4, 5, 7 e 8 ja respondidas (ver "Respostas registradas"); resta a **Q-062-2** (conferir `trialing` em producao).
 2. **062a — dev-backend:** migration (aditiva, so banco de teste) -> status-map/legado -> guards/stage -> actions (`signUp`, `startPlanCheckout`, `getPlanCheckoutState`, `completeOrganizationSetup`, `cancelPendingSubscription`) -> join/convite/codigo -> remocao do trial (tabela D-062-16) -> jobs (cascas, lembretes) -> e-mails -> guard de mock -> script de trials legados -> testes. **QA** (independente).
 3. **062b — dev-frontend:** `/signup`, `/assinar`, `/assinar/retorno`, `/organizacao/nova`, `/entrar-em-organizacao`, `/minha-conta`, layout/redirects/banners, landing/CTAs, limpeza de textos -> testes de UI. **QA.**
 4. Docs (abaixo) + E2E em navegador real do fluxo completo (mock) e, antes do launch, com AbacatePay real (sandbox).
@@ -197,6 +197,18 @@ Regra do projeto: **commit+push so com QA OK e testes verdes**, um commit por SP
 
 ## Fora do escopo
 - App movel; PIX na UI (QR) e cartao no AbacatePay real alem do que a 047 ja tem; listagem de convites pendentes por e-mail; transferir/mover assinatura entre orgs; reembolso automatico; termos de uso/politica de privacidade; resolver J11; remocao fisica de colunas/enums de trial (062c); mudar precos (D-33-2 segue PLACEHOLDER); `leaveOrganization` da ultima org (D-062-22); 061 (so registrado o impacto).
+
+## Respostas registradas (usuario, 2026-10-11) — aceitas as recomendacoes
+Dadas na conversa de 2026-10-11 ("sim, registra as respostas na SPEC-062"). **A SPEC continua `DRAFT`: registrar respostas NAO e aprovar.** A aprovacao e o comando `APROVAR SPEC-062`.
+- **Q-062-1 -> A (casca de cobranca, D-062-5).** O credito de compra por usuario foi descartado por exigir mudar o contrato do provedor (parte menos validada).
+- **Q-062-3 -> sim:** limpar a casca nao paga apos **7 dias**; casca paga sem org recebe lembretes D+1/3/7 e nunca expira nem e apagada.
+- **Q-062-4 -> sim, exigir e-mail verificado antes de pagar (D-062-12)**, **condicionado a ter SMTP/e-mail real ligado**: sem e-mail real ninguem consegue verificar. Ate la o checkout nao deve ser aberto ao publico.
+- **Q-062-5 -> sim:** uma assinatura por organizacao, inclusive 2a+ org (D-062-14).
+- **Q-062-7 -> sim:** proibir cobranca `mock` em producao, com `ALLOW_MOCK_BILLING=true` como excecao explicita (D-062-23). E a primeira correcao a implementar, independente do resto da SPEC (hoje qualquer owner se ativa em plano pago sem pagar).
+- **Q-062-8 -> sim:** so cartao em `/assinar` nesta SPEC; PIX com tela de QR fica para SPEC futura (junto com Q-052-5).
+- **Q-062-2 -> AINDA ABERTA (bloqueante).** O usuario vai conferir no Neon se ha assinaturas reais `trialing` em producao: `SELECT s.status, count(*), min(o."createdAt") FROM "Subscription" s JOIN "Organization" o ON o.id = s."orgId" GROUP BY s.status;`. Se nao houver cliente real em trial, a migracao e trivial (nada a honrar); se houver, vale a politica A (D-062-17: honrar `trialEndsAt` e depois bloquear).
+- **Q-062-6 e Q-062-9 -> sem resposta;** valem os defaults propostos (so link/codigo, sem listar convites por e-mail; admin ve as cascas pagas "Em configuracao") ate o usuario dizer o contrario.
+- **Nao resolvido por resposta (externo):** AbacatePay real (chave de dev + webhook), termos de uso, parecer juridico de retencao e politica de reembolso (CDC art. 49).
 
 ## Decisoes pendentes (perguntas abertas — dependem do usuario)
 - **Q-062-1 (bloqueante; recomendo a opcao A):** como ligar o pagamento a uma org que ainda nao existe? **A) casca de cobranca** (D-062-5: org tecnica invisivel criada ao iniciar o checkout, "nomeada" depois do pagamento; reaproveita todo o billing existente; custo baixo, risco no filtro de listagens/scheduler) ou **B) credito de compra por usuario** (`PlanPurchase`; a org criada depois consome o credito; exige reescrever correlacao de webhook/renovacoes; fiel ao literal "a org so existe depois", custo e risco bem maiores).
