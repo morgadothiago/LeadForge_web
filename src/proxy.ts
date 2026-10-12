@@ -31,9 +31,12 @@ export async function proxy(request: NextRequest) {
 }
 
 /**
+ * O webhook de cobrança (/api/billing/webhook) tem de ficar fora da guarda de sessão: o provedor (AbacatePay/Stripe) não tem cookie e
+ * autentica por assinatura/segredo no próprio handler; com a guarda ele recebia 307 para /login e o pagamento nunca chegava.
+ *
  * Isenções: somente assets estáticos reais e exatos de /public (literal estático exigido pelo Next; nenhuma
  * isenção por extensão genérica). Ao adicionar arquivo em /public, liste-o aqui.
  */
 export const config = {
-  matcher: ["/((?!api/webhooks(?:/|$)|api/cron(?:/|$)|api/integrations(?:/|$)|api/mobile/v1(?:/|$)|_next/static/|_next/image(?:/|$|\\?)|(?:favicon\\.ico|file\\.svg|globe\\.svg|next\\.svg|vercel\\.svg|window\\.svg)$).*)"],
+  matcher: ["/((?!api/webhooks(?:/|$)|api/billing/webhook(?:/|$)|api/cron(?:/|$)|api/integrations(?:/|$)|api/mobile/v1(?:/|$)|_next/static/|_next/image(?:/|$|\\?)|(?:favicon\\.ico|file\\.svg|globe\\.svg|next\\.svg|vercel\\.svg|window\\.svg)$).*)"],
 };
