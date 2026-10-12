@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
 import { NextRequest } from "next/server";
-import { proxy } from "./proxy";
+import { config, proxy } from "./proxy";
 
 const run = (path: string) => proxy(new NextRequest(`http://localhost${path}`));
 
@@ -25,5 +25,18 @@ describe("proxy: /verificar-email pública (SPEC-055b)", () => {
     const res = await run("/verificar-email?token=abc");
     expect(res.status).toBe(200);
     expect(res.headers.get("location")).toBeNull();
+  });
+});
+
+describe("matcher do proxy", () => {
+  const guarded = (path: string) => new RegExp(`^${config.matcher[0]}$`).test(path);
+
+  it("deixa o webhook de cobrança fora da guarda de sessão", () => {
+    expect(guarded("/api/billing/webhook")).toBe(false);
+  });
+  it("mantém as demais rotas de billing e o app sob a guarda", () => {
+    expect(guarded("/api/billing/portal")).toBe(true);
+    expect(guarded("/api/billing/webhook-fake")).toBe(true);
+    expect(guarded("/dashboard")).toBe(true);
   });
 });
