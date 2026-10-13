@@ -1,7 +1,8 @@
 import "dotenv/config";
-import { PrismaClient, Channel, Stage, SequenceStatus, TouchStatus } from "@prisma/client";
+import { Prisma, PrismaClient, Channel, Stage, SequenceStatus, TouchStatus } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { hashPassword } from "../src/lib/auth/password";
+import { PLAN_KEYS, PLAN_MATRIX, planLimitsJson } from "../src/lib/billing/plan-catalog";
 
 export const SEED_IDS = {
   user: "00000000-0000-4000-8000-000000000001",
@@ -313,68 +314,23 @@ export async function seed(prisma: PrismaClient, now: Date = new Date()) {
 }
 
 /**
- * SPEC-033 (D-33-2) — catálogo de planos. PLACEHOLDER: preços e limites populam o schema para
- * desenvolver o fluxo completo (checkout/trial/gating), mas precisam de confirmação explícita do
- * usuário antes de produção — NÃO usar estes valores no launch sem revisão.
+ * SPEC-033 (D-33-2) / SPEC-069a — catálogo de planos. PLACEHOLDER: preços, limites e funcionalidades vêm de UM lugar,
+ * `src/lib/billing/plan-catalog.ts` (`PLAN_MATRIX`); NÃO usar estes valores no launch sem revisão. `Plan.limits` guarda os limites
+ * numéricos + o objeto `features` (sem migration, D-069-4).
  */
-export const PLAN_SEED = [
-  {
-    key: "free",
-    name: "Teste grátis",
-    // SPEC-065 (D-065-6/8): plano do trial de 14 dias (cadastro). Fora da vitrine (como `courtesy`), sem checkout. Limites PLACEHOLDER
-    // (o usuario define depois; o seed e a fonte, ver `seedPlans`). `maxLeadsPerMonth` no Free vale "durante o teste".
-    priceMonthlyCents: 0,
-    priceYearlyCents: null,
-    limits: { maxCampaigns: 1, maxWhatsappInstances: 1, maxEmailAccounts: 1, maxLeadsPerMonth: 50, maxSendsPerDay: 20 },
-    selfServiceCheckout: false,
-  },
-  {
-    key: "starter",
-    name: "Starter",
-    // PLACEHOLDER: confirmar preço final antes do launch (D-33-2).
-    priceMonthlyCents: 29_700,
-    priceYearlyCents: 297_000, // 2 meses grátis
-    limits: { maxCampaigns: 3, maxWhatsappInstances: 1, maxLeadsPerMonth: 500 },
-    selfServiceCheckout: true,
-  },
-  {
-    key: "pro",
-    name: "Pro",
-    // PLACEHOLDER: confirmar preço final antes do launch (D-33-2).
-    priceMonthlyCents: 69_700,
-    priceYearlyCents: 697_000, // 2 meses grátis
-    limits: { maxCampaigns: 10, maxWhatsappInstances: 3, maxLeadsPerMonth: 3000 },
-    selfServiceCheckout: true,
-  },
-  {
-    key: "business",
-    name: "Business",
-    // PLACEHOLDER: "sob consulta" — sem checkout self-service (D-33-2); preço 0 = não cobrado por aqui.
-    priceMonthlyCents: 0,
-    priceYearlyCents: null,
-    limits: { maxCampaigns: null, maxWhatsappInstances: null, maxLeadsPerMonth: null },
-    selfServiceCheckout: false,
-  },
-  {
-    key: "courtesy",
-    name: "Cortesia",
-    // SPEC-040 (D-040-2/D-040-3): sem cobrança real, acesso sem limite. Só o `platform_admin` atribui
-    // este plano (`createCourtesyOrganization`) — nunca aparece na listagem pública (`listActivePlans`
-    // filtra explicitamente esta key, ver src/lib/billing/plans.ts) nem tem checkout self-service.
-    priceMonthlyCents: 0,
-    priceYearlyCents: null,
-    limits: { maxCampaigns: null, maxWhatsappInstances: null, maxLeadsPerMonth: null },
-    selfServiceCheckout: false,
-  },
-] as const;
+export const PLAN_SEED = PLAN_KEYS.map((key) => {
+  const d = PLAN_MATRIX[key];
+  return { key, name: d.name, priceMonthlyCents: d.priceMonthlyCents, priceYearlyCents: d.priceYearlyCents, limits: planLimitsJson(key), selfServiceCheckout: d.selfServiceCheckout };
+});
 
 export async function seedPlans(prisma: PrismaClient): Promise<void> {
   for (const p of PLAN_SEED) {
     await prisma.plan.upsert({
       where: { key: p.key },
-      // SPEC-065 (D-065-6): so o `free` tem os limites atualizados pelo seed (nao ha tela de edicao de plano); os demais ficam intocados.
-      update: p.key === "free" ? { limits: p.limits, name: p.name } : {},
-      create: { key: p.key, name: p.name, priceMonthlyCents: p.priceMonthlyCents, priceYearlyCents: p.priceYearlyCents, limits: p.limits, selfServiceCheckout: p.selfServiceCheckout },
+      // SPEC-069a (Q-069-8): o seed e a fonte e atualiza, de forma idempotente, os `limits` (limites + features) dos 5 planos; nome so no `free`
+      // (SPEC-065); precos/checkout dos demais ficam intocados (nao ha tela de edicao de plano).
+      update: p.key === "free" ? { limits: p.limits as Prisma.InputJsonObject, name: p.name } : { limits: p.limits as Prisma.InputJsonObject },
+      create: { key: p.key, name: p.name, priceMonthlyCents: p.priceMonthlyCents, priceYearlyCents: p.priceYearlyCents, limits: p.limits as Prisma.InputJsonObject, selfServiceCheckout: p.selfServiceCheckout },
     });
   }
 }

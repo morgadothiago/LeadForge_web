@@ -44,7 +44,7 @@ describe("listActivePlans", () => {
     expect((await prisma.plan.findUniqueOrThrow({ where: { key: "free" } })).active).toBe(true);
     const plans = await listActivePlans();
     expect(plans.map((p) => p.key)).not.toContain("free");
-    expect(parseLimits({ maxCampaigns: 2 })).toEqual({ maxCampaigns: 2, maxWhatsappInstances: null, maxLeadsPerMonth: null, maxEmailAccounts: null, maxSendsPerDay: null });
+    expect(parseLimits({ maxCampaigns: 2 })).toMatchObject({ maxCampaigns: 2, maxWhatsappInstances: null, maxLeadsPerMonth: null, maxEmailAccounts: null, maxSendsPerDay: null });
     expect(parseLimits({ maxEmailAccounts: 1, maxSendsPerDay: 20 })).toMatchObject({ maxEmailAccounts: 1, maxSendsPerDay: 20 });
     expect(parseLimits(null).maxSendsPerDay).toBeNull();
     expect(parseLimits({ maxCampaigns: -1, maxSendsPerDay: "x" })).toMatchObject({ maxCampaigns: null, maxSendsPerDay: null });

@@ -306,6 +306,10 @@ describe("reserva atômica (sending)", () => {
 });
 
 describe("actions e queries de conta", () => {
+  // SPEC-069a (Q-069-6): o Starter agora limita contas de e-mail (1); este teste de CRUD cria varias na org de seed, entao a poe num plano de teste sem limite e restaura.
+  const planOf = async (key: string) => { const p = await prisma.plan.findUniqueOrThrow({ where: { key }, select: { id: true } }); await prisma.subscription.updateMany({ where: { orgId: "00000000-0000-4000-8000-00000000000f" }, data: { planId: p.id } }); };
+  beforeAll(async () => { await prisma.plan.upsert({ where: { key: "zz-email-unl" }, update: {}, create: { key: "zz-email-unl", name: "zz-email-unl", priceMonthlyCents: 0, limits: {}, active: false, selfServiceCheckout: false } }); await planOf("zz-email-unl"); });
+  afterAll(() => planOf("starter"));
   it("CRUD sem vazar senha; unique = erro de campo; validação PT-BR", async () => {
     const input = { provider: "smtp", smtpHost: "smtp.x.com", port: 587, email: `Novo@${TAG}.com`, password: PASS, dailyLimit: 10 };
     const c = await createEmailAccount(input);

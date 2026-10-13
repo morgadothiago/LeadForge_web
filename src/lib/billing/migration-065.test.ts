@@ -44,20 +44,20 @@ describe("migration 065a e ADITIVA (D-065-25, plano de testes 9)", () => {
     expect(r.status).toBe(0);
   }, 60_000);
 
-  it("o seed cria o plano `free` (limites placeholder) e o seed repoe os limites SO do free (outros planos intocados)", async () => {
+  it("o seed cria o plano `free` (limites placeholder) e o seed repoe os limites (SPEC-069a: dos 5 planos; precos intocados)", async () => {
     const { seedPlans } = await import("../../../prisma/seed");
     const { PrismaClient } = await import("@prisma/client");
     expect(PrismaClient).toBeDefined();
     const free = await prisma.plan.findUniqueOrThrow({ where: { key: "free" } });
     expect(free).toMatchObject({ name: "Teste grátis", priceMonthlyCents: 0, selfServiceCheckout: false, active: true });
-    expect(free.limits).toEqual({ maxCampaigns: 1, maxWhatsappInstances: 1, maxEmailAccounts: 1, maxLeadsPerMonth: 50, maxSendsPerDay: 20 });
+    expect(free.limits).toMatchObject({ maxCampaigns: 1, maxWhatsappInstances: 1, maxEmailAccounts: 1, maxLeadsPerMonth: 50, maxSendsPerDay: 20 }); // 069a: + chaves novas e `features`
     const starterBefore = await prisma.plan.findUniqueOrThrow({ where: { key: "starter" } });
     try {
       await prisma.plan.update({ where: { key: "free" }, data: { limits: { maxCampaigns: 99 } } });
       await prisma.plan.update({ where: { key: "starter" }, data: { limits: { maxCampaigns: 77 } } });
       await seedPlans(prisma);
       expect((await prisma.plan.findUniqueOrThrow({ where: { key: "free" } })).limits).toEqual(free.limits); // free: o seed e a fonte
-      expect((await prisma.plan.findUniqueOrThrow({ where: { key: "starter" } })).limits).toEqual({ maxCampaigns: 77 }); // demais intocados
+      expect((await prisma.plan.findUniqueOrThrow({ where: { key: "starter" } })).limits).toMatchObject({ maxCampaigns: 3, maxSendsPerDay: 300 }); // 069a (Q-069-8): o seed tambem repoe os demais
     } finally {
       await prisma.plan.update({ where: { key: "starter" }, data: { limits: starterBefore.limits ?? {} } });
       await seedPlans(prisma);

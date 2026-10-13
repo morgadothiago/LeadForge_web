@@ -154,6 +154,7 @@ model Organization {
   subscription         Subscription?
   usageCounters        UsageCounter[]
   billingCharges       BillingCharge[]
+  entitlementOverride  OrgEntitlementOverride?
   memberships          Membership[]
   orgInvites           OrgInvite[]
   orgAuditLogs         OrgAuditLog[]
@@ -1047,6 +1048,21 @@ model Plan {
   updatedAt            DateTime         @updatedAt
   subscriptions        Subscription[]
   billingProducts      BillingProduct[]
+}
+
+/// SPEC-069a (Q-069-7): override MANUAL de funcionalidades/limites por organizacao (so o platform_admin escreve; 069c). Prevalece sobre o plano
+/// enquanto `expiresAt` for nulo ou futuro. `features`: {chave:boolean}; `limits`: {chave:numero|null} (null = ilimitado). `createdBy` = id do admin (sem FK: auditoria sobrevive ao usuario).
+model OrgEntitlementOverride {
+  id        String       @id @default(uuid())
+  orgId     String       @unique
+  org       Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  features  Json         @default("{}")
+  limits    Json         @default("{}")
+  reason    String
+  expiresAt DateTime?
+  createdBy String
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
 }
 
 /// SPEC-033: 1 assinatura ativa por Organization (orgId unico). `status` e espelho do provedor (Stripe,
