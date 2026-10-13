@@ -1,30 +1,25 @@
 # Para retomar: o que está pronto, o que depende de você e o que vem depois
 
-Atualizado em 2026-10-12 (fim de sessão). **A seção 0 abaixo manda; as seções 1 a 8 são histórico detalhado e podem estar desatualizadas (cheque o `git log`).**
+Atualizado em 2026-10-12 (noite). **A seção 0 abaixo manda; as seções 1 a 8 são histórico detalhado e podem estar desatualizadas (cheque o `git log`).**
 
-## 0. RETOMAR AMANHÃ: leia isto primeiro (2026-10-12, fim de sessão)
+## 0. RETOMAR: leia isto primeiro (2026-10-12, noite)
 
-### Atualização SPEC-068b (2026-10-12, depois)
-- **068a já commitada (`5a3cd15`). 068b (frontend `/atendimento`) IMPLEMENTADA, SEM COMMIT, aguardando QA independente + E2E em navegador** (bloco V do `docs/ROTEIRO_DE_TESTES.md`, 390/1280 px, claro/escuro, axe). tsc/eslint/vitest verdes (210 arquivos / 2698 testes). Detalhes e desvios: "Implementation Notes — 068b" na SPEC. Para ver na tela: `npx prisma migrate deploy` (migration 068a) + reiniciar o `npm run dev`. Sem jsdom/RTL no repo: interações só no E2E manual. Próximo: QA da 068b -> E2E -> commit/push; depois 068c/d (anexos).
+### Onde paramos (2026-10-12, noite)
+- **`main` = `6f1ee52`**, igual no GitHub e no local. Cada merge na `main` **publica sozinho** na Vercel (`https://lead-forge-web-omega.vercel.app`; as migrations aditivas rodam no build).
+- **SPEC-065 (Free de 14 dias, um trial por e-mail OU CPF/CNPJ):** IMPLEMENTADA e na `main` (`65045a4`), QA aprovado. **Falta o teste ponta a ponta no navegador** (bloco T do ROTEIRO) para virar IMPLEMENTED. Em produção `TRIAL_CLAIM_PEPPER` já está na Vercel (arquivo `~/.leadforge-secrets/trial_claim_pepper.txt`; **não perder nem trocar**).
+- **SPEC-066 (Assinatura: lista de mensalidades + PIX no checkout):** APROVADA. **066a (backend `BillingCharge`) na `main`** (`894f4f1`). **066b (checkout PIX) e 066c (UI da lista de mensalidades e card do Free) ainda não feitas.**
+- **SPEC-067 (toasts padronizados com erro do backend):** DRAFT, aguardando `APROVAR SPEC-067` (Q-067-1..3, recomendação: sim). Roda depois da 066c.
+- **SPEC-068 (caixa de atendimento de WhatsApp, `/atendimento`):** APROVADA em 2026-10-12 com todas as recomendações. **068a backend (`5a3cd15`) e 068b frontend (`6f1ee52`) na `main`**, ambas com QA aprovado com ressalvas e corrigidas (tsc/eslint/vitest 2699 testes verdes). **Falta:** E2E em navegador (bloco V do ROTEIRO: 390/1280 px, claro/escuro, teclado), `next build` com o dev parado (confirmar que não volta o erro do `dns`), validar a Evolution v2.1.1 de verdade (`fromMe`, status `read`, ordem do eco), e as etapas **068c/d (anexos)** e **068e (etiquetas/extras; limpar bolha `sending` presa)**. Decisão aceita: FK da instância em `Cascade` (excluir número apaga a caixa dele; a UI avisa).
+- **Fora do escopo:** app móvel (SPECs 021-023 ficam no código, sem manutenção). **n8n:** container parado e sem agentes; só existem `n8n/workflows/tick.json` e `ingest-leads-example.json`. Os agentes de IA rodam dentro do app (tick).
+- **Prompt pronto (não executado):** `docs/PROMPT_ADMIN_NOTIFICACOES_SIDEBAR.md` (sino do admin + sidebar de admin).
 
-### Onde paramos
-- **`main` = `771121e`** (PR #17), igual no GitHub e no local. **Produção na Vercel já roda esse código** (`https://lead-forge-web-omega.vercel.app`). Cada merge na `main` **publica sozinho** em produção (Git integrado).
-- **Em produção e na `main`:** SPEC-062a/b (cadastro só com usuário, sem trial, casca de cobrança, telas `/assinar`, `/assinar/retorno`, `/organizacao/nova`, `/entrar-em-organizacao`, `/minha-conta`), SPEC-063a (adaptador AbacatePay v2: catálogo de produtos, checkout real, webhook v2, PIX, logs sem segredos; validado no sandbox), SPEC-064 (senha mínima 6, confirmar senha, barra de força), Vercel Analytics e Speed Insights. 179 arquivos / 2343 testes verdes, QA independente aprovado em todas.
-- **Teste real de pagamento (local, com túnel):** cadastro → e-mail no Mailpit → `/assinar` → checkout do AbacatePay criado sem 422 → webhook respondeu 200 → `/organizacao/nova` liberada. Funcionou. **Não pagamos ainda com o cartão `4242 4242 4242 4242` até o fim** (parou ao nomear a organização).
-- **APROVADA 2026-10-12; 068a (backend) IMPLEMENTADA, sem commit, aguardando QA; migration `20261021120000_inbox_whatsapp_068a` ainda NÃO aplicada no dev (`migrate deploy`), ver Implementation Notes da SPEC:** `specs/68-caixa-atendimento-whatsapp/spec.md` (caixa de atendimento de WhatsApp na web, `/atendimento`; 068a-e; 12 perguntas, 3 bloqueantes Q-068-1/2/3 com recomendação). Para liberar: "aceito as recomendações" e `APROVAR SPEC-068`.
-- **Em DRAFT (aguardando você):** `specs/65-free-trial-7-dias-limites/spec.md` (Free de **14 dias** desde 2026-10-12; **um trial por e-mail OU CPF/CNPJ**, D-065-27, nova Q-065-15; o nome da pasta ficou com "7-dias" de propósito;  org automática no cadastro, limites baixos aplicados no código, bloqueio total ao expirar; **reverte parte da 062**). 14 perguntas abertas, as bloqueantes com recomendação: Q-065-1 cartão no cadastro = NÃO; Q-065-2 pagar durante o trial cobra na hora = SIM; Q-065-4 retenção dos dados de quem não assinou = 90 dias com aviso aos 75; Q-065-9 usuário sem org segue a 062b e a 062d fica cancelada = SIM. Para liberar: "aceito as recomendações" (ou ajuste) e `APROVAR SPEC-065`.
-- **Prompt pronto (não executado):** `docs/PROMPT_ADMIN_NOTIFICACOES_SIDEBAR.md` (sino do admin com todos os eventos + sidebar de admin agrupada). Colar no `project-orchestrator`, ou pedir ao Claude para executar.
-- **Fora do escopo:** app móvel (SPECs 021-023 ficam no código, sem manutenção).
+### Ambiente local de hoje (para continuar os testes de WhatsApp)
+- Dev com migrations até `20261021120000_inbox_whatsapp_068a` aplicadas, `npm run inbox:backfill` rodado (1 conversa). Conta de teste `tifob60233@herclan.com` marcada como e-mail verificado **só no banco local** (o e-mail de confirmação não sai no dev).
+- **Túnel do dia:** `https://arg-mass-estate-indexed.trycloudflare.com` (muda a cada vez que o `cloudflared` reinicia; atualizar `AUTH_URL`/`APP_BASE_URL` no `.env`, reiniciar o dev e recadastrar o webhook do AbacatePay). Webhook de dev atual: `webh_dev_jkCND6LXt3X4a3CHJKQ20xhw` (a API usa o campo `endpoint`, não `url`; **apagar é `POST /v2/webhooks/delete?id=`**).
+- **Evolution (`localhost:8080`):** instância `vendas` **conectada** (número 11 97027-0208), webhook apontando para o túnel (token igual ao do banco). `lf-teste` parada em `connecting` (pode apagar). Se o container cair, é o Postgres que não estava pronto: `docker compose up -d evolution`.
+- **Envio de teste funcionou** (app -> WhatsApp do lead Leonardo cardoso, +55 19 98178-1399). **Falta testar o caminho de volta:** o lead responder e a resposta entrar no app e em `/atendimento`.
+- **Aprendizados do teste:** (1) campanha precisa de **sequência com passo WhatsApp** + **template com canal WhatsApp** (da mesma campanha); (2) o envio só sai **seg-sex, 9h-12h e 14h-17h** (fuso do lead, sem feriados; 12/10 foi feriado), então para testar fora do horário muda-se o fuso do lead no banco local (ex.: `Pacific/Auckland`) e volta depois; (3) o lead é único por (campanha, telefone) e só há **1 toque por lead+passo**: para repetir o teste crie **outra campanha** (use "Duplicar") ou outro lead; (4) o tick não roda sozinho no local: `POST /api/cron/tick` com `Authorization: Bearer $CRON_SECRET`.
 
-### SPEC-065 (teste grátis de 14 dias e limites): estado em 2026-10-12 (fim de sessão)
-- **065a (backend)** e **065b (frontend)** implementadas, **sem commit**, aguardando QA independente + E2E em navegador (mock). Detalhes: "Implementation Notes — 065a/065b" na SPEC. Docs atualizados: PRIMEIROS_PASSOS 2.2, ROTEIRO (bloco T + B1/B2/B8/5), TESTES_PRIORITARIOS 5.
-- **Para você testar no dev:** `npx prisma migrate deploy` (migration `20261019120000_free_trial_065a`), `npx prisma db seed` (cria o plano `free`; sem ele o cadastro falha), reiniciar `npm run dev` e seguir o bloco T. Os limites do Starter agora valem na org de seed do dev. Em produção: `TRIAL_CLAIM_PEPPER` obrigatória.
-- **Próximo passo:** QA independente da 065b -> E2E (cadastro -> uso -> limite -> expirar -> bloqueio -> pagar -> desbloqueio) -> commit/push por grupo.
-
-### Estado de 2026-10-12 (tarde): SPEC-065 e 066
-- **SPEC-065 (Free de 14 dias, um trial por e-mail OU CPF/CNPJ):** APROVADA e IMPLEMENTADA (065a backend + 065b frontend), QA independente aprovado com ressalvas corrigidas; tsc/eslint/vitest verdes (2494 testes). **Falta o teste ponta a ponta no navegador** (bloco T do ROTEIRO) para virar IMPLEMENTED. Migration `20261019120000_free_trial_065a` + seed **aplicados no banco de DEV** (não na produção). **Antes de publicar:** definir `TRIAL_CLAIM_PEPPER` na Vercel (obrigatório em produção, valor estável), `migrate deploy` + seed na produção, e revisão jurídica do hash de CPF/CNPJ.
-- **SPEC-066 (Assinatura: lista de mensalidades paga/a pagar/atrasada + PIX no checkout):** APROVADA (2026-10-12). Divisão 066a (modelo `BillingCharge`), 066b (checkout PIX), 066c (UI). Cartão que falhou: sem botão até a 063b. Valores visíveis a dono e membros.
-- Ambiente local religado hoje (túnel muda a cada vez; webhook de dev recadastrado por API).
 
 ### Pendências SUAS (nada disso eu consigo fazer sozinho)
 1. **Webhook de produção no AbacatePay** (dev mode/Sandbox ligado; é um 2º webhook, ao lado do local): URL em `~/.leadforge-secrets/prod_webhook_url.txt` (copiar com `pbcopy < arquivo`), Secret em `~/.leadforge-secrets/prod_webhook_secret.txt`. Eventos: `subscription.completed`, `subscription.renewed`, `subscription.payment_failed`, `subscription.cancelled`, `transparent.completed`.
@@ -32,18 +27,18 @@ Atualizado em 2026-10-12 (fim de sessão). **A seção 0 abaixo manda; as seçõ
    - **Diagnóstico (2026-10-12):** a Vercel tem `SMTP_*` apontando para o Gmail e o log de produção mostra `EAUTH 535 5.7.8 Username and Password not accepted` (o Gmail exige Senha de app; o valor de exemplo/senha normal é recusado). O cadastro funciona, mas nenhum e-mail sai (falha só vai para o log).
    - **Decidido:** usar o domínio `coest.me` (DNS no **HostGator**, cPanel > Editor de Zona) com o **Resend**. Passos: (1) conta no resend.com > Domains > Add Domain `coest.me`; (2) criar no Editor de Zona do HostGator os registros que o Resend mostrar (DKIM `resend._domainkey`, e MX/SPF no subdomínio `send`; **não mexer** nos MX/SPF existentes do domínio); (3) Verify; (4) API Keys > Create (Sending access) e gravar com `bash ~/save_resend_key.sh` (script já existe; grava em `~/.leadforge-secrets/resend_api_key.txt`); (5) pedir ao Claude para gravar na Vercel (Production) `RESEND_API_KEY`, `RESEND_FROM_NOREPLY=noreply@coest.me`, `RESEND_FROM_SUPPORT=suporte@coest.me`, `RESEND_FROM_BILLING=cobranca@coest.me` e refazer o deploy; conferir no log que não há `EAUTH`.
    - **Atalho só para testar:** SMTP do próprio HostGator (`mail.coest.me`, porta 465/587, usuário `thiago@coest.me`, senha da caixa); pior entrega e limite de envio. Ou Gmail com Senha de app (`bash ~/save_smtp_pass.sh`, usuário `thiago.n.morgado@gmail.com`; ainda NÃO gravada).
-3. Responder as perguntas da SPEC-065 e dar `APROVAR SPEC-065`.
 4. Q-062-2: conferir no Neon se há assinaturas reais `trialing` (SQL no RETOMAR seção 7); se a 065 for adiante, a política A vale.
 5. Preços e limites dos planos (PLACEHOLDER), parecer jurídico da retenção, termos de uso e privacidade (continuam sem páginas).
 6. `AUTH_URL` na Vercel: conferir que é exatamente `https://lead-forge-web-omega.vercel.app`.
 
-### Fila de trabalho (ordem sugerida)
-1. **SPEC-065** (assim que aprovada): 065a backend (plano `free`, trial de 7 dias, limites, bloqueio, jobs) → QA → 065b frontend → QA. Antes, decidir se publica a 065 junto do webhook de produção.
-2. **Toasts e erros do backend no front** (sonner já existe, ~146 usos; falta helper único + `userMessage` PT-BR em toda exceção). O teste mostrou `ForbiddenError: Sem permissão` cru em `/dashboard` para usuário sem organização: a 065 e este item resolvem.
-3. **Admin:** sino com eventos + sidebar (prompt acima).
-4. **SPEC-063b:** cancelar/reativar/trocar plano no provedor (hoje cancelar no app NÃO cancela a recorrência do cartão no AbacatePay), HMAC do webhook, reconciliação em `/assinar/retorno`, e 2 achados médios do QA da 063a (evento `payment_failed`/`renewed` fora de ordem sobrescrevendo `canceled`; `transparent.completed` sem validar valor/cobrança atual).
-5. **Correção do seed/migrations em Preview** (risco D3): todo `git push` de branch gera deploy Preview que roda `prisma migrate deploy` e o seed no **mesmo banco da produção** (as migrations `20261017120000` e `20261018120000` já foram aplicadas assim). Mudar o `buildCommand` para só migrar em `VERCEL_ENV=production` e dar banco próprio ao Preview.
-6. Pendências da auditoria: cabeçalhos de segurança (`next.config.ts` vazio), `npm audit` (Next 16.3.5 com advisory crítico, correção em 16.4.0; `swagger-ui-react` não usado), textos da landing que prometem o que só tem mock, limites dos planos não aplicados (a 065 cobre).
+1. **Testar a 068 no navegador** (bloco V) e a resposta do lead entrando; depois **068c/d** (anexos) e **068e**.
+2. **SPEC-066b e 066c** (PIX no checkout; lista de mensalidades; card do Free), cada uma com QA; fechar a 066 atualizando os 3 docs.
+3. **SPEC-067** (toasts): aprovar e executar depois da 066c.
+4. **Teste ponta a ponta da 065 no navegador** (bloco T) para fechar a SPEC.
+5. **Admin:** sino com eventos + sidebar (prompt acima).
+6. **SPEC-063b:** cancelar/reativar/trocar plano no provedor (hoje cancelar no app NÃO cancela a recorrência do cartão no AbacatePay), HMAC do webhook, reconciliação e 2 achados médios do QA.
+7. **Correção do seed/migrations em Preview** (risco D3): todo `git push` de branch gera deploy Preview que roda `prisma migrate deploy` e o seed no **mesmo banco da produção**.
+8. **GitHub Actions "Tick (agendador)"** falha por trava de cobrança da conta GitHub (o agendador em produção não roda; você adiou). Pendências da auditoria: cabeçalhos de segurança, `npm audit` (Next com advisory crítico, correção em 16.4.0), landing prometendo o que só tem mock, limites de plano placeholder.
 
 ### Como religar o ambiente local de teste (o túnel e o monitor foram DESLIGADOS)
 1. `colima start` (se `docker ps` falhar) e `docker compose up -d` (Postgres 5434, Redis 6379, Mailpit 8025/1025).

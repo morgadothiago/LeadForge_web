@@ -410,6 +410,21 @@ Pré-requisito: `npx prisma migrate deploy` (migration `20261021120000_inbox_wha
 
 Ainda **não** existe: anexos (068c/d), etiquetas/atribuição (068e). Texto recebido sem legenda (imagem etc.) ainda é ignorado pelo backend.
 
+## W. Primeiro envio de WhatsApp pelo app e resposta do lead (local, com túnel)
+Pré-requisitos: `docker compose up -d evolution` (porta 8080), instância conectada em Configurações > WhatsApp (QR lido), túnel ligado e `APP_BASE_URL`/`AUTH_URL` no `.env` com o endereço do túnel (muda a cada vez), `npm run dev`. Use um número descartável e **um lead com o número de um amigo**.
+
+| # | Passo | Esperado | OK | Obs |
+|---|---|---|---|---|
+| W1 | `curl localhost:8080` | "Welcome to the Evolution API" (v2.1.1) | [ ] | |
+| W2 | Configurações > WhatsApp | Instância "conectada" (se a Evolution caiu por causa do Postgres: `docker compose up -d evolution`) | [ ] | |
+| W3 | Sequências > Templates > Novo template: **canal WhatsApp**, campanha escolhida, texto com `{{firstName}}` | Template com selo verde WhatsApp (variáveis aceitas: name, firstName, company, email, phone, website) | [ ] | |
+| W4 | Sequências > Nova > Adicionar passo: **canal WhatsApp**, template acima, dia 0 | Sequência com 1 passo | [ ] | |
+| W5 | Campanha > escolher a sequência e a instância `vendas (conectada)` > Salvar | O cartão da campanha mostra o nome da sequência | [ ] | |
+| W6 | Leads > Novo lead com o celular do amigo; na campanha "Iniciar sequência para os leads pendentes" | Toque agendado; **se a conta não confirmou o e-mail, não envia** ("Confirme seu e-mail...") | [ ] | |
+| W7 | Rodar o tick (`POST /api/cron/tick` com o `CRON_SECRET`) **dentro da janela** (seg-sex, 9h-12h e 14h-17h, sem feriado) | Mensagem chega no celular do amigo; toque "Enviado"; lead "Contactado" | [ ] | Fora da janela o tick responde `deferred_outside_window`; só para teste local, mude o fuso do lead no banco e volte depois |
+| W8 | O amigo **responde** | Em até alguns segundos a resposta aparece no lead (Histórico de contatos) e em `/atendimento`; a sequência pausa ("respondeu") | [ ] | Sem resposta no app: conferir o webhook da instância (URL do túnel atual e token igual ao do banco) e o log do dev (`POST /api/webhooks/whatsapp/... 200`) |
+| W9 | Repetir o teste com o mesmo número | Não dá na mesma campanha (lead único por campanha+telefone; 1 toque por lead+passo): use **Duplicar campanha** ou outro lead | [ ] | |
+
 ## Se algo falhar, me mande
 
 1. O passo (ex.: `B5`), o e-mail logado e a URL.

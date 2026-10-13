@@ -63,7 +63,7 @@ conversa com elas por você e organiza tudo num quadro. Assim você não se perd
     `npx prisma migrate status` em 2026-10-11). **Falta só a `20261016120000_search_run_cursor_060`.** Rode `npx prisma migrate deploy`
     e depois pare e ligue o `npm run dev` de novo.
   - Em outro computador ou banco novo, aplique tudo com `npx prisma migrate deploy` (passo 1.3).
-- 🐳 **Caixinhas no ar:** `leadforge-postgres-1`, `leadforge-redis-1` e `mailpit`. O `evolution` e o `n8n` não.
+- 🐳 **Caixinhas no ar:** `leadforge-postgres-1`, `leadforge-redis-1` e `mailpit`. O `evolution` sobe à parte (Fase 5) e o `n8n` não.
 - 💳 `PAYMENT_PROVIDER` não está definido. Tudo bem: o padrão `mock` (de mentirinha) já basta.
 
 ---
@@ -529,6 +529,19 @@ Quando um lead responde no WhatsApp, a resposta aparece numa tela só sua, parec
 - **O que você deve ver na tela:** uma lista de conversas e, ao clicar numa, as bolhas de mensagem.
 
 ---
+
+### 5.4 Fazer o primeiro envio de teste
+
+Para o LeadForge mandar a primeira mensagem, ele precisa de 4 coisas, como montar um lanche: o **texto**, a **ordem**, a **campanha** e o **amigo** que vai receber.
+
+1. Em **Sequências > Templates**, crie o texto. Escolha o canal **WhatsApp** (se deixar em E-mail, ele manda e-mail!).
+2. Em **Sequências**, crie a ordem: um passo no canal WhatsApp, com esse texto, no dia 0.
+3. Em **Campanhas**, abra a campanha, escolha essa sequência e o número conectado, e salve.
+4. Em **Leads**, crie um lead com o celular de um amigo e clique em **Iniciar sequência**.
+
+- **O que você deve ver na tela:** a mensagem chega no celular do amigo e o lead vira "Contactado". Se o amigo responder, a resposta aparece no lead e na tela de Atendimento.
+- ⚠️ O LeadForge só manda de **segunda a sexta, das 9h às 12h e das 14h às 17h**, e não em feriado. Fora disso ele espera, de propósito, para o número não ser bloqueado.
+- ⚠️ Não dá para mandar duas vezes o mesmo passo para o mesmo número na mesma campanha. Para repetir o teste, use outra campanha (tem o botão "Duplicar").
 
 ## Fase 6: o cérebro dos agentes (LLM, SPEC-018/019)
 
