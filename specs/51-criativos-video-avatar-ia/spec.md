@@ -146,5 +146,5 @@ D-051-19 (Q-051-11, CONFIRMED por delegacao do usuario: "aceite o default"): man
 
 ## 051c — mock com MP4 real (2026-10-13)
 - Pedido do usuário ("resolver isso"): o placeholder do mock era um MP4 falso (só `ftyp` + bytes aleatórios) e o player mostrava "Não foi possível carregar o vídeo".
-- `src/lib/creatives/providers/mock-video.ts`: MP4 real de 4,5 KB (H.264 + AAC mudo, 216x384 vertical, 4 s). `mock.ts` serve esse arquivo em stream (determinístico). Passa na checagem de magic bytes de SPEC-050. Sem mudança de schema nem de contrato.
+- `src/lib/creatives/providers/mock-video.ts`: MP4 real de demonstração (360x640 vertical, ~19 s: avatar desenhado com a boca mexendo, voz sintética pt-BR e legenda; H.264 + AAC). `mock.ts` serve esse arquivo em stream (determinístico). Passa na checagem de magic bytes de SPEC-050. Sem mudança de schema nem de contrato.
 - Criativos já gerados antes continuam com o arquivo falso: gerar um novo. tsc, eslint (0 erros) e vitest de `src/lib/creatives` verdes (39 testes).
