@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { AppError } from "@/lib/errors";
 import { MOCK_DEMO_VIDEO } from "./mock-video";
-import { MOCK_DEMO_VIDEO_BRUNO } from "./mock-video-bruno";
+import { MOCK_DEMO_VIDEO_LUCIANA } from "./mock-video-luciana";
 import type { AvatarVideoProvider, CreateVideoInput, ProviderVideoState, ProviderVideoStream } from "../provider";
 import type { CreativeAvatar, CreativeVoice } from "../types";
 
@@ -17,8 +17,8 @@ import type { CreativeAvatar, CreativeVoice } from "../types";
  */
 export const MOCK_AVATARS: CreativeAvatar[] = [
   { id: "mock-ana", name: "Ana (mock)" },
-  { id: "mock-bruno", name: "Bruno (mock)" },
-  { id: "mock-clara", name: "Clara (mock)" },
+    { id: "mock-clara", name: "Clara (mock)" },
+  { id: "mock-luciana", name: "Luciana (mock)" },
 ];
 export const MOCK_VOICES: CreativeVoice[] = [
   { id: "mock-voz-br-f", name: "Voz feminina pt-BR (mock)", language: "pt-BR", gender: "female" },
@@ -77,7 +77,7 @@ export class MockAvatarVideoProvider implements AvatarVideoProvider {
       throw new AppError({ code: "validation", userMessage: "O provedor recusou a solicitação.", status: 422 });
     }
     const flag = input.script.includes("[[mock:fail]]") ? FLAG.fail : input.script.includes("[[mock:hang]]") ? FLAG.hang : FLAG.ok;
-    const variant = input.avatarId === "mock-bruno" ? "b" : "a"; // avatar masculino => video do Bruno
+    const variant = input.avatarId === "mock-luciana" ? "l" : "a"; // avatar Luciana => clipe do Magic Hour
     const id = `mock_${createHash("sha256").update(input.idempotencyKey).digest("hex").slice(0, 16)}${variant}_${flag}`;
     if (!this.created.has(id)) this.created.set(id, this.now());
     return { providerJobId: id };
@@ -89,7 +89,7 @@ export class MockAvatarVideoProvider implements AvatarVideoProvider {
       this.failNextStatus--;
       throw new AppError({ code: "upstream", userMessage: "Provedor de vídeo indisponível.", status: 503, retryable: true });
     }
-    if (!/^mock_[0-9a-f]{16}[ab]?_[nfh]$/.test(providerJobId)) throw new AppError({ code: "not_found", userMessage: "Job do provedor não encontrado.", status: 404 });
+    if (!/^mock_[0-9a-f]{16}[al]?_[nfh]$/.test(providerJobId)) throw new AppError({ code: "not_found", userMessage: "Job do provedor não encontrado.", status: 404 });
     if (this.canceled.has(providerJobId)) return { state: "failed", rawStatus: "canceled" };
     const flag = providerJobId.slice(-1);
     if (flag === FLAG.hang) return { state: "processing", progressPct: 10, rawStatus: "rendering" };
@@ -108,7 +108,7 @@ export class MockAvatarVideoProvider implements AvatarVideoProvider {
       throw new AppError({ code: "network", userMessage: "Falha de rede ao baixar o vídeo.", retryable: true });
     }
     // MP4 real e pequeno (SPEC-051c): o player do navegador toca o placeholder de demonstracao.
-    const video = /^mock_[0-9a-f]{16}b_/.test(providerJobId) ? MOCK_DEMO_VIDEO_BRUNO : MOCK_DEMO_VIDEO;
+    const video = /^mock_[0-9a-f]{16}l_/.test(providerJobId) ? MOCK_DEMO_VIDEO_LUCIANA : MOCK_DEMO_VIDEO;
     async function* gen(): AsyncGenerator<Uint8Array> {
       for (let off = 0; off < video.length; off += CHUNK) yield video.subarray(off, off + CHUNK);
     }
