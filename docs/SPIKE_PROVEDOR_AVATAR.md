@@ -11,9 +11,9 @@ Quem testa: o dono do projeto (e, de preferência, uma pessoa que fala portuguê
 ## 1. Passo a passo (30 a 60 minutos)
 
 1. **Crie a conta** com o e-mail da empresa, **sem cartão**, em cada provedor:
-   - [ ] deAPI (créditos grátis de teste)
-   - [ ] D-ID (candidato a produção)
-   - [ ] Magic Hour (opcional)
+   - [ ] Magic Hour (400 créditos grátis + 100 por dia, com API e servidor mock; conta grátis NÃO tem direito comercial, só serve para teste)
+   - [ ] D-ID (candidato a produção; trial grátis com marca d'água e uso comercial excluído, valores divergem entre fontes: conferir na página oficial)
+   - [ ] deAPI (US$ 5 grátis, sem cartão; **NÃO confirmado que tenha avatar falante**: só testar se achar um endpoint de avatar/lip-sync na documentação oficial)
 2. **Anote o que cada um dá de graça hoje** (preço e créditos mudam; olhe a página oficial, não blog) na tabela da seção 4.
 3. **Gere os 3 vídeos** de cada provedor com os roteiros da seção 2, pelo **site** de cada um (não precisa de código nem de chave para isso). Use sempre o mesmo avatar de catálogo e a voz **pt-BR** (Brasil, não Portugal).
 4. **Ouça e assista** cada vídeo e dê nota de 1 a 5 (seção 3). Se possível, peça para outra pessoa avaliar sem saber qual provedor fez qual vídeo.
@@ -45,7 +45,7 @@ Só depois, se algum provedor passar, entra a chave de API (seção 6) e a SPEC-
 
 Preencha uma linha por vídeo. "Erros" = palavras mal pronunciadas por 100 palavras (conte só no Roteiro B e C).
 
-### deAPI
+### deAPI (só se tiver avatar falante)
 | Roteiro | Pronúncia | Sotaque BR? (s/n) | Erros/100 pal. | Lip-sync | Naturalidade | Tempo p/ ficar pronto | Marca d'água? | Obs. |
 |---|---|---|---|---|---|---|---|---|
 | A | | | | | | | | |
@@ -59,7 +59,7 @@ Preencha uma linha por vídeo. "Erros" = palavras mal pronunciadas por 100 palav
 | B | | | | | | | | |
 | C | | | | | | | | |
 
-### Magic Hour (opcional)
+### Magic Hour
 | Roteiro | Pronúncia | Sotaque BR? (s/n) | Erros/100 pal. | Lip-sync | Naturalidade | Tempo p/ ficar pronto | Marca d'água? | Obs. |
 |---|---|---|---|---|---|---|---|---|
 | A | | | | | | | | |
