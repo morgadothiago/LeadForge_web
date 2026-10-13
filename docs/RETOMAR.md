@@ -5,7 +5,7 @@ Atualizado em 2026-10-13 (madrugada). **A seção 0 abaixo manda; as seções 1 
 ## 0. RETOMAR: leia isto primeiro (2026-10-13, madrugada)
 
 ### Onde paramos (2026-10-13, madrugada)
-- **`main` = `88cef92`**, igual no GitHub e no local (só `next.config.ts`, `.claude/` e `skills-lock.json` ficam de fora). Cada merge na `main` **publica sozinho** na Vercel (`https://lead-forge-web-omega.vercel.app`; as migrations aditivas rodam no build).
+- **`main` = `1a934ff`**, igual no GitHub e no local (só `next.config.ts`, `.claude/` e `skills-lock.json` ficam de fora). Cada merge na `main` **publica sozinho** na Vercel (`https://lead-forge-web-omega.vercel.app`; as migrations aditivas rodam no build).
 - **SPEC-065 (Free de 14 dias, um trial por e-mail OU CPF/CNPJ):** IMPLEMENTADA e na `main` (`65045a4`), QA aprovado. **Falta o teste ponta a ponta no navegador** (bloco T do ROTEIRO) para virar IMPLEMENTED. Em produção `TRIAL_CLAIM_PEPPER` já está na Vercel (arquivo `~/.leadforge-secrets/trial_claim_pepper.txt`; **não perder nem trocar**).
 - **SPEC-066 (Assinatura: lista de mensalidades + PIX no checkout):** APROVADA. **066a (backend `BillingCharge`) na `main`** (`894f4f1`). **066b (checkout PIX) e 066c (UI da lista de mensalidades e card do Free) ainda não feitas.**
 - **SPEC-067 (toasts padronizados com erro do backend):** DRAFT, aguardando `APROVAR SPEC-067` (Q-067-1..3, recomendação: sim). Roda depois da 066c.

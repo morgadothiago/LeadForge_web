@@ -647,6 +647,20 @@ curl -fsS -X POST -H "Authorization: Bearer $CRON_SECRET" http://localhost:3000/
 
 As envs `CREATIVE_*` (veja `.env.example`) limitam: 2 gerações ao mesmo tempo e 20 criativos por mês.
 
+### 7.5 O painel do chefe da plataforma (quem manda em cada organização)
+
+Imagine uma escola. Cada turma (organização) tem suas regras: quem pode usar o computador, qual caneta é emprestada pela
+escola e quanto papel cada um pode gastar. Quem decide isso é o diretor (o `platform_admin`), não os alunos.
+
+- Onde fica: entre como admin, vá em `/admin`, escolha uma organização e role até **Política da organização**.
+- **Agentes e IA:** liga ou desliga os robôs da turma e trava para o aluno não mexer.
+- **Integrações:** o diretor guarda as chaves (Google Maps, WhatsApp, IA). Depois de salvar, a chave some da tela e só
+  aparece uma dica. Ninguém consegue ler de volta, nem o diretor.
+- **Plano e features:** dá um "passe livre" temporário (com motivo e data de validade) ou tira.
+- **Auditoria:** o caderno que anota quem mudou o quê, quando e por quê.
+- O aluno (o cliente) só vê o que ficou decidido. Não edita.
+- Estado: telas prontas, **ainda não testadas no navegador**. Falta também a tela de bloqueio e upgrade para o cliente (069d).
+
 ### Coisas para saber
 
 - Provedor de verdade (HeyGen, D-ID, Synthesia, Tavus ou Azure AI Speech Avatar): decisão em aberto (Q-051-1). Antes de

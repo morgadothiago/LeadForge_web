@@ -426,7 +426,7 @@ Pré-requisitos: `docker compose up -d evolution` (porta 8080), instância conec
 | W9 | Repetir o teste com o mesmo número | Não dá na mesma campanha (lead único por campanha+telefone; 1 toque por lead+passo): use **Duplicar campanha** ou outro lead | [ ] | |
 
 ## X. Limites por plano (SPEC-069) e criativos (SPEC-051c) — local
-Pré-requisitos: migration `20261022120000_entitlement_override_069a` aplicada (`npx prisma migrate deploy`) e `npx prisma db seed`; `npm run dev` e, para criativos, `npm run creatives:dev` em outro terminal. A tela de admin para configurar política/override é a **069c (ainda não existe)**; por isso os testes de override abaixo são por SQL no banco local.
+Pré-requisitos: migration `20261022120000_entitlement_override_069a` aplicada (`npx prisma migrate deploy`) e `npx prisma db seed`; `npm run dev` e, para criativos, `npm run creatives:dev` em outro terminal. A tela de admin para configurar política/override (**069c frontend**) já existe em `/admin/organizacoes/[id]`; use-a nos testes X13 a X21 (X2 ainda pode ser feito por SQL). Migration `20261023120000_admin_policy_069c` também precisa estar aplicada.
 
 | # | Passo | Esperado | OK | Obs |
 |---|---|---|---|---|
@@ -442,6 +442,15 @@ Pré-requisitos: migration `20261022120000_entitlement_override_069a` aplicada (
 | X10 | Criar sequência com mais passos que o plano (Free 3, Starter 5) | Recusado; editar uma sequência já maior (após downgrade) continua possível e só pode encolher | [ ] | |
 | X11 | Mudar a assinatura para `past_due` no banco local | IA e envio automático pausam (adiados); leitura continua; nada é apagado | [ ] | |
 | X12 | `/configuracoes/assinatura` | Carrega sem o erro "[entitlements] falha ao ler o plano" (se aparecer, falta a migration/seed) | [ ] | |
+| X13 | Como `platform_admin`, abrir `/admin/organizacoes/[id]` | Painel "Política da organização" com 4 abas (Agentes e IA, Integrações, Plano e features, Auditoria); usuário comum recebe redirect/403 | [ ] | |
+| X14 | Aba Integrações: gravar chave do Google Places da organização (com motivo) | Toast de sucesso; tela mostra só o hint e o host mascarado, nunca a chave; campo de chave volta vazio | [ ] | |
+| X15 | Gravar Evolution (URL + chave) e parear WhatsApp no tenant | Tenant consegue parear; tenant não edita a chave (somente leitura) | [ ] | |
+| X16 | Gravar chave de LLM da plataforma para a org (com `PLATFORM_LLM_API_KEY` definida ou chave por org) | Agentes da org voltam a ter IA; chave própria antiga do tenant fica desativada, não apagada | [ ] | |
+| X17 | Aba Plano e features: liberar uma funcionalidade e um limite, com validade e motivo | Efeito imediato no tenant; aparece na auditoria | [ ] | |
+| X18 | Remover o override (com motivo) | Volta a valer o plano; auditoria registra | [ ] | |
+| X19 | Aba Agentes: ligar a trava `lockedByAdmin` e o kill switch | Tenant só liga o kill switch, não desliga enquanto travado | [ ] | |
+| X20 | Aba Auditoria | Últimas 50 alterações com ação, motivo, campos, data e prefixo do id do admin; nenhum valor de segredo | [ ] | |
+| X21 | Abrir o painel em 390 px e 1280 px, claro e escuro | Sem rolagem horizontal da página; abas rolam; diálogos cabem na tela (**não verificado em navegador ainda**) | [ ] | |
 
 ## Se algo falhar, me mande
 
