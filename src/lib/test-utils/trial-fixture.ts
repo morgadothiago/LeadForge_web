@@ -1,13 +1,35 @@
 import type { CampaignStatus, SubscriptionStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { FEATURE_KEYS, NEW_LIMIT_KEYS } from "@/lib/billing/plan-catalog";
 import type { TestOrg } from "./org-fixture";
 
+/** SPEC-069b: planos de teste legados (so com limites antigos) NAO devem travar features/limites novos: tudo liberado e ilimitado, salvo o que o teste passar. */
+const OPEN_ENTITLEMENTS = {
+  ...Object.fromEntries(NEW_LIMIT_KEYS.map((k) => [k, null])),
+  features: Object.fromEntries(FEATURE_KEYS.map((k) => [k, true])),
+};
+
+/** SPEC-069b: libera TODAS as features e deixa ilimitados os limites novos da org por OVERRIDE (a org de seed esta no Starter). Desfazer com `revokeAllEntitlements`. */
+export async function grantAllEntitlements(orgId: string): Promise<void> {
+  const features = Object.fromEntries(FEATURE_KEYS.map((k) => [k, true]));
+  const limits = Object.fromEntries(NEW_LIMIT_KEYS.map((k) => [k, null]));
+  await prisma.orgEntitlementOverride.upsert({
+    where: { orgId },
+    update: { features, limits, reason: "teste", expiresAt: null },
+    create: { orgId, features, limits, reason: "teste", createdBy: "teste" },
+  });
+}
+export async function revokeAllEntitlements(orgId: string): Promise<void> {
+  await prisma.orgEntitlementOverride.deleteMany({ where: { orgId } });
+}
+
 /** APENAS testes (SPEC-065): planos de teste (inativos: nunca aparecem na vitrine) com limites sob medida. */
-export async function ensureTestPlan(key: string, limits: Record<string, number | null>): Promise<string> {
+export async function ensureTestPlan(key: string, limits: Record<string, unknown>): Promise<string> {
+  const json = { ...OPEN_ENTITLEMENTS, ...limits };
   const p = await prisma.plan.upsert({
     where: { key },
-    update: { limits },
-    create: { key, name: key, priceMonthlyCents: 0, priceYearlyCents: null, limits, active: false, selfServiceCheckout: false },
+    update: { limits: json },
+    create: { key, name: key, priceMonthlyCents: 0, priceYearlyCents: null, limits: json, active: false, selfServiceCheckout: false },
     select: { id: true },
   });
   return p.id;

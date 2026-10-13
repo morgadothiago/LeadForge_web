@@ -2,7 +2,10 @@
 
 import { revalidatePath } from "next/cache";
 import { requireActiveProviderOrg, requireProviderOrg } from "@/lib/auth/require-admin";
+import { prisma } from "@/lib/prisma";
 import { scopedPrisma } from "@/lib/tenant/scoped-prisma";
+import { lockOrg } from "@/lib/org/guards";
+import { agentAutonomyFeature, agentRoleFeature, assertFeature, assertWithinEntitlementLimit } from "@/lib/billing/entitlements";
 import { DEFAULT_DISCLOSURE } from "@/lib/agents/types";
 import { simulateAgent, type SimulationResult } from "@/lib/agents/simulate";
 import { dispatchDraft, rejectDraft } from "@/lib/agents/drafts";
@@ -29,6 +32,8 @@ export async function createAgent(input: unknown): Promise<ActionResult<{ id: st
     const parsed = createAgentSchema.safeParse(input);
     if (!parsed.success) return failure(zodErrors(parsed.error));
     const d = parsed.data;
+    // SPEC-069b: o papel precisa estar liberado pelo plano (Free: nenhum; Starter: follow-up; Pro: todos). Criar nasce inativo, mas nao se cria o que o plano nao inclui.
+    await assertFeature(prisma, orgId, agentRoleFeature(d.role));
     const closer = d.role === "closer";
     const a = await scopedPrisma(orgId).agent.create({
       data: {
@@ -71,10 +76,21 @@ export async function setAgentActive(input: unknown): Promise<ActionResult<{ id:
     const parsed = setActiveSchema.safeParse(input);
     if (!parsed.success) return failure(zodErrors(parsed.error));
     const { id, active } = parsed.data;
-    const a = await db.agent.findUnique({ where: { id }, select: { monthlyBudgetCents: true } });
+    const a = await db.agent.findUnique({ where: { id }, select: { monthlyBudgetCents: true, role: true, active: true } });
     if (!a) return formError("Agente não encontrado.");
     if (active && !a.monthlyBudgetCents) return failure({ monthlyBudgetCents: ["Defina o teto de gasto mensal antes de ativar."] });
-    await db.agent.update({ where: { id }, data: { active, updatedBy: actor.id } });
+    if (active && !a.active) {
+      // SPEC-069b: ativar exige papel + modo rascunho liberados e `maxActiveAgents` (contagem sob lock da org: duas ativacoes simultaneas nao furam o teto).
+      await prisma.$transaction(async (tx) => {
+        await lockOrg(tx, orgId);
+        await assertFeature(tx, orgId, agentRoleFeature(a.role));
+        await assertFeature(tx, orgId, agentAutonomyFeature("draft"));
+        await assertWithinEntitlementLimit(tx, orgId, "agents", await tx.agent.count({ where: { orgId, active: true, id: { not: id } } }));
+        await tx.agent.update({ where: { id }, data: { active: true, updatedBy: actor.id } });
+      });
+    } else {
+      await db.agent.update({ where: { id }, data: { active, updatedBy: actor.id } }); // desligar nunca e barrado por plano
+    }
     revalidate();
     return success({ id, active });
   });
@@ -89,6 +105,11 @@ export async function setAgentAutonomy(input: unknown): Promise<ActionResult<{ i
     const { id, autonomy, confirmAuto, acknowledgeRisk } = parsed.data;
     const a = await db.agent.findUnique({ where: { id }, select: { role: true, disclosureEnabled: true } });
     if (!a) return formError("Agente não encontrado.");
+    // SPEC-069b: voltar para rascunho e sempre permitido; amostragem/auto exigem o direito no plano (Starter: so rascunho; Pro: todos).
+    if (autonomy !== "draft") {
+      await assertFeature(prisma, orgId, agentRoleFeature(a.role));
+      await assertFeature(prisma, orgId, agentAutonomyFeature(autonomy));
+    }
     let autoConfirmedAt: Date | null = null;
     if (a.role === "closer" && autonomy !== "draft") {
       if (!a.disclosureEnabled) return formError("Ligue o aviso de IA antes de dar autonomia ao Closer.");
@@ -107,6 +128,8 @@ export async function updateAgentSettings(input: unknown): Promise<ActionResult<
     const { user: actor, orgId } = await requireActiveProviderOrg();
     const parsed = globalSettingsSchema.safeParse(input);
     if (!parsed.success) return failure(zodErrors(parsed.error));
+    // SPEC-069b: LIGAR a IA (kill switch desligado) exige direito a agentes no plano; ligar o kill switch (parar tudo) nunca e barrado.
+    if (parsed.data.killSwitch === false) await assertFeature(prisma, orgId, agentAutonomyFeature("draft"));
     const s = await scopedPrisma(orgId).agentSettings.upsert({
       where: { orgId },
       create: { ...parsed.data, updatedBy: actor.id },
@@ -149,9 +172,10 @@ export async function simulateAgentAction(input: unknown): Promise<ActionResult<
     const parsed = simulateSchema.safeParse(input);
     if (!parsed.success) return failure(zodErrors(parsed.error));
     // simulateAgent lê o agente por id direto (fora do scopedPrisma) — confere o dono aqui antes.
-    if (!(await scopedPrisma(orgId).agent.findUnique({ where: { id: parsed.data.agentId }, select: { id: true } }))) {
-      return formError("Agente não encontrado.");
-    }
+    const target = await scopedPrisma(orgId).agent.findUnique({ where: { id: parsed.data.agentId }, select: { id: true, role: true } });
+    if (!target) return formError("Agente não encontrado.");
+    // SPEC-069b: simula gasta tokens => exige o papel liberado e assinatura em dia (e `simulateAgent` reaplica a defesa, com o teto de IA do plano).
+    await assertFeature(prisma, orgId, agentRoleFeature(target.role));
     return success(await simulateAgent(parsed.data));
   });
 }
@@ -211,6 +235,8 @@ export async function bulkApproveFollowups(input: unknown): Promise<ActionResult
     const { user: actor, orgId } = await requireActiveProviderOrg();
     const parsed = bulkApproveSchema.safeParse(input);
     if (!parsed.success) return failure(zodErrors(parsed.error));
+    // SPEC-069b: o lote e so de follow-up; sem o papel no plano nada e enviado (cada dispatchDraft reaplica a defesa).
+    await assertFeature(prisma, orgId, agentRoleFeature("followup"));
     const rows = await scopedPrisma(orgId).draft.findMany({ where: { id: { in: parsed.data.ids }, status: "pending", agentRun: { agent: { role: "followup" } } }, select: { id: true }, orderBy: { createdAt: "asc" } });
     let sent = 0, blocked = 0, unverified = false;
     for (const r of rows as { id: string }[]) {

@@ -8,6 +8,7 @@ import { withSerializableRetry } from "@/lib/db/tx-conflict";
 import { createLeadCore } from "@/lib/domain/lead-create";
 import { PlanLimitError } from "@/lib/billing/limits";
 import { loadOrgAccess } from "@/lib/billing/org-access";
+import { getEntitlements, hasFeature } from "@/lib/billing/entitlements";
 import { findSuppression } from "@/lib/domain/suppression";
 import { bearerToken, secretsMatch } from "@/lib/scheduler/cron-endpoint";
 import { getIngestSecret, isIngestEnabled, MAX_BODY_BYTES } from "./config";
@@ -235,6 +236,11 @@ export async function handleIngest(req: Request, deps: IngestDeps = {}): Promise
     if (camp && (await loadOrgAccess(prisma, camp.orgId, new Date(clock()))) === "trial_expirado") {
       if (claimed) await prisma.webhookEvent.delete({ where: { eventId: claimed } }).catch(() => undefined);
       return err(403, "trial_expired", "O teste grátis desta organização terminou. Assine um plano para voltar a receber leads.");
+    }
+    // SPEC-069b: ingestao externa por API (n8n) so no plano que libera `ingest.api` (ou override). 403 tipado; configuracao preservada; libera a chave de idempotencia.
+    if (camp && !hasFeature(await getEntitlements(prisma, camp.orgId, new Date(clock())), "ingest.api")) {
+      if (claimed) await prisma.webhookEvent.delete({ where: { eventId: claimed } }).catch(() => undefined);
+      return err(403, "plan_feature_locked", "Ingestão por API indisponível no plano desta organização. Faça upgrade para usar.");
     }
     if (!camp || camp.status === "archived") {
       if (claimed) await prisma.webhookEvent.delete({ where: { eventId: claimed } }).catch(() => undefined);

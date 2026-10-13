@@ -5,6 +5,7 @@ import { findSuppression } from "@/lib/domain/suppression";
 import { getWhatsAppProvider, type WhatsAppProvider } from "@/lib/whatsapp/provider";
 import { effectiveDailyLimit } from "@/lib/whatsapp/warmup";
 import { loadOrgAccess } from "@/lib/billing/org-access";
+import { getEntitlements, hasFeature, requiredPlanName } from "@/lib/billing/entitlements";
 import { monthKey, nextBrtDayStart } from "@/lib/billing/usage";
 import { stopAgentOnManualReply } from "@/lib/agents/lead-state";
 import { recordOrgAudit } from "@/lib/org/audit";
@@ -24,7 +25,7 @@ import { UUID_RE } from "./cursor";
  */
 export type ManualErrorCode =
   | "validation" | "message_too_long" | "not_found" | "forbidden" | "trial_expired" | "org_suspended" | "email_not_verified"
-  | "instance_unavailable" | "opted_out" | "conversation_window_closed" | "rate_limited" | "send_failed";
+  | "plan_feature_locked" | "instance_unavailable" | "opted_out" | "conversation_window_closed" | "rate_limited" | "send_failed";
 
 export type SendManualResult =
   | { ok: true; message: MessageView; /** true = mesmo `clientMessageId` já enviado: devolve a existente, sem reenviar. */ duplicate: boolean }
@@ -45,6 +46,7 @@ export const MANUAL_MESSAGES = {
   trialExpired: "Seu teste grátis terminou. Assine um plano em Configurações > Assinatura para voltar de onde parou.",
   orgSuspended: "Assinatura pendente ou cancelada. Regularize o pagamento em Configurações > Assinatura para continuar.",
   emailNotVerified: "Confirme seu e-mail para enviar mensagens.",
+  planLocked: `Responder pela caixa de atendimento está disponível no plano ${requiredPlanName("inbox.reply")}. Faça upgrade para responder.`,
   instanceUnavailable: "O WhatsApp desta conversa está desconectado ou pausado. Reconecte em Configurações > WhatsApp.",
   optedOut: "Este contato pediu para não receber mensagens. A resposta está bloqueada.",
   windowClosed: "Já se passaram mais de 24 horas desde a última mensagem deste contato. Só é possível responder dentro de 24 horas.",
@@ -77,6 +79,8 @@ export async function sendManualWhatsApp(input: SendManualInput, opts: SendManua
   if (access === "trial_expirado") return no("trial_expired", MANUAL_MESSAGES.trialExpired);
   if (access === "soft_blocked" || org.status !== "active") return no("org_suspended", MANUAL_MESSAGES.orgSuspended);
   if (!user.emailVerifiedAt) return no("email_not_verified", MANUAL_MESSAGES.emailNotVerified);
+  // SPEC-069b: Free = so leitura; Starter responde texto; Pro tambem anexos/etiquetas (068c/d/e). Servidor decide (a UI nao basta).
+  if (!hasFeature(await getEntitlements(prisma, orgId, now), "inbox.reply")) return no("plan_feature_locked", MANUAL_MESSAGES.planLocked);
 
   // 2) Conversa DA ORG (404 uniforme) + instância.
   const conv = await prisma.waConversation.findFirst({

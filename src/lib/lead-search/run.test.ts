@@ -11,6 +11,8 @@ p.$transaction.mockImplementation(async (cb: (t: unknown) => unknown) => cb(p));
 vi.mock("@/lib/prisma", () => ({ prisma: p }));
 const processItem = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/lead-ingest/handler", () => ({ processItem }));
+// SPEC-069b: o limite de buscas por dia do PLANO e testado com banco real (entitlements-069b.test.ts); aqui o plano e ilimitado.
+vi.mock("@/lib/billing/entitlements", () => ({ getEntitlements: vi.fn(async () => ({ limits: { maxLeadSearchesPerDay: null } })) }));
 vi.mock("@/lib/integrations/config", () => ({ findIntegrationConfig: vi.fn(async () => null) }));
 
 import { runLeadSearch, runDailySearch, startLeadSearch } from "./run";

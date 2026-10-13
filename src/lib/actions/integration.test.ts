@@ -7,6 +7,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn(), revalidateTag: vi.fn(), updateTag: vi.fn() }));
 
 import { prisma } from "@/lib/prisma";
+import { grantAllEntitlements, revokeAllEntitlements } from "@/lib/test-utils/trial-fixture";
 import { seed, SEED_IDS } from "../../../prisma/seed";
 import { signInAsSeedAdmin, signInAs, signOut } from "@/lib/auth/test-helpers";
 import { removeIntegration, saveIntegration, testIntegration } from "./integration";
@@ -43,6 +44,7 @@ const dump = (o: unknown) => JSON.stringify(o);
 beforeAll(async () => {
   process.env.ENCRYPTION_KEY = randomBytes(32).toString("base64"); // chave falsa, só em memória
   await seed(prisma);
+  await grantAllEntitlements(SEED_IDS.org); // SPEC-069b: a org de seed esta no Starter; este arquivo testa outra coisa, nao o plano
   await cleanup();
   auditBefore = new Date();
   await prisma.integrationSecret.deleteMany();
@@ -71,6 +73,7 @@ afterEach(() => {
   mode = "ok";
 });
 afterAll(async () => {
+  await revokeAllEntitlements(SEED_IDS.org);
   vi.restoreAllMocks();
   if (savedEnc === undefined) delete process.env.ENCRYPTION_KEY; else process.env.ENCRYPTION_KEY = savedEnc;
   await new Promise<void>((r) => { server.closeAllConnections?.(); server.close(() => r()); });

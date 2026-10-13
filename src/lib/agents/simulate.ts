@@ -2,6 +2,8 @@ import { prisma } from "@/lib/prisma";
 import { AppError } from "@/lib/errors";
 import { budgetState, costMicros } from "./budget";
 import { monthlySpend } from "./run-agent";
+import { monthlyOrgSpend } from "./plan-gate";
+import { agentRoleFeature, assertFeatureIn, getEntitlements } from "@/lib/billing/entitlements";
 import { applyDisclosure, askedIfBot, checkGuardrails, validateOutputShape } from "./guardrails";
 import { buildSystemPrompt, buildUserPrompt, packKnowledge } from "./prompt";
 import { describeLlmProvider, getLlmProvider, isPrivateLlmHost, type LlmProvider, type LlmProviderInfo } from "./provider";
@@ -18,9 +20,17 @@ export async function simulateAgent(input: { agentId: string; leadId?: string; i
   const settings = await prisma.agentSettings.findUnique({ where: { orgId: agent.orgId } });
   if (settings?.killSwitch !== false) throw new AppError({ code: "conflict", userMessage: "O kill switch global está ligado. Desligue-o para simular." });
   const now = new Date();
+  // SPEC-069b: a simulacao gasta tokens de verdade => mesmas travas do plano (papel liberado, assinatura em dia, teto de IA do plano).
+  const ent = await getEntitlements(prisma, agent.orgId, now);
+  assertFeatureIn(ent, agentRoleFeature(agent.role));
+  const orgSpend = await monthlyOrgSpend(agent.orgId, now);
+  const planCap = ent.limits.maxAiBudgetCentsMonth;
+  if (planCap !== null && (planCap <= 0 || budgetState(orgSpend, planCap) === "exhausted")) {
+    throw new AppError({ code: "conflict", userMessage: "O teto de custo de IA do seu plano foi atingido. A simulação está bloqueada." });
+  }
   if (agent.monthlyBudgetCents === null) throw new AppError({ code: "conflict", userMessage: "Defina o teto de gasto mensal do agente para simular." });
   if (budgetState(await monthlySpend(agent.id, now), agent.monthlyBudgetCents) === "exhausted"
-    || (settings?.monthlyBudgetCents != null && budgetState(await monthlySpend(null, now), settings.monthlyBudgetCents) === "exhausted")) {
+    || (settings?.monthlyBudgetCents != null && budgetState(orgSpend, settings.monthlyBudgetCents) === "exhausted")) {
     throw new AppError({ code: "conflict", userMessage: "O orçamento mensal foi atingido. A simulação está bloqueada." });
   }
   const lead = input.leadId ? await prisma.lead.findUnique({ where: { id: input.leadId }, include: { campaign: { include: { icp: true } } } }) : null;

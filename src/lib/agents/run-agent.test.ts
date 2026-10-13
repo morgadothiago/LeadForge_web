@@ -6,6 +6,7 @@ vi.mock("next/cache", () => ({ revalidatePath: vi.fn(), revalidateTag: vi.fn(), 
 process.env.ENCRYPTION_KEY = randomBytes(32).toString("base64");
 
 import { prisma } from "@/lib/prisma";
+import { grantAllEntitlements, revokeAllEntitlements } from "@/lib/test-utils/trial-fixture";
 import { seed, SEED_IDS } from "../../../prisma/seed";
 import { AppError } from "@/lib/errors";
 import { runAgentTask } from "./run-agent";
@@ -38,6 +39,7 @@ async function cleanup() {
 
 beforeAll(async () => {
   await seed(prisma);
+  await grantAllEntitlements(SEED_IDS.org); // SPEC-069b: a org de seed esta no Starter; este arquivo testa outra coisa, nao o plano
   await cleanup();
   const userId = (await prisma.user.findFirstOrThrow({ where: { email: "admin@leadforge.local" } })).id;
   const icpId = (await prisma.icpProfile.findFirstOrThrow()).id;
@@ -50,6 +52,7 @@ beforeEach(async () => {
   await prisma.agent.update({ where: { id: agentId }, data: { active: true, autonomy: "draft", monthlyBudgetCents: 1000, dailyMessageLimit: 1000 } });
 });
 afterAll(async () => {
+  await revokeAllEntitlements(SEED_IDS.org);
   await cleanup();
   await prisma.agentSettings.deleteMany({});
   await prisma.$disconnect();

@@ -12,7 +12,8 @@ import { invalidateIntegrationCache } from "@/lib/integrations/config";
 import { assertAllowedHost, parseIntegrationUrl } from "@/lib/integrations/url-guard";
 import { consumeSaveQuota, consumeTestQuota, runConnectionTest, type ConnectionTestResult } from "@/lib/integrations/test-connection";
 import { hostOf, SELECT_ITEM, toItemView, type IntegrationItemView } from "@/lib/integrations/view";
-import { INTEGRATION_LABEL, type IntegrationKindName } from "@/lib/integrations/types";
+import { INTEGRATION_FEATURE, INTEGRATION_LABEL, type IntegrationKindName } from "@/lib/integrations/types";
+import { assertFeature } from "@/lib/billing/entitlements";
 import { integrationIdSchema, removeIntegrationSchema, saveIntegrationSchema, secretHint } from "@/lib/schemas/integration";
 import { decrypt } from "@/lib/crypto/secret-box";
 import { failure, formError, safeAction, success, zodErrors, type ActionResult } from "./result";
@@ -33,6 +34,9 @@ export async function saveIntegration(input: unknown): Promise<ActionResult<Inte
     const parsed = saveIntegrationSchema.safeParse(input);
     if (!parsed.success) return failure(zodErrors(parsed.error));
     const { integration, name, value } = parsed.data;
+    // SPEC-069b: cadastro/rotacao so se o plano (ou override do admin) libera a integracao (LLM proprio = BYOK; n8n = ingestao por API).
+    const feature = INTEGRATION_FEATURE[integration];
+    if (feature) await assertFeature(prisma, orgId, feature);
     const where = { orgId_integration_name: { orgId, integration, name } };
     const existing = await db.integrationSecret.findUnique({ where });
     // SPEC-036 (D-36-6): chave obrigatória na criação, exceto `llm` com URL base (Ollama não usa chave).
@@ -144,6 +148,8 @@ export async function testIntegration(input: unknown): Promise<ActionResult<Conn
     const wait = await consumeTestQuota(actor.id, row.id);
     if (wait > 0) return formError(`Muitos testes seguidos. Tente novamente em ${wait}s.`);
     const kind = row.integration as IntegrationKindName;
+    const feature = INTEGRATION_FEATURE[kind]; // SPEC-069b: testar tambem chama a rede com a chave: mesma trava do cadastro
+    if (feature) await assertFeature(prisma, orgId, feature);
     let result: ConnectionTestResult;
     if (kind === "evolution" || (kind === "llm" && row.baseUrl)) {
       invalidateIntegrationCache(orgId, kind, "default");

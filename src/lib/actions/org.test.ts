@@ -11,6 +11,7 @@ vi.mock("@/lib/channels/system-mail", () => ({
 }));
 
 import { prisma } from "@/lib/prisma";
+import { grantAllEntitlements } from "@/lib/test-utils/trial-fixture";
 import { createTestOrg, purgeTestOrg, type TestOrg } from "@/lib/test-utils/org-fixture";
 import { getCookie, runWithSession, signInAs, signOut } from "@/lib/auth/test-helpers";
 import { SESSION_COOKIE } from "@/lib/auth/config";
@@ -66,6 +67,7 @@ beforeAll(async () => {
   A = await createTestOrg("org49-a");
   B = await createTestOrg("org49-b");
   await prisma.subscription.create({ data: { orgId: A.orgId, planId: (await prisma.plan.findUniqueOrThrow({ where: { key: "starter" } })).id, status: "active", cadence: "monthly" } });
+  await grantAllEntitlements(A.orgId); // SPEC-069b: o Starter limita membros (3); este arquivo testa o fluxo de equipe, nao o limite
 });
 beforeEach(() => {
   clearOrgRateLimits();

@@ -1,4 +1,5 @@
 import type { Prisma, PrismaClient } from "@prisma/client";
+import { isFreePlanKey } from "@/lib/billing/plan-catalog";
 import { lockOrg } from "@/lib/org/guards";
 
 type Db = PrismaClient | Prisma.TransactionClient;
@@ -52,7 +53,7 @@ export async function findDeletionBlockers(db: Db, userId: string): Promise<Dele
       const sub = m.org.subscription;
       if (!sub) {
         out.push({ code: "org_without_subscription", message: BLOCKER_MESSAGES.org_without_subscription(m.org.name), orgId: m.orgId, orgName: m.org.name });
-      } else if (sub.status === "trialing" && (sub.plan.key === "free" || !sub.trialEndsAt || sub.trialEndsAt.getTime() <= Date.now())) {
+      } else if (sub.status === "trialing" && (isFreePlanKey(sub.plan.key) || !sub.trialEndsAt || sub.trialEndsAt.getTime() <= Date.now())) {
         // SPEC-065 (D-065-24 + QA 065a): trial Free, ou trial (legado) EXPIRADO — nao ha o que cancelar (e cancelar fica bloqueado) — nao bloqueia a exclusao — nao bloqueia a exclusao (a purga encerra a organizacao Free).
       } else if ((ACTIVE_SUB_STATUSES as readonly string[]).includes(sub.status) && !sub.cancelAtPeriodEnd) {
         out.push({ code: "active_subscription", message: BLOCKER_MESSAGES.active_subscription(m.org.name), orgId: m.orgId, orgName: m.org.name });

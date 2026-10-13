@@ -13,6 +13,7 @@ vi.mock("@/lib/channels/system-mail", () => ({
 }));
 
 import { prisma } from "@/lib/prisma";
+import { grantAllEntitlements } from "@/lib/test-utils/trial-fixture";
 import { createTestOrg, purgeTestOrg, type TestOrg } from "@/lib/test-utils/org-fixture";
 import { signInAs, signOut } from "@/lib/auth/test-helpers";
 import { clearOrgRateLimits } from "@/lib/org/rate-limit";
@@ -43,6 +44,7 @@ beforeAll(async () => {
   B = await createTestOrg("orgn-b");
   O2 = await mkUser("o2", A.orgId, "owner");
   await prisma.subscription.create({ data: { orgId: A.orgId, planId: (await prisma.plan.findUniqueOrThrow({ where: { key: "starter" } })).id, status: "active", cadence: "monthly" } });
+  await grantAllEntitlements(A.orgId); // SPEC-069b: sem limite de membros neste arquivo (o foco e o aviso aos owners)
 });
 beforeEach(() => {
   clearOrgRateLimits();

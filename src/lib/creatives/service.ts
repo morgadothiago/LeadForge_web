@@ -2,6 +2,7 @@ import { Prisma } from "@prisma/client";
 import { AppError, safeErrorForLog } from "@/lib/errors";
 import { prisma } from "@/lib/prisma";
 import { scopedPrisma } from "@/lib/tenant/scoped-prisma";
+import { assertWithinEntitlementLimit } from "@/lib/billing/entitlements";
 import { deleteFile, getFileUrl } from "@/lib/storage/service";
 import type { StorageConfig } from "@/lib/storage/config";
 import type { StorageProvider } from "@/lib/storage/provider";
@@ -68,6 +69,8 @@ export async function createCreativeDraft(
 ): Promise<CreativeView> {
   const { config, provider } = depsOf(deps);
   const durationSec = await validateContent(input, config, provider);
+  // SPEC-069b: plano sem criativos (limite 0, ex.: Free) nao cria nem rascunho; com limite > 0 o rascunho e livre (a cota conta no envio).
+  await assertWithinEntitlementLimit(prisma, ctx.orgId, "creatives", 0, 1, deps.now ?? new Date());
   const row = await scopedPrisma(ctx.orgId).creative.create({
     data: {
       title: input.title, script: input.script, language: input.language, avatarRef: input.avatarRef, voiceRef: input.voiceRef,
@@ -108,10 +111,10 @@ async function enqueue(ctx: Ctx, id: string, allowedFrom: readonly string[], dep
       const active = await tx.creative.count({ where: { orgId: ctx.orgId, deletedAt: null, status: { in: [...ACTIVE] } } });
       if (active >= config.maxConcurrentJobsPerOrg) throw conflict(`Limite de ${config.maxConcurrentJobsPerOrg} geração(ões) simultânea(s) atingido. Aguarde uma terminar.`);
       const needsQuota = !fresh.submittedAt || fresh.submittedAt < monthStart;
-      if (needsQuota) {
-        const used = await tx.creative.count({ where: { orgId: ctx.orgId, submittedAt: { gte: monthStart } } }); // inclui excluidos (soft delete): excluir nao devolve cota
-        if (used >= config.maxPerMonthPerOrg) throw conflict(`Limite mensal de ${config.maxPerMonthPerOrg} criativos atingido.`);
-      }
+      const used = await tx.creative.count({ where: { orgId: ctx.orgId, submittedAt: { gte: monthStart } } }); // inclui excluidos (soft delete): excluir nao devolve cota
+      // SPEC-069b: limite mensal DO PLANO (0/3/20; sob o advisory lock da org). Reenvio de criativo ja contado no mes nao consome cota, mas plano sem criativos barra.
+      await assertWithinEntitlementLimit(tx, ctx.orgId, "creatives", used, needsQuota ? 1 : 0, now);
+      if (needsQuota && used >= config.maxPerMonthPerOrg) throw conflict(`Limite mensal de ${config.maxPerMonthPerOrg} criativos atingido.`);
 
       const last = await tx.creativeJob.findFirst({ where: { creativeId: id, orgId: ctx.orgId }, orderBy: { runNo: "desc" }, select: { runNo: true, providerJobId: true, failureKind: true } });
       const runNo = (last?.runNo ?? 0) + 1;

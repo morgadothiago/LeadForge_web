@@ -2,7 +2,7 @@ import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { findSuppression, SUPPRESSED_MESSAGE } from "@/lib/domain/suppression";
 import { EMAIL_NOT_VERIFIED_MESSAGE } from "@/lib/auth/email-verification";
-import { getOrgLimits } from "@/lib/billing/limits";
+import { getEntitlements, isCostlyBlocked } from "@/lib/billing/entitlements";
 import { dayKey, nextBrtDayStart, reserveUsage } from "@/lib/billing/usage";
 import { loadOrgAccess } from "@/lib/billing/org-access";
 import { allowSeedSends, isSeedSource, SEED_BLOCK_MESSAGE } from "@/lib/domain/seed-guard";
@@ -90,6 +90,8 @@ export async function deferUnverifiedBeforeReserve(touchId: string, where: Prism
 /** SPEC-065 (D-065-18): mensagens de adiamento por plano (Touch volta a `scheduled`; nao queima tentativa nem encerra a sequencia). */
 export const PLAN_SEND_LIMIT_MESSAGE = "Limite diário de envios do plano atingido; o envio segue no próximo dia.";
 export const TRIAL_EXPIRED_SEND_MESSAGE = "Teste grátis expirado; os envios ficam pausados até assinar um plano.";
+export const PLAN_LOCKED_SEND_MESSAGE = "Envios pausados: pagamento em atraso ou plano indisponível. Regularize em Configurações > Assinatura.";
+export const PLAN_LOCKED_DEFER_MS = 6 * 60 * 60_000;
 export const TRIAL_EXPIRED_DEFER_MS = 6 * 60 * 60_000;
 
 /**
@@ -98,7 +100,7 @@ export const TRIAL_EXPIRED_DEFER_MS = 6 * 60 * 60_000;
  * `reserveUsage("sends", dia BRT)` atomico; estourou => ADIA para o proximo dia (nao e falha). A rampa de aquecimento (017) e o `dailyLimit` da conta
  * continuam valendo depois (vale o MENOR). Devolve o instante da proxima tentativa ou `null` se pode enviar. Cortesia/admin/sem Subscription: sem limite.
  */
-export async function deferOverPlanBeforeReserve(touchId: string, where: Prisma.TouchWhereInput, now: Date): Promise<{ nextAt: Date; reason: "plan_limit" | "trial_expired" } | null> {
+export async function deferOverPlanBeforeReserve(touchId: string, where: Prisma.TouchWhereInput, now: Date): Promise<{ nextAt: Date; reason: "plan_limit" | "trial_expired" | "plan_locked" } | null> {
   const t = await prisma.touch.findUnique({ where: { id: touchId }, select: { lead: { select: { campaign: { select: { orgId: true } } } } } });
   if (!t) return null;
   const orgId = t.lead.campaign.orgId;
@@ -107,7 +109,15 @@ export async function deferOverPlanBeforeReserve(touchId: string, where: Prisma.
     await prisma.touch.updateMany({ where, data: { status: "scheduled", scheduledAt: nextAt, error: TRIAL_EXPIRED_SEND_MESSAGE } });
     return { nextAt, reason: "trial_expired" };
   }
-  const limit = (await getOrgLimits(prisma, orgId)).maxSendsPerDay;
+  // SPEC-069b (D-069-9/10): FAIL-CLOSED em envio. Plano ilegivel/erro ao ler o plano, org bloqueada ou `past_due` (grace) => o envio NAO sai e e ADIADO
+  // (nao queima tentativa; nada e apagado; volta quando o plano/pagamento for regularizado). Mensagens manuais da caixa nao passam por aqui.
+  const ent = await getEntitlements(prisma, orgId, now);
+  if (isCostlyBlocked(ent)) {
+    const nextAt = new Date(now.getTime() + PLAN_LOCKED_DEFER_MS);
+    await prisma.touch.updateMany({ where, data: { status: "scheduled", scheduledAt: nextAt, error: PLAN_LOCKED_SEND_MESSAGE } });
+    return { nextAt, reason: "plan_locked" };
+  }
+  const limit = ent.limits.maxSendsPerDay;
   if (limit === null) return null;
   const r = await reserveUsage(prisma, orgId, "sends", dayKey(now), 1, limit);
   if (r.ok) return null;

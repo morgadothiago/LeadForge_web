@@ -2,6 +2,8 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { AppError, safeErrorForLog } from "@/lib/errors";
 import { findIntegrationConfig } from "@/lib/integrations/config";
+import { getEntitlements } from "@/lib/billing/entitlements";
+import { PlanLimitError } from "@/lib/billing/limit-error";
 import { processItem } from "@/lib/lead-ingest/handler";
 import { startOfLocalDay } from "@/lib/whatsapp/send-window";
 import { computeBudget } from "./budget";
@@ -62,6 +64,16 @@ async function reserve(campaignId: string, orgId: string, sourceId: string, trig
         if (trigger === "scheduled") return { skipped: true as const };
         if (active.trigger === "manual") return { inProgress: active.id };
         return { busy: BUSY_MESSAGE };
+      }
+      // SPEC-069b: `maxLeadSearchesPerDay` do plano (Free 2 / Starter 10 / Pro 30; 0 = sem busca; null = ilimitado), contado por ORG no dia (manual + agendada, sem
+      // runs `blocked`). A agendada so PULA (silencioso); a manual recebe `plan_limit`. Plano ilegivel/org bloqueada => limite 0 (fail-closed).
+      const searchCap = (await getEntitlements(tx, orgId)).limits.maxLeadSearchesPerDay;
+      if (searchCap !== null) {
+        const usedToday = await tx.searchRun.count({ where: { campaign: { orgId }, startedAt: { gte: since }, status: { not: "blocked" } } });
+        if (usedToday >= searchCap) {
+          if (trigger === "scheduled") return { skipped: true as const };
+          throw new PlanLimitError("lead_searches", searchCap, usedToday);
+        }
       }
       if (trigger === "scheduled") {
         // Uma execução agendada por campanha por dia (o tick roda a cada minuto; falha também conta, sem retry em laço).

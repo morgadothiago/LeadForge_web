@@ -122,6 +122,8 @@ export async function handleGoogleAdsWebhook(req: Request, deps: GoogleAdsDeps =
     console.info(`[integrations/leads/google-ads] status=${result.status}`);
     // SPEC-065 (D-065-13.5): org com teste gratis expirado recusa a ingestao (403 tipado).
     if (result.status === "trial_expired") return err(403, "trial_expired", "O teste grátis desta organização terminou.");
+    // SPEC-069b: plano sem a fonte Google Ads: 403 tipado (configuracao preservada).
+    if (result.status === "plan_feature_locked") return err(403, "plan_feature_locked", "Fonte de leads Google Ads indisponível no plano desta organização.");
     return json({ status: result.status }, 200);
   } catch (e) {
     console.error("[integrations/leads/google-ads] erro:", safeErrorForLog(e));

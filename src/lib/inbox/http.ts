@@ -1,6 +1,8 @@
 import { requireSession } from "@/lib/notifications/http";
 import { fail, tooMany } from "@/lib/mobile/http";
 import { redisHit } from "@/lib/rate-limit/redis";
+import { getEntitlements, hasFeature, requiredPlanName } from "@/lib/billing/entitlements";
+import { prisma } from "@/lib/prisma";
 
 /**
  * SPEC-068a: guarda dos Route Handlers de leitura da caixa. Sessão (cookie) obrigatória: 401 sem sessão; `platform_admin` (sem org) não acessa
@@ -40,6 +42,8 @@ export async function inboxReadGuard(): Promise<{ orgId: string; userId: string 
   if (!a.orgId || a.platformRole !== "provider") return fail(403, "forbidden", "Sem permissão.");
   const wait = await readRateLimitWait(a.id);
   if (wait !== null) return tooMany(wait);
+  // SPEC-069b: leitura da caixa e a ultima coisa que cai (so some se o plano/override nao inclui `inbox.read`; downgrade/past_due/expirado continuam lendo).
+  if (!hasFeature(await getEntitlements(prisma, a.orgId), "inbox.read")) return fail(403, "plan_feature_locked", `Caixa de atendimento indisponível no plano atual. Disponível a partir do plano ${requiredPlanName("inbox.read")}.`);
   return { orgId: a.orgId, userId: a.id };
 }
 

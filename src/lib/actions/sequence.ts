@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requireActiveProviderOrg } from "@/lib/auth/require-admin";
+import { assertWithinEntitlementLimit } from "@/lib/billing/entitlements";
 import { scopedPrisma } from "@/lib/tenant/scoped-prisma";
 import { idSchema } from "@/lib/schemas/campaign";
 import {
@@ -64,6 +65,8 @@ export async function createSequence(input: unknown): Promise<ActionResult<Seque
   if (!parsed.success) return failure(zodErrors(parsed.error));
   const errs = await validateSteps(orgId, parsed.data.steps);
   if (errs) return failure(errs);
+  // SPEC-069b: `maxSequenceSteps` do plano (3/5/ilimitado): barra sequencia NOVA acima do limite.
+  await assertWithinEntitlementLimit(prisma, orgId, "sequence_steps", 0, parsed.data.steps.length);
   const seq = await scopedPrisma(orgId).sequence.create({
     data: {
       name: parsed.data.name,
@@ -117,6 +120,8 @@ export async function saveSequenceSteps(input: unknown): Promise<ActionResult<Se
   }
   const errs = await validateSteps(orgId, steps);
   if (errs) return failure(errs);
+  // SPEC-069b: so barra CRESCER alem do limite do plano (sequencia que ja tinha mais passos, ex.: apos downgrade, continua editavel/podendo encolher; nada e apagado).
+  if (steps.length > existing.length) await assertWithinEntitlementLimit(prisma, orgId, "sequence_steps", 0, steps.length);
 
   // Sequence/SequenceStep já foram validados como desta org acima; a transação em si roda no client cru (fora do scopedPrisma).
   await prisma.$transaction(async (tx) => {
@@ -184,6 +189,8 @@ export async function duplicateSequence(id: unknown): Promise<ActionResult<{ id:
     select: { name: true, steps: { orderBy: { order: "asc" }, select: { day: true, channel: true, templateId: true, order: true } } },
   });
   if (!src) return formError("Sequência não encontrada.");
+  // SPEC-069b: a copia e uma sequencia NOVA: respeita `maxSequenceSteps` do plano.
+  await assertWithinEntitlementLimit(prisma, orgId, "sequence_steps", 0, src.steps.length);
   const copy = await db.sequence.create({
     data: { name: `${src.name} (cópia)`.slice(0, 120), steps: { create: src.steps } },
     select: { id: true },

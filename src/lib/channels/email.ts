@@ -79,7 +79,7 @@ export type SendEmailResult =
   | { status: "sent"; messageId: string; accountId: string }
   | { status: "already_sent" }
   | { status: "skipped"; reason: "opted_out" | "sequence_completed" | "replied" | "suppressed" | "seed_data" }
-  | { status: "deferred"; nextAt: Date; reason?: "email_not_verified" | "plan_limit" | "trial_expired" }
+  | { status: "deferred"; nextAt: Date; reason?: "email_not_verified" | "plan_limit" | "trial_expired" | "plan_locked" }
   | { status: "failed"; error: AppError };
 
 export function sanitizeError(msg: string): string {

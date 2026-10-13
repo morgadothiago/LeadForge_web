@@ -1,6 +1,7 @@
 import { AppError, safeErrorForLog } from "@/lib/errors";
 import { prisma } from "@/lib/prisma";
 import { scopedPrisma } from "@/lib/tenant/scoped-prisma";
+import { getEntitlements, isCostlyBlocked, type Entitlements } from "@/lib/billing/entitlements";
 import { sanitizeFileName } from "@/lib/storage/keys";
 import { deleteFile, uploadFile } from "@/lib/storage/service";
 import { getCreativeConfig, type CreativeConfig } from "./config";
@@ -97,6 +98,16 @@ export async function processCreativeJobs(now: Date, deps: RunnerDeps = {}): Pro
     select: { id: true, orgId: true, creativeId: true, provider: true, providerJobId: true, attempts: true, deadlineAt: true, idempotencyKey: true, startedAt: true, lockedAt: true },
   });
 
+  // SPEC-069b: defesa em profundidade. Gerar video no provedor custa dinheiro: plano ilegivel/erro, org bloqueada, `past_due` ou plano sem criativos
+  // (limite 0) => NAO cria job no provedor. O job fica `queued` (nada e apagado; reagenda) e segue no upgrade/regularizacao ou falha pelo prazo. Plano resolvido 1x por org.
+  const planByOrg = new Map<string, Entitlements>();
+  const planOf = async (orgId: string): Promise<Entitlements> => {
+    const hit = planByOrg.get(orgId);
+    if (hit) return hit;
+    const ent = await getEntitlements(prisma, orgId, now);
+    planByOrg.set(orgId, ent);
+    return ent;
+  };
   for (const row of due) {
     if (clock() - t0 > budget) break;
     const { lockedAt, ...job } = row;
@@ -108,6 +119,15 @@ export async function processCreativeJobs(now: Date, deps: RunnerDeps = {}): Pro
     if (claimed.count !== 1) {
       sum.skipped++;
       continue;
+    }
+    // SPEC-069b: o plano e checado DEPOIS do claim (a janela entre ler `due` e reivindicar nao pode aumentar); se bloqueado, solta o lease e reagenda.
+    if (!job.providerJobId) {
+      const ent = await planOf(job.orgId);
+      if (isCostlyBlocked(ent) || ent.limits.maxCreativesPerMonth === 0) {
+        await prisma.creativeJob.updateMany({ where: { id: job.id, status: "queued", providerJobId: null }, data: { lockedAt: null, nextRunAt: new Date(now.getTime() + backoffMs(Math.max(1, job.attempts + 1), deps.random)) } });
+        sum.skipped++;
+        continue;
+      }
     }
     sum.picked++;
     if (lockedAt) sum.recovered++;

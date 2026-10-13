@@ -84,6 +84,26 @@ describe("estados de acesso (D-069-9/10)", () => {
     }
   });
 
+  it("QA 069a (medio): business/courtesy liberam tudo, MAS org suspensa ou assinatura cancelada/bloqueada cai no ramo bloqueado; courtesy SEM assinatura segue liberada", () => {
+    for (const k of ["business", "courtesy"]) {
+      const suspendedOrg = resolveEntitlements(ORG, { ...row(k), status: "suspended" }, NOW);
+      expect(suspendedOrg.source).toBe("blocked");
+      expect(hasFeature(suspendedOrg, "inbox.read")).toBe(true);
+      expect(FEATURE_KEYS.filter((f) => f !== "inbox.read").some((f) => hasFeature(suspendedOrg, f))).toBe(false);
+      expect(limitOf(suspendedOrg, "maxActiveAgents")).toBe(0);
+      const canceled = resolveEntitlements(ORG, row(k, { status: "canceled" }), NOW);
+      expect(canceled.source).toBe("blocked");
+      expect(hasFeature(canceled, "agents.role.sdr")).toBe(false);
+      // plano ainda vale quando a assinatura esta em dia e a org ativa (nao regride o caso feliz)
+      expect(resolveEntitlements(ORG, row(k), NOW).source).toBe("full");
+      // past_due dentro do grace (org ativa): business/courtesy nao tem o que pausar (plano ilimitado/full), mantem tudo
+      expect(resolveEntitlements(ORG, row(k, { status: "past_due", pastDueSince: new Date(NOW.getTime() - DAY) }), NOW).source).toBe("full");
+    }
+    const courtesyNoSub = resolveEntitlements(ORG, { status: "active", subscription: null, entitlementOverride: null }, NOW);
+    expect(courtesyNoSub.source).toBe("none");
+    expect(FEATURE_KEYS.every((f) => hasFeature(courtesyNoSub, f))).toBe(true);
+  });
+
   it("sem assinatura (org ativa) = tudo liberado; org suspensa sem assinatura = so leitura", () => {
     const ok = resolveEntitlements(ORG, { status: "active", subscription: null, entitlementOverride: null }, NOW);
     expect(ok.source).toBe("none");
@@ -318,7 +338,9 @@ describe("integracao com banco: isolamento multi-tenant A/B/C", () => {
   });
 
   it("plano de teste com JSON antigo (so chaves legadas): IA bloqueada, limites legados intactos", async () => {
-    await ensureTestPlan("zz-ent-legacy", { maxCampaigns: 2, maxWhatsappInstances: 1, maxLeadsPerMonth: 10 });
+    // JSON ANTIGO de verdade (`ensureTestPlan` agora abre as chaves novas por padrao): grava so as chaves legadas.
+    const legacy = { maxCampaigns: 2, maxWhatsappInstances: 1, maxLeadsPerMonth: 10 };
+    await prisma.plan.upsert({ where: { key: "zz-ent-legacy" }, update: { limits: legacy }, create: { key: "zz-ent-legacy", name: "zz-ent-legacy", priceMonthlyCents: 0, priceYearlyCents: null, limits: legacy, active: false, selfServiceCheckout: false } });
     const o = await mk("ent-leg");
     await setOrgPlan(o.orgId, { planKey: "zz-ent-legacy", status: "active" });
     const e = await getEntitlements(prisma, o.orgId);

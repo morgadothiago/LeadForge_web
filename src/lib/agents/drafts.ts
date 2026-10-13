@@ -4,6 +4,7 @@ import { sendWhatsApp } from "@/lib/channels/whatsapp";
 import { AppError } from "@/lib/errors";
 import { assertUserEmailVerified } from "@/lib/auth/email-verification";
 import { advanceAfterAgentStep } from "./advance";
+import { agentRoleFeature, assertFeature } from "@/lib/billing/entitlements";
 import { DRAFT_TTL_MS } from "./types";
 
 export type DispatchResult =
@@ -27,6 +28,9 @@ export async function dispatchDraft(
   // pertencer a esta org — defesa contra draftId adivinhado de outro tenant. Nunca revela se existe em outra org.
   if (!draft || (opts.orgId && draft.lead.campaign.orgId !== opts.orgId)) throw new AppError({ code: "not_found", userMessage: "Rascunho não encontrado." });
   if (draft.status !== "pending") throw new AppError({ code: "conflict", userMessage: "Este rascunho já foi tratado." });
+  // SPEC-069b: envio de agente exige o papel liberado pelo plano e a assinatura em dia (fail-closed; `past_due` pausa). Lanca `plan_feature_locked`
+  // ANTES de consumir o rascunho (segue pendente; nada e apagado).
+  await assertFeature(prisma, draft.lead.campaign.orgId, agentRoleFeature(draft.agentRun.agent.role), now);
   // SPEC-055 (D-055-7): aprovacao/envio MANUAL por usuario nao verificado => erro tipado `email_not_verified` ANTES de consumir o rascunho
   // (segue pendente). Despacho automatico (reviewer null) cai no adiamento do canal (`deferUnverifiedBeforeReserve`).
   if (opts.reviewer) await assertUserEmailVerified(draft.lead.campaign.userId);

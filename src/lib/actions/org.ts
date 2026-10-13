@@ -8,6 +8,7 @@ import { createSession } from "@/lib/auth/session";
 import { hashPassword } from "@/lib/auth/password";
 import { getClientIpKey } from "@/lib/auth/client-ip";
 import { NOT_SHELL } from "@/lib/billing/shell";
+import { assertWithinEntitlementLimit } from "@/lib/billing/entitlements";
 import { sendSystemEmail } from "@/lib/channels/system-mail";
 import { orgInviteTemplate } from "@/lib/channels/email/templates/org-invite";
 import { safeErrorForLog } from "@/lib/errors";
@@ -211,6 +212,10 @@ export async function inviteMember(input: unknown): Promise<ActionResult<{ invit
     const { token, hash } = newInviteToken();
     const now = new Date();
     const invite = await prisma.$transaction(async (tx) => {
+      // SPEC-069b: `maxMembers` do plano, sob o lock da org: membros + convites pendentes (de OUTROS e-mails; o do mesmo e-mail e substituido) nao podem passar do limite.
+      await lockOrg(tx, orgId);
+      const pending = await tx.orgInvite.count({ where: { orgId, usedAt: null, revokedAt: null, expiresAt: { gt: now }, email: { not: email } } });
+      await assertWithinEntitlementLimit(tx, orgId, "members", (await tx.membership.count({ where: { orgId } })) + pending);
       // Convite novo substitui os pendentes do mesmo e-mail (só 1 link válido por e-mail/org).
       await tx.orgInvite.updateMany({ where: { orgId, email, usedAt: null, revokedAt: null }, data: { revokedAt: now } });
       const created = await tx.orgInvite.create({

@@ -8,6 +8,7 @@ import { encrypt } from "@/lib/crypto/secret-box";
 import { getEncryptionKey } from "@/lib/env";
 import { metaPageTokenName } from "@/lib/lead-source/secrets";
 import { prisma } from "@/lib/prisma";
+import { assertFeature } from "@/lib/billing/entitlements";
 import { secretHint } from "@/lib/schemas/integration";
 import { removeLeadSourceBindingSchema, saveLeadSourceBindingSchema } from "@/lib/schemas/lead-source";
 import { scopedPrisma } from "@/lib/tenant/scoped-prisma";
@@ -35,6 +36,8 @@ export async function saveLeadSourceBinding(input: unknown): Promise<ActionResul
     const parsed = saveLeadSourceBindingSchema.safeParse(input);
     if (!parsed.success) return failure(zodErrors(parsed.error));
     const { provider, externalAccountId, label, campaignId, pageToken } = parsed.data;
+    // SPEC-069b: fontes Google Ads Lead Form / Meta Lead Ads so no plano que libera `sources.ads` (Pro) ou por override do admin.
+    await assertFeature(prisma, orgId, "sources.ads");
     if (pageToken) {
       try {
         getEncryptionKey();

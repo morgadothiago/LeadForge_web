@@ -7,6 +7,7 @@ import { createLeadCore } from "@/lib/domain/lead-create";
 import { findSuppression } from "@/lib/domain/suppression";
 import { PlanLimitError } from "@/lib/billing/limits";
 import { loadOrgAccess } from "@/lib/billing/org-access";
+import { getEntitlements, hasFeature } from "@/lib/billing/entitlements";
 import type { ExtractedContact } from "./mapping";
 
 /**
@@ -18,7 +19,7 @@ import type { ExtractedContact } from "./mapping";
  * a mesma notificação em caso de falha/timeout do lado do anunciante.
  */
 /** SPEC-065: `plan_limit` = cota de leads do plano esgotada; `trial_expired` = org com teste gratis expirado (recusado, D-065-13.5). */
-export type IngestStatus = "created" | "duplicate" | "suppressed" | "campaign_archived" | "plan_limit" | "trial_expired";
+export type IngestStatus = "created" | "duplicate" | "suppressed" | "campaign_archived" | "plan_limit" | "trial_expired" | "plan_feature_locked";
 export interface IngestResult {
   status: IngestStatus;
   leadId?: string;
@@ -41,6 +42,10 @@ export async function ingestExternalLead(opts: {
 
   // SPEC-065 (D-065-13.5): org com teste gratis expirado nao recebe lead (nao reivindica a chave: apos assinar, o provedor pode reenviar).
   if ((await loadOrgAccess(prisma, orgId, new Date())) === "trial_expirado") return { status: "trial_expired" };
+
+  // SPEC-069b: fonte de anuncios (Google Ads / Meta) so no plano que libera `sources.ads` (ou override). Configuracao preservada; so PARA de ingerir.
+  // Nao reivindica a chave: apos o upgrade o provedor pode reenviar. Plano ilegivel/erro = bloqueado (fail-closed).
+  if (!hasFeature(await getEntitlements(prisma, orgId), "sources.ads")) return { status: "plan_feature_locked" };
 
   // Reivindicação idempotente ANTES de criar o lead: reenvio da mesma notificação nunca duplica.
   try {

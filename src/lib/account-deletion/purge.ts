@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { isFreePlanKey } from "@/lib/billing/plan-catalog";
 import { safeErrorForLog } from "@/lib/errors";
 import { sendOnce } from "@/lib/channels/email/send-once";
 import { accountDeletedTemplate } from "@/lib/channels/email/templates/account-deleted";
@@ -82,7 +83,7 @@ async function anonymize(reqId: string, now: Date): Promise<Outcome> {
             // SPEC-065 (D-065-24): org Free em trial sem mais membros e ENCERRADA (assinatura cancelada; org suspensa; retencao/expurgo pelo fluxo existente).
             // O `TrialClaim` NAO e apagado (excluir e recadastrar nao renova o trial).
             const sub = await tx.subscription.findUnique({ where: { orgId: m.orgId }, select: { status: true, trialEndsAt: true, plan: { select: { key: true } } } });
-            if (sub?.status === "trialing" && (sub.plan.key === "free" || !sub.trialEndsAt || sub.trialEndsAt.getTime() <= now.getTime())) {
+            if (sub?.status === "trialing" && (isFreePlanKey(sub.plan.key) || !sub.trialEndsAt || sub.trialEndsAt.getTime() <= now.getTime())) {
               await tx.subscription.update({ where: { orgId: m.orgId }, data: { status: "canceled", canceledAt: now } });
               await tx.organization.update({ where: { id: m.orgId }, data: { status: "suspended", suspendedReason: "automatic" } });
             }

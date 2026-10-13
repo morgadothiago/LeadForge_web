@@ -4,6 +4,8 @@ import { runAgentTask, type RunOutcome } from "./run-agent";
 import { expireOldDrafts } from "./drafts";
 import { purgeAgentData } from "./retention";
 import type { LlmProvider } from "./provider";
+import { getEntitlements, hasFeature, agentRoleFeature, isCostlyBlocked } from "@/lib/billing/entitlements";
+import { resolveRunnableAgents } from "./plan-gate";
 
 export const QUEUE_BATCH = 10;
 export const QUEUE_TIME_BUDGET_MS = 15_000;
@@ -20,20 +22,28 @@ export async function enqueueAgentRun(input: { agentId: string; leadId: string; 
   }
 }
 
-/** Agente ativo, com teto definido e kill switch da ORG do agente desligado (SPEC-030: AgentSettings é por-org). */
-export async function isAgentAvailable(agentId: string, db: Pick<typeof prisma, "agent" | "agentSettings"> = prisma): Promise<boolean> {
+/**
+ * Agente ativo, com teto definido e kill switch da ORG do agente desligado (SPEC-030: AgentSettings é por-org).
+ * SPEC-069b: e dentro do plano (papel liberado, `maxActiveAgents`, assinatura em dia): fail-closed (nao enfileira IA sem direito).
+ */
+export async function isAgentAvailable(agentId: string, db: Pick<typeof prisma, "agent" | "agentSettings"> = prisma, now: Date = new Date()): Promise<boolean> {
   const a = await db.agent.findUnique({ where: { id: agentId }, select: { active: true, monthlyBudgetCents: true, orgId: true } });
   if (!a) return false;
   const s = await db.agentSettings.findUnique({ where: { orgId: a.orgId } });
   if (s?.killSwitch !== false) return false;
-  return !!a.active && a.monthlyBudgetCents !== null;
+  if (!a.active || a.monthlyBudgetCents === null) return false;
+  return (await resolveRunnableAgents([a.orgId], now)).includes(agentId);
 }
 
 /** Agente Closer ativo (e sistema ligado) para tarefa inbound DESTA org; null = nada a fazer. */
 export async function findActiveCloser(orgId: string, db: Pick<typeof prisma, "agent" | "agentSettings"> = prisma): Promise<{ id: string } | null> {
   const s = await db.agentSettings.findUnique({ where: { orgId } });
   if (s?.killSwitch !== false) return null;
-  return db.agent.findFirst({ where: { orgId, role: "closer", active: true }, select: { id: true }, orderBy: { createdAt: "asc" } });
+  const closer = await db.agent.findFirst({ where: { orgId, role: "closer", active: true }, select: { id: true }, orderBy: { createdAt: "asc" } });
+  // SPEC-069b: so devolve o Closer se o plano libera o papel e a org esta em dia (fail-closed).
+  if (!closer) return null;
+  const ent = await getEntitlements(prisma, orgId);
+  return !isCostlyBlocked(ent) && hasFeature(ent, agentRoleFeature("closer")) ? closer : null;
 }
 
 export interface QueueSummary { processed: number; outcomes: Record<string, number>; expired: number; purged: number }
@@ -45,7 +55,11 @@ export async function processAgentQueue(opts: { now?: Date; provider?: LlmProvid
   const outcomes: Record<string, number> = {};
   let processed = 0;
   await prisma.agentRun.updateMany({ where: { status: "running", createdAt: { lt: new Date(now.getTime() - STALE_RUNNING_MS) } }, data: { status: "queued" } });
-  const rows = await prisma.agentRun.findMany({ where: { status: "queued", agent: { active: true } }, orderBy: { createdAt: "asc" }, take: opts.limit ?? QUEUE_BATCH, select: { id: true } });
+  // SPEC-069b: defesa em profundidade. Resolve o plano UMA vez por org com tarefa na fila; so agentes liberados (papel, limite de agentes ativos,
+  // assinatura em dia) entram no lote. Tarefas bloqueadas ficam `queued` (nada e apagado) e nao travam a fila das demais orgs.
+  const orgsWithWork = await prisma.agent.findMany({ where: { active: true, runs: { some: { status: "queued" } } }, select: { orgId: true }, distinct: ["orgId"] });
+  const runnable = await resolveRunnableAgents(orgsWithWork.map((o) => o.orgId), now);
+  const rows = await prisma.agentRun.findMany({ where: { status: "queued", agent: { active: true }, agentId: { in: runnable } }, orderBy: { createdAt: "asc" }, take: opts.limit ?? QUEUE_BATCH, select: { id: true } });
   for (const r of rows) {
     if (Date.now() - t0 > (opts.budgetMs ?? QUEUE_TIME_BUDGET_MS)) break;
     const claim = await prisma.agentRun.updateMany({ where: { id: r.id, status: "queued" }, data: { status: "running" } });

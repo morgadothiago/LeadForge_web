@@ -6,6 +6,7 @@ vi.mock("next/cache", () => ({ revalidatePath: vi.fn(), revalidateTag: vi.fn(), 
 process.env.ENCRYPTION_KEY = randomBytes(32).toString("base64");
 
 import { prisma } from "@/lib/prisma";
+import { startOfDaySP } from "@/lib/channels/email";
 import { AppError } from "@/lib/errors";
 import { FakeWhatsAppProvider } from "@/lib/whatsapp/providers/fake";
 import { TIMEOUT_WARNING } from "@/lib/channels/whatsapp";
@@ -194,7 +195,9 @@ describe("limites anti-ban (D-068-5)", () => {
   it("teto diário da instância soma automáticos + manuais e vira rate_limited até o próximo dia", async () => {
     await prisma.whatsAppInstance.update({ where: { id: A.instanceId }, data: { dailyLimit: 2 } });
     const { lead, conv } = await setup();
-    await prisma.touch.create({ data: { leadId: lead.id, channel: "whatsapp", status: "sent", sentAt: new Date(NOW.getTime() - 5 * HOUR), whatsappInstanceId: A.instanceId } });
+    // Mesmo dia (BRT) de NOW: "5 h antes" cairia no dia anterior entre 00:00 e 05:00 BRT e o teto diario nao o contaria (flaky de relogio, nao do codigo).
+    const sameDayBefore = new Date(Math.max(NOW.getTime() - 5 * HOUR, startOfDaySP(NOW).getTime() + 60_000));
+    await prisma.touch.create({ data: { leadId: lead.id, channel: "whatsapp", status: "sent", sentAt: sameDayBefore, whatsappInstanceId: A.instanceId } });
     expect(code(await send(conv.id, "um", { now: new Date(NOW.getTime() + 10_000) }))).toBe("ok");
     const r = await send(conv.id, "dois", { now: new Date(NOW.getTime() + 20_000) });
     expect(r).toMatchObject({ ok: false, code: "rate_limited" });

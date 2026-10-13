@@ -10,6 +10,13 @@ export type PlanKey = (typeof PLAN_KEYS)[number];
 /** Ordem de "menor para maior" usada para dizer qual plano libera uma funcionalidade. */
 export const PLAN_ORDER: readonly PlanKey[] = ["free", "starter", "pro", "business"];
 
+/**
+ * SPEC-069b: identidade do plano de TESTE (trial de 14 dias, SPEC-065). Unico lugar autorizado a conhecer a chave `free` fora do seed:
+ * semantica de trial (cancelar/excluir conta), nunca permissao de funcionalidade (isso e `entitlements.ts`).
+ */
+export const FREE_PLAN_KEY: PlanKey = "free";
+export const isFreePlanKey = (key: string | null | undefined): boolean => key === FREE_PLAN_KEY;
+
 /** Planos com TUDO liberado e sem limites (D-065-25 preservado): independem do que estiver gravado em `Plan.limits`. */
 export const FULL_ACCESS_PLAN_KEYS: readonly string[] = ["business", "courtesy"];
 

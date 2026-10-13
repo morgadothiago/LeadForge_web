@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { isFreePlanKey } from "@/lib/billing/plan-catalog";
 import type { SubscriptionStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { SlidingLimiter } from "@/lib/integrations/rate-limit";
@@ -33,7 +34,7 @@ export async function cancelSubscriptionForOrg(orgId: string): Promise<ActionRes
   });
   if (!sub) return formError("Nenhuma assinatura encontrada para cancelar.");
   // SPEC-065 (D-065-24): o teste gratis (plano `free`) nao tem o que cancelar; sair = excluir a conta (054).
-  if (sub.plan.key === "free") return formError("O teste grátis não tem assinatura para cancelar.");
+  if (isFreePlanKey(sub.plan.key)) return formError("O teste grátis não tem assinatura para cancelar.");
   if (sub.status === "canceled" || sub.cancelAtPeriodEnd) {
     return success({ status: sub.status, cancelAtPeriodEnd: sub.cancelAtPeriodEnd, currentPeriodEnd: sub.currentPeriodEnd, outcome: "already" });
   }

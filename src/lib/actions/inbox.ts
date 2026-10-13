@@ -2,6 +2,8 @@
 
 import { z } from "zod";
 import { requireActiveProviderOrg } from "@/lib/auth/require-admin";
+import { assertFeature, requiredPlanName } from "@/lib/billing/entitlements";
+import { prisma } from "@/lib/prisma";
 import { sendManualWhatsApp } from "@/lib/inbox/send-manual";
 import { markRead, setStatus } from "@/lib/inbox/conversations";
 import type { MessageView } from "@/lib/inbox/messages";
@@ -30,6 +32,7 @@ export async function sendManualMessage(input: unknown): Promise<ActionResult<{ 
       ok: false,
       errors: {
         _form: [r.error], code: [r.code],
+        ...(r.code === "plan_feature_locked" ? { feature: ["inbox.reply"], requiredPlan: [requiredPlanName("inbox.reply")] } : {}),
         ...(r.retryAfterSeconds ? { retryAfterSeconds: [String(r.retryAfterSeconds)] } : {}),
         ...(r.message ? { messageId: [r.message.id] } : {}),
       },
@@ -54,6 +57,7 @@ export async function setConversationStatus(input: unknown): Promise<ActionResul
     const { orgId } = await requireActiveProviderOrg();
     const parsed = statusSchema.safeParse(input);
     if (!parsed.success) return failure(zodErrors(parsed.error));
+    await assertFeature(prisma, orgId, "inbox.reply"); // SPEC-069b: Free = so leitura (marcar como lida continua liberado)
     if (!(await setStatus(orgId, parsed.data.conversationId, parsed.data.status))) return formError(NOT_FOUND);
     return success(parsed.data);
   });

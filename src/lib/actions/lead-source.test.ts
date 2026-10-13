@@ -5,6 +5,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn(), revalidateTag: vi.fn(), updateTag: vi.fn() }));
 
 import { prisma } from "@/lib/prisma";
+import { grantAllEntitlements, revokeAllEntitlements } from "@/lib/test-utils/trial-fixture";
 import { seed, SEED_IDS } from "../../../prisma/seed";
 import { signInAs, signInAsSeedAdmin, signOut } from "@/lib/auth/test-helpers";
 import { createTestOrg, purgeTestOrg, type TestOrg } from "@/lib/test-utils/org-fixture";
@@ -28,6 +29,7 @@ const savedEnc = process.env.ENCRYPTION_KEY;
 beforeAll(async () => {
   process.env.ENCRYPTION_KEY = randomBytes(32).toString("base64"); // chave falsa, só em memória
   await seed(prisma);
+  await grantAllEntitlements(SEED_IDS.org); // SPEC-069b: a org de seed esta no Starter; este arquivo testa outra coisa, nao o plano
   // higiene de execuções anteriores (o banco de teste não é recriado por arquivo)
   await prisma.campaign.deleteMany({ where: { name: { startsWith: TAG } } });
   await prisma.integrationSecret.deleteMany({ where: { integration: "meta_leads" } });
@@ -45,6 +47,7 @@ beforeAll(async () => {
 }, 30000);
 
 afterAll(async () => {
+  await revokeAllEntitlements(SEED_IDS.org);
   await signOut();
   await prisma.campaign.deleteMany({ where: { name: { startsWith: TAG } } });
   await prisma.integrationSecret.deleteMany({ where: { integration: "meta_leads" } });

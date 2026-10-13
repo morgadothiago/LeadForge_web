@@ -45,7 +45,7 @@ export type SendWhatsAppResult =
   | {
       status: "deferred";
       nextAt: Date;
-      reason: "outside_window" | "daily_limit" | "not_connected" | "min_interval" | "rate_limited" | "min_gap" | "other_channel_today" | "instance_paused" | "number_check_failed" | "email_not_verified" | "plan_limit" | "trial_expired";
+      reason: "outside_window" | "daily_limit" | "not_connected" | "min_interval" | "rate_limited" | "min_gap" | "other_channel_today" | "instance_paused" | "number_check_failed" | "email_not_verified" | "plan_limit" | "trial_expired" | "plan_locked";
     }
   | { status: "failed"; error: AppError };
 

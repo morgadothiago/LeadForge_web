@@ -7,6 +7,7 @@ import { verifyMetaSignature } from "./signature";
 import { extractContact } from "./mapping";
 import { fetchLeadgenFields } from "./graph-api";
 import { ingestExternalLead } from "./ingest";
+import { getEntitlements, hasFeature } from "@/lib/billing/entitlements";
 import { readIntegrationSecretValue, metaPageTokenName } from "./secrets";
 import { freshBucket, hit, type Bucket } from "./rate-limit";
 
@@ -166,6 +167,11 @@ export async function handleMetaWebhook(req: Request, deps: MetaDeps = {}): Prom
         results.push({ pageId, leadgenId, status: "unknown_page" });
         continue;
       }
+      // SPEC-069b: antes de qualquer chamada externa (Graph API): plano sem `sources.ads` nao ingere (configuracao preservada).
+      if (!hasFeature(await getEntitlements(prisma, binding.orgId), "sources.ads")) {
+        results.push({ pageId, leadgenId, status: "plan_feature_locked" });
+        continue;
+      }
       const pageToken = await readIntegrationSecretValue(binding.orgId, "meta_leads", metaPageTokenName(pageId));
       if (!pageToken) {
         console.error(`[integrations/leads/meta] Page Access Token ausente para orgId=${binding.orgId} (página não identificada no log).`);
@@ -192,5 +198,9 @@ export async function handleMetaWebhook(req: Request, deps: MetaDeps = {}): Prom
     }
   }
   console.info(`[integrations/leads/meta] total=${results.length}`);
+  // SPEC-069b: tudo barrado pelo plano => 403 tipado (o corpo traz o resultado por pagina); misto continua 200.
+  if (results.length > 0 && results.every((r) => r.status === "plan_feature_locked" || r.status === "unknown_page")) {
+    if (results.some((r) => r.status === "plan_feature_locked")) return json({ error: "plan_feature_locked", message: "Fonte de leads Meta indisponível no plano desta organização.", results }, 403);
+  }
   return json({ results }, 200);
 }

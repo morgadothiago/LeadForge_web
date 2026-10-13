@@ -1,4 +1,5 @@
 import type { OrgRole, Prisma } from "@prisma/client";
+import { assertWithinEntitlementLimit } from "@/lib/billing/entitlements";
 import { recordOrgAudit } from "./audit";
 
 /**
@@ -30,6 +31,10 @@ async function addMember(
   if (!org || org.status === "cancelled" || org.setupPendingSince) throw new JoinInvalidError();
   const exists = await tx.membership.findUnique({ where: { userId_orgId: { userId: p.userId, orgId: p.orgId } }, select: { id: true } });
   if (exists) throw new AlreadyMemberError();
+  // SPEC-069b: `maxMembers` do plano, contado sob o lock da org (dois aceites simultaneos nao furam o teto). Downgrade nao remove ninguem: so barra NOVAS entradas.
+  // Lancar aqui desfaz a transacao inteira (o convite/uso do codigo NAO e queimado).
+  await tx.$queryRaw`SELECT "id" FROM "Organization" WHERE "id" = ${p.orgId} FOR UPDATE`; // mesmo lock de `lockOrg` (guards.ts; nao importado aqui para evitar ciclo de modulos)
+  await assertWithinEntitlementLimit(tx, p.orgId, "members", await tx.membership.count({ where: { orgId: p.orgId } }));
   await tx.membership.create({ data: { userId: p.userId, orgId: p.orgId, orgRole: p.orgRole } });
   await tx.user.update({ where: { id: p.userId }, data: { lastOrgId: p.orgId } });
   await recordOrgAudit(tx, { orgId: p.orgId, actorUserId: p.actorUserId, action: "member_joined", targetUserId: p.userId, meta: { via: p.via, orgRole: p.orgRole } });

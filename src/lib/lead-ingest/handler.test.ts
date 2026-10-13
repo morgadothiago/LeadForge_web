@@ -1,6 +1,7 @@
 import "dotenv/config";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { prisma } from "@/lib/prisma";
+import { grantAllEntitlements, revokeAllEntitlements } from "@/lib/test-utils/trial-fixture";
 import { seed, SEED_IDS } from "../../../prisma/seed";
 import { purgeTestCampaigns } from "@/lib/test-utils/purge";
 import * as route from "@/app/api/integrations/leads/route";
@@ -38,6 +39,7 @@ async function cleanup() {
 
 beforeAll(async () => {
   await seed(prisma);
+  await grantAllEntitlements(SEED_IDS.org); // SPEC-069b: a org de seed esta no Starter; este arquivo testa outra coisa, nao o plano
   await cleanup();
   const userId = (await prisma.user.findFirstOrThrow({ where: { email: "admin@leadforge.local" } })).id;
   const icpId = (await prisma.icpProfile.findFirstOrThrow()).id;
@@ -47,6 +49,7 @@ beforeAll(async () => {
   campaignId = tpl.id;
 }, 30000);
 afterAll(async () => {
+  await revokeAllEntitlements(SEED_IDS.org);
   await cleanup();
   await prisma.$disconnect();
 });

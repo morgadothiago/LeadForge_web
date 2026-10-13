@@ -12,6 +12,7 @@ vi.mock("@/lib/channels/system-mail", () => ({
 }));
 
 import { prisma } from "@/lib/prisma";
+import { grantAllEntitlements } from "@/lib/test-utils/trial-fixture";
 import { createTestOrg, purgeTestOrg, type TestOrg } from "@/lib/test-utils/org-fixture";
 import { getCookie, signInAs, signOut, testHeaders } from "@/lib/auth/test-helpers";
 import { SESSION_COOKIE } from "@/lib/auth/config";
@@ -58,6 +59,7 @@ beforeAll(async () => {
   B = await createTestOrg("062-b");
   const plan = await prisma.plan.findUniqueOrThrow({ where: { key: "starter" } });
   for (const o of [A, B]) await prisma.subscription.create({ data: { orgId: o.orgId, planId: plan.id, status: "active" } });
+  for (const o of [A, B]) await grantAllEntitlements(o.orgId); // SPEC-069b: sem limite de membros aqui
   process.env.TRUSTED_PROXY_IP_HEADER = "x-real-ip";
 });
 beforeEach(() => {

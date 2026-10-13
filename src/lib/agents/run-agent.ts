@@ -15,10 +15,12 @@ import { dispatchDraft } from "./drafts";
 import { startOfLocalDay, startOfNextLocalDay } from "@/lib/whatsapp/send-window";
 import { stripCallLink } from "./guardrails";
 import { escalationRulesSchema, type AgentConfig } from "./types";
+import { PlanFeatureLockedError, agentAutonomyFeature, getEntitlements, hasFeature } from "@/lib/billing/entitlements";
+import { listActiveAgents, monthlyOrgSpend, runnableAgentIds } from "./plan-gate";
 
 export type RunOutcome =
   | { status: "skipped"; reason: string }
-  | { status: "deferred"; reason: "daily_limit" | "budget_exhausted" | "kill_switch" }
+  | { status: "deferred"; reason: "daily_limit" | "budget_exhausted" | "kill_switch" | "plan_locked" }
   | { status: "handoff"; reason: HandoffReason }
   | { status: "blocked"; violations: string[] }
   | { status: "draft"; draftId: string }
@@ -75,6 +77,14 @@ export async function runAgentTask(input: RunAgentInput): Promise<RunOutcome> {
   if (!agent.active) return skip("agente_inativo");
   if (agent.monthlyBudgetCents === null) return skip("sem_teto_de_gasto");
 
+  // SPEC-069b (D-069-9/10): defesa em profundidade, FAIL-CLOSED em IA/envio. Plano ilegivel/erro, org bloqueada, `past_due`, papel fora do plano ou
+  // acima de `maxActiveAgents` => a tarefa NAO roda e fica `queued` (nada e apagado; volta a rodar no upgrade/regularizacao). Leitura continua.
+  const ent = await getEntitlements(prisma, agent.orgId, now);
+  if (!runnableAgentIds(ent, await listActiveAgents(agent.orgId)).has(agent.id)) {
+    await prisma.agentRun.update({ where: { id: run.id }, data: { status: "queued" } });
+    return { status: "deferred", reason: "plan_locked" };
+  }
+
   const lead = await prisma.lead.findUnique({
     where: { id: run.leadId },
     include: { campaign: { include: { icp: true } } },
@@ -88,15 +98,21 @@ export async function runAgentTask(input: RunAgentInput): Promise<RunOutcome> {
 
   // Orçamento: hard stop em 100% (agente e global); a tarefa continua na fila (retomada quando o teto subir/virar o mês).
   const agentState = budgetState(await monthlySpend(agent.id, now), agent.monthlyBudgetCents);
-  const globalState = settings?.monthlyBudgetCents != null ? budgetState(await monthlySpend(null, now), settings.monthlyBudgetCents) : "ok";
-  if (agentState === "exhausted" || globalState === "exhausted") {
+  const orgSpend = await monthlyOrgSpend(agent.orgId, now); // isolado por org (antes somava todas as orgs)
+  const globalState = settings?.monthlyBudgetCents != null ? budgetState(orgSpend, settings.monthlyBudgetCents) : "ok";
+  // SPEC-069b: teto de custo de IA DO PLANO (por org, centavos; 0 = sem IA; null = sem teto do plano). Estourou => pausa (fica na fila).
+  const planCap = ent.limits.maxAiBudgetCentsMonth;
+  const planState = planCap === null ? "ok" : planCap <= 0 ? "exhausted" : budgetState(orgSpend, planCap);
+  if (agentState === "exhausted" || globalState === "exhausted" || planState === "exhausted") {
     await prisma.agentRun.update({ where: { id: run.id }, data: { status: "queued" } });
     return { status: "deferred", reason: "budget_exhausted" };
   }
   // Limite diário de mensagens propostas por este agente.
   // Conta mensagens PROPOSTAS (rascunhos criados) no dia local do fuso padrao do sistema (mesmo criterio de dia da SPEC-017); handoff/skip/deferido nao geram mensagem.
   const today = await prisma.draft.count({ where: { agentRun: { agentId: agent.id }, createdAt: { gte: startOfLocalDay(DEFAULT_TZ, now), lt: startOfNextLocalDay(DEFAULT_TZ, now) } } });
-  if (today >= agent.dailyMessageLimit) {
+  // SPEC-069b: o menor entre o limite do agente e `maxAgentMessagesPerDay` do plano.
+  const dailyCap = Math.min(agent.dailyMessageLimit, ent.limits.maxAgentMessagesPerDay ?? Number.POSITIVE_INFINITY);
+  if (today >= dailyCap) {
     await prisma.agentRun.update({ where: { id: run.id }, data: { status: "queued" } });
     return { status: "deferred", reason: "daily_limit" };
   }
@@ -198,7 +214,9 @@ export async function runAgentTask(input: RunAgentInput): Promise<RunOutcome> {
     return { status: "blocked", violations: [...new Set(violations)] };
   }
 
-  const delivery = decideDelivery(agent, lead.id, agent.id);
+  // SPEC-069b: autonomia alem do plano (ex.: downgrade Pro -> Starter) cai em REVISAO humana; nunca envia sozinho sem o direito.
+  const planAllowsAutonomy = agent.autonomy === "draft" || hasFeature(ent, agentAutonomyFeature(agent.autonomy));
+  const delivery = planAllowsAutonomy ? decideDelivery(agent, lead.id, agent.id) : "review";
   const draft = await prisma.draft.create({
     data: { agentRunId: run.id, leadId: lead.id, channel: channel as Channel, subject, body: message, status: "pending" },
   });
@@ -206,6 +224,12 @@ export async function runAgentTask(input: RunAgentInput): Promise<RunOutcome> {
   await prisma.lead.update({ where: { id: lead.id }, data: { agentTurns: { increment: 1 } } });
   if (delivery === "review") return { status: "draft", draftId: draft.id };
   // auto/amostra sem revisão: mesmo caminho da aprovação => sempre atrás da política de envio (SPEC-017).
-  await dispatchDraft(draft.id, { reviewer: null, now });
+  try {
+    await dispatchDraft(draft.id, { reviewer: null, now });
+  } catch (e) {
+    // Plano perdeu o direito entre a geracao e o envio (corrida): o rascunho fica pendente para revisao, sem envio.
+    if (e instanceof PlanFeatureLockedError) return { status: "draft", draftId: draft.id };
+    throw e;
+  }
   return { status: "sent", draftId: draft.id };
 }

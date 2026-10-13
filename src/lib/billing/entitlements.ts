@@ -1,6 +1,6 @@
 import type { OrgStatus, SubscriptionStatus } from "@prisma/client";
 import { resolveOrgAccess, type OrgAccessState } from "./access";
-import { PlanLimitError, assertWithinLimit, type Db, type ExtraLimitMetric } from "./limits";
+import { PlanLimitError, type Db, type ExtraLimitMetric } from "./limit-error";
 import {
   ALL_LIMIT_KEYS,
   FEATURE_CATALOG,
@@ -18,7 +18,6 @@ import {
 } from "./plan-catalog";
 import { parseFeatures, parseLimits } from "./plans";
 
-export { assertWithinLimit };
 export type { FeatureKey, LimitKey } from "./plan-catalog";
 
 /**
@@ -39,6 +38,8 @@ export interface Entitlements {
   planKey: string | null;
   source: EntitlementSource;
   access: OrgAccessState | null;
+  /** `Subscription.status` (null = sem assinatura/erro). */
+  subscriptionStatus: SubscriptionStatus | null;
   features: Record<FeatureKey, boolean>;
   /** `null` = ilimitado. */
   limits: Record<LimitKey, number | null>;
@@ -70,8 +71,8 @@ function lockedLimits(base: Record<LimitKey, number | null>): Record<LimitKey, n
   return l;
 }
 
-function base(orgId: string): Pick<Entitlements, "orgId" | "paused" | "overrideActive" | "overrideExpiresAt"> {
-  return { orgId, paused: false, overrideActive: false, overrideExpiresAt: null };
+function base(orgId: string, subscriptionStatus: SubscriptionStatus | null = null): Pick<Entitlements, "orgId" | "paused" | "overrideActive" | "overrideExpiresAt" | "subscriptionStatus"> {
+  return { orgId, subscriptionStatus, paused: false, overrideActive: false, overrideExpiresAt: null };
 }
 
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object" && !Array.isArray(v);
@@ -86,13 +87,16 @@ export function resolveEntitlements(orgId: string, row: EntitlementRow | null, n
     return { ...base(orgId), planKey: null, source: "blocked", access, features: lockedFeatures(), limits: lockedLimits(limitMap(null)) };
   }
   const planKey = sub.plan.key;
-  if (FULL_ACCESS_PLAN_KEYS.includes(planKey)) return { ...base(orgId), planKey, source: "full", access: resolveOrgAccess(sub, row, now), features: boolMap(true), limits: limitMap(null) };
-
   const access = resolveOrgAccess(sub, row, now);
+  // Business/courtesy liberam tudo, MAS org suspensa ou assinatura cancelada/bloqueada cai no ramo bloqueado (so leitura). Courtesy SEM
+  // assinatura segue liberada (ramo `!sub` acima). Decisao do QA 069a.
+  if (FULL_ACCESS_PLAN_KEYS.includes(planKey) && access !== "soft_blocked" && access !== "trial_expirado") {
+    return { ...base(orgId, sub.status), planKey, source: "full", access, features: boolMap(true), limits: limitMap(null) };
+  }
   // Trial expirado / suspensa / cancelada: bloqueio total ja existente (065), so leitura.
-  if (access === "trial_expirado" || access === "soft_blocked") return { ...base(orgId), planKey, source: "blocked", access, features: lockedFeatures(), limits: lockedLimits(parseLimits(sub.plan.limits)) };
+  if (access === "trial_expirado" || access === "soft_blocked") return { ...base(orgId, sub.status), planKey, source: "blocked", access, features: lockedFeatures(), limits: lockedLimits(parseLimits(sub.plan.limits)) };
   // Plano ilegivel (JSON invalido): fail-closed.
-  if (!isObj(sub.plan.limits)) return { ...base(orgId), planKey, source: "unknown_plan", access, features: lockedFeatures(), limits: lockedLimits(parseLimits(null)) };
+  if (!isObj(sub.plan.limits)) return { ...base(orgId, sub.status), planKey, source: "unknown_plan", access, features: lockedFeatures(), limits: lockedLimits(parseLimits(null)) };
 
   const features = parseFeatures(sub.plan.limits);
   const limits: Record<LimitKey, number | null> = { ...parseLimits(sub.plan.limits) };
@@ -119,7 +123,7 @@ export function resolveEntitlements(orgId: string, row: EntitlementRow | null, n
     limits.maxAiBudgetCentsMonth = 0;
     limits.maxAgentMessagesPerDay = 0;
   }
-  return { orgId, planKey, source: "plan", access, features, limits, paused, overrideActive, overrideExpiresAt: overrideActive ? (ov?.expiresAt ?? null) : null };
+  return { orgId, subscriptionStatus: sub.status, planKey, source: "plan", access, features, limits, paused, overrideActive, overrideExpiresAt: overrideActive ? (ov?.expiresAt ?? null) : null };
 }
 
 /** Le a org (uma query) e resolve. Erro de leitura => FAIL-CLOSED (so leitura), nunca lanca. */
@@ -139,6 +143,22 @@ export async function getEntitlements(db: Db, orgId: string, now: Date = new Dat
     return resolveEntitlements(orgId, null, now);
   }
 }
+
+/**
+ * SPEC-069b — defesa em profundidade (D-069-9/10): `true` quando o plano NAO pode ser confiado para operacoes que custam dinheiro/risco
+ * (IA, envio, geracao de criativo): leitura do plano falhou, plano ilegivel/desconhecido, org bloqueada (trial expirado/suspensa/cancelada)
+ * ou `past_due` (pausa). Leitura nunca e barrada por isto.
+ */
+export function isCostlyBlocked(ent: Entitlements): boolean {
+  return ent.paused || ent.source === "error" || ent.source === "unknown_plan" || ent.source === "blocked";
+}
+
+const ROLE_FEATURE: Record<"sdr" | "followup" | "closer", FeatureKey> = { sdr: "agents.role.sdr", followup: "agents.role.followup", closer: "agents.role.closer" };
+const AUTONOMY_FEATURE: Record<"draft" | "sampled" | "auto", FeatureKey> = { draft: "agents.autonomy.draft", sampled: "agents.autonomy.sample", auto: "agents.autonomy.auto" };
+/** Feature do papel de agente (`sdr|followup|closer`). Papel desconhecido = a mais restritiva (Closer). */
+export const agentRoleFeature = (role: string): FeatureKey => ROLE_FEATURE[role as keyof typeof ROLE_FEATURE] ?? "agents.role.closer";
+/** Feature do modo de autonomia (`draft|sampled|auto`). Desconhecido = o mais restritivo (auto). */
+export const agentAutonomyFeature = (autonomy: string): FeatureKey => AUTONOMY_FEATURE[autonomy as keyof typeof AUTONOMY_FEATURE] ?? "agents.autonomy.auto";
 
 export function hasFeature(ent: Entitlements, feature: FeatureKey): boolean {
   return ent.features[feature] === true;
