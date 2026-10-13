@@ -677,7 +677,12 @@ Continuando a escola: o aluno agora entende **por que** não pode fazer uma cois
   amarela; ao chegar em 100%, uma faixa vermelha avisando que os robôs pararam até o mês seguinte (nada é apagado).
 - **Comparar planos:** uma tabela (no celular, cartões) mostra o que cada plano tem. Ela é montada do mesmo arquivo que o
   servidor usa para decidir, então nunca conta uma coisa diferente da verdade. Também aparece na página inicial.
-- Estado: pronto no código e nos testes automáticos; **ainda não olhado no navegador** (celular e computador, claro e escuro).
+- **Revisão final (069e):** só o dono vê o gasto de IA (o membro não recebe esse número). Chave da plataforma não mostra mais
+  o botão "Testar conexão" nem o erro do teste para o cliente (é assunto do diretor). Quando o teto de IA lotou por causa de um
+  "passe livre" do diretor, o aviso diz "fale com o suporte" em vez de "faça upgrade", porque comprar plano não resolveria.
+- Estado: pronto no código e nos testes automáticos; **falta você olhar no navegador** (celular e computador, claro e
+  escuro) e rodar a build. Para isso, o passo a passo curto está no fim do bloco X do `docs/ROTEIRO_DE_TESTES.md`. Antes, no seu
+  banco de testes: `npx prisma migrate deploy` e `npx prisma db seed`.
 
 ### Coisas para saber
 

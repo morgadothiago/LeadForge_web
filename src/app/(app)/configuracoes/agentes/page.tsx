@@ -4,7 +4,7 @@ import { Card } from "@/components/ui/card";
 import { getAgentUsage } from "@/lib/actions/agent";
 import { redirectIfTrialExpired, requirePageUser } from "@/lib/auth/require-page";
 import { getAgentSettings, listAgents } from "@/lib/queries/agent";
-import { getAiBudget, getTenantEntitlements } from "@/lib/queries/entitlements";
+import { aiBudgetForViewer, getAiBudget, getTenantEntitlements } from "@/lib/queries/entitlements";
 import { toAgentPlanView } from "@/components/agents/agent-format";
 
 export const dynamic = "force-dynamic";
@@ -21,7 +21,8 @@ export default async function Page() {
       </Card>
     );
   }
-  const [agents, settings, ent, aiBudget] = await Promise.all([listAgents(), getAgentSettings(), getTenantEntitlements(), getAiBudget().catch(() => null)]);
+  const [agents, settings, ent, aiBudget] = await Promise.all([listAgents(), getAgentSettings(), getTenantEntitlements(), getAiBudget().catch(() => null)])
+  const ownerBudget = aiBudgetForViewer(ent.isOwner, aiBudget); // SPEC-069e: gasto de IA da org so vai ao navegador do owner;
   const views = await Promise.all(
     agents.map(async (a: (typeof agents)[number]) => {
       const u = await getAgentUsage({ id: a.id });
@@ -44,7 +45,7 @@ export default async function Page() {
         agents={views}
         settings={{ killSwitch: settings.killSwitch, monthlyBudgetCents: settings.monthlyBudgetCents, lockedByAdmin: "lockedByAdmin" in settings ? settings.lockedByAdmin : false }}
         plan={toAgentPlanView(ent, agents.filter((a: (typeof agents)[number]) => a.active).length)}
-        aiBudget={aiBudget}
+        aiBudget={ownerBudget}
         isOwner={ent.isOwner}
       />
     </div>

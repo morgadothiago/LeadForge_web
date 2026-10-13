@@ -465,6 +465,21 @@ Pré-requisitos: migration `20261022120000_entitlement_override_069a` aplicada (
 | X33 | Landing `/` | "Ver comparativo completo dos planos" abre o comparativo gerado do mesmo catálogo | [ ] | |
 | X34 | Convidar membro acima do limite / sequência acima do limite / busca de leads acima do limite | Toast com a mensagem e o botão "Fazer upgrade"; botão de convidar desabilitado quando a equipe já está no limite | [ ] | |
 | X35 | Telas das X26 a X34 em 390 px e 1280 px, claro e escuro | Sem rolagem horizontal; botões com altura de toque ≥ 44 px no celular (**não verificado em navegador ainda**) | [ ] | |
+| X36 | Owner e **member** em `/configuracoes/agentes`, aba Rede do navegador (resposta da página) | Só o owner recebe o gasto/teto de IA (faixa/cartão de aviso); o member não recebe esses valores (069e) | [ ] | |
+| X37 | `/configuracoes/integracoes` como tenant, com chave **da plataforma** (Evolution, Places) | Sem botão "Testar conexão", sem "Testada em… Erro…" nem texto de teste; só "Gerenciada pela plataforma" e host mascarado (069e) | [ ] | |
+| X38 | Teto de IA em 100% por **override do admin** (X17 com `maxAiBudgetCentsMonth`) x por **plano** | Override: faixa diz "fale com o suporte" e o link é "Ver assinatura"; plano: "Faça upgrade" com link "Fazer upgrade" (069e) | [ ] | |
+| X39 | Admin com `expiresAt` curto no override (ex.: 2 min) e esperar vencer | Depois de vencer, o tenant volta ao limite do plano sem ninguém mexer (AC-6) | [ ] | |
+| X40 | Downgrade (Pro -> Starter) com 2 agentes ativos e dados existentes; depois upgrade | Nada é apagado; o que excede fica visível mas inativo/bloqueado; no upgrade volta sem perda (AC-4) | [ ] | |
+| X41 | Como `platform_admin`, tentar abrir `/leads`, `/atendimento` e `/campanhas` de uma organização | Não vê leads nem conversas dos clientes (AC-2) | [ ] | |
+| X42 | Rodar `npm run build` **com o `npm run dev` parado**, depois subir o dev de novo | Build termina sem erro (AC-8; só você pode rodar, não derrube o dev com ele em uso) | [ ] | |
+
+### Roteiro curto para fechar a SPEC-069 (AC-1, AC-7 e AC-8)
+1. **Preparar o banco do dev** (só você; o Claude não mexe nele): `npx prisma migrate deploy` (aplica `20261023120000_admin_policy_069c`) e `npx prisma db seed` (grava a matriz nos planos). Depois reinicie o `npm run dev`. Em outro terminal, `npm run dev:tick` e, para criativos, `npm run creatives:dev`.
+2. **Três contas de teste:** um `platform_admin` (o admin do seed), um owner e um member na mesma organização. Use o `/admin` para trocar o plano da organização de teste entre Free, Starter e Pro (ou o `changePlan` do seu fluxo local).
+3. **AC-1 (matriz):** com a organização em cada plano, percorra X6 a X10, X26, X27, X32 e X34 e confira que a mensagem cita o plano certo. Compare com a tabela de `/configuracoes/assinatura` (X30): tudo que ela promete tem que bater com o que o sistema deixa fazer.
+4. **AC-7 (UI):** X13 a X35 e X36 a X38, em **390 px e 1280 px, claro e escuro**, só pelo teclado também (Tab chega nos botões desabilitados e o leitor/tooltip mostra o motivo; `aria-disabled`). Sem rolagem horizontal da página.
+5. **AC-8:** no terminal, `npx tsc --noEmit`, `npx eslint .`, `npx vitest run` (use um banco `*_test` novo e as variáveis do RETOMAR) e, **com o dev parado**, `npm run build`. Veja X42.
+6. Marque `[x]` o que passou; me mande o que falhou (passo, e-mail logado, URL, erro da tela e do terminal). Com tudo passando, a SPEC-069 vira IMPLEMENTED.
 
 ## Se algo falhar, me mande
 

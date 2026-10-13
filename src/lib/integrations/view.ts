@@ -50,7 +50,7 @@ export function toItemView(r: Row): IntegrationItemView {
   // é chamada pelos 4 kinds de `INTEGRATIONS` (filtro em `listIntegrations`), nunca pelos novos.
   // SPEC-069d (M1): chave da plataforma nunca devolve URL completa nem dica ao navegador do tenant (so host mascarado).
   const platform = r.managedByPlatform;
-  return { ...r, integration: r.integration as IntegrationKindName, hint: platform ? "" : r.hint, hintDisplay: platform ? "" : `••••${r.hint}`, baseUrl: platform ? null : r.baseUrl, hostMasked: hostOf(r.baseUrl) };
+  return { ...r, integration: r.integration as IntegrationKindName, hint: platform ? "" : r.hint, hintDisplay: platform ? "" : `••••${r.hint}`, baseUrl: platform ? null : r.baseUrl, lastTestError: platform ? null : r.lastTestError, hostMasked: hostOf(r.baseUrl) };
 }
 
 export function summarize(integration: IntegrationKindName, items: IntegrationItemView[], envConfigured: boolean): IntegrationSummary {

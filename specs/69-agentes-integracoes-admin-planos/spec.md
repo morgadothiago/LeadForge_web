@@ -1,5 +1,5 @@
 # SPEC-069 — Agentes e integrações configurados pelo admin + funcionalidades por plano (Free, Starter, Pro)
-- status: **IN_PROGRESS (069a e 069b com QA aprovado; 069c backend com QA aprovado e em produção; 069c frontend e 069d (UI do tenant) implementadas em 2026-10-13, aguardando QA/commit; 069e pendente)** (aprovada em 2026-10-12, recomendações aceitas) | domain: fullstack (069a-e; `## Backend` e `## Frontend`) | criada em 2026-10-12 | depende de: 018 (integrações), 019 (agentes), 030 (multi-tenant/ReBAC), 031/032 (admin), 033/047/063 (planos/billing), 036 (LLM), 041 (fontes de lead), 058/060 (busca), 065 (limites e trial; **fonte dos limites**), 066 (assinatura), 067 (toasts), 068 (caixa de atendimento) | altera: 019/018 (quem configura), 065 (amplia `Plan.limits`) | tambem toca: 035 (landing/comparativo), 051 (criativos), 049 (equipe)
+- status: **IN_PROGRESS (aguardando E2E do usuario: 069a-d na main com QA aprovado; 069e = revisao final feita em 2026-10-13, sem commit; AC-1/7/8 pendentes de navegador e `next build`; NAO marcar IMPLEMENTED antes do E2E)** (aprovada em 2026-10-12, recomendacoes aceitas) | domain: fullstack (069a-e; `## Backend` e `## Frontend`) | criada em 2026-10-12 | depende de: 018 (integrações), 019 (agentes), 030 (multi-tenant/ReBAC), 031/032 (admin), 033/047/063 (planos/billing), 036 (LLM), 041 (fontes de lead), 058/060 (busca), 065 (limites e trial; **fonte dos limites**), 066 (assinatura), 067 (toasts), 068 (caixa de atendimento) | altera: 019/018 (quem configura), 065 (amplia `Plan.limits`) | tambem toca: 035 (landing/comparativo), 051 (criativos), 049 (equipe)
 - **Origem:** pedido literal do usuário (2026-10-12): "Fazer no projeto LeadForge a questão de agentes e integrações. Essa funcionalidade o admin configura e o tenant só usa. E também precisa limitar os planos pois temos 3 planos: Free, Starter e Pro (fazer as funcionalidades e bloquear funcionalidade para cada plano)". Nenhuma decisão abaixo foi tomada pelo usuário além desse pedido: tudo é **INFERRED** (recomendação) ou pergunta **Q-069-n**. Valores de limites e preços = **PLACEHOLDER**. NENHUM código foi escrito.
 
 ## Objetivo
@@ -283,3 +283,32 @@ Só após `APROVAR SPEC-069`. Ordem: dev-backend (069a, 069b) → qa-reviewer �
 - Estouro de teto de IA: só aviso em tela; e-mail/push ao owner dependeria de decisão de canal (não pedida pela SPEC).
 - `CreativeWizard` mantém a mensagem própria quando o envio falha depois de salvar o rascunho (sem botão de upgrade nesse toast; o bloqueio principal já ocorre antes, em `/criativos/novo`).
 - `member` ainda pode editar conteúdo de agentes (Q-069-11 não implementada, igual à 069c).
+
+## Implementation Notes 069e (revisao final; 2026-10-13) — status da etapa: REVISAO FEITA, aguardando E2E do usuario (SPEC segue IN_PROGRESS)
+
+### Correcoes dos achados baixos do QA 069d
+- **(a)** `configuracoes/agentes/page.tsx`: o gasto/teto de IA so vai como prop ao client component quando o usuario e owner (`aiBudgetForViewer` em `src/lib/queries/entitlements.ts`; member recebe `null`).
+- **(b)** Chave `managedByPlatform` no tenant: `toItemView` zera `lastTestError`; `IntegrationCard.tsx` oculta "Testar conexao", "Testada em... Erro" e os textos de teste nesse modo. (A action `testIntegration` nao foi alterada; ela segue com rate limit e trava de plano; o tenant so nao tem mais o botao nem o erro cru do provedor.)
+- **(c)** `AiBudgetNotice`: `AiBudgetView.capFromOverride` (override ativo que define `maxAiBudgetCentsMonth`, lido por `aiCapFromOverride`). Em 100%, teto de plano = "Faca upgrade" (link "Fazer upgrade"); teto de override = "fale com o suporte" (link "Ver assinatura"). Sem `plan.key` literal.
+- Testes novos: `entitlements.test.ts` (queries: `aiBudgetForViewer`, `capFromOverride` plano/override/expirado/outra chave), `plan-ui-components.test.tsx` (texto de 100%), `integration-access.test.ts` (`lastTestError`), `IntegrationCard.test.tsx` (render: sem Testar/erro/URL em plataforma; n8n proprio mantem).
+
+### Revisao de coerencia: criterios de aceitacao
+| AC | Status | Evidencia |
+|---|---|---|
+| AC-1 matriz: teste por celula + mensagem com o plano certo | PASS (automatizado); E2E de navegador pendente | `entitlements.test.ts` "matriz (AC-1: cada celula)", `entitlements-069b-agents/entrypoints.test.ts`, `plan-ui.test.ts` (comparativo = catalogo) |
+| AC-2 tenant sem segredos/politica; so `platform_admin` altera; admin sem acesso a leads/conversas | PASS (automatizado) | `entitlements-069c.test.ts` ("tenant SOMENTE LEITURA", "integracoes"), `entitlements-coverage.test.ts` (069c admin/tenant), `integration-access.test.ts` (M1); ROTEIRO X41 para conferir no navegador |
+| AC-3 Free nao ativa agente; Starter so followup/rascunho; Pro ate 3 com auto; estouro pausa e avisa | PASS (servidor + aviso em tela) | `entitlements-069b-agents.test.ts`, `queries/entitlements.test.ts` (80%/100%); aviso so em tela (sem e-mail/push) |
+| AC-4 downgrade nao apaga; upgrade reativa; plano desconhecido fail-closed | PASS | `entitlements.test.ts` (estados), `entitlements-069c.test.ts` achados 3/4, `queries/entitlements.test.ts` (upgrade/downgrade); ROTEIRO X40 |
+| AC-5 valor do catalogo muda comportamento/comparativo sem codigo; sem `plan.key ===` fora do modulo | PASS | `entitlements.test.ts` AC-5, `entitlements-coverage.test.ts` (varre `src/lib`, `src/app`, `src/components`), `plan-ui.test.ts` |
+| AC-6 auditoria sem segredos; override respeita `expiresAt` | PASS | `entitlements.test.ts` (override/relogio injetado), `entitlements-069c.test.ts`, testes do admin (`OrgPolicyPanel.test.tsx`, `entitlements.test.ts` admin); ROTEIRO X20/X39 |
+| AC-7 UI: bloqueio com explicacao + upgrade, `aria-disabled`, 390/1280 px, claro/escuro, toasts PT-BR | PARCIAL: PASS em renderizacao (`plan-ui-components.test.tsx`, `action-errors.test.ts`); **PENDENTE em navegador** (390/1280 px, claro/escuro, teclado) | ROTEIRO X13-X38 |
+| AC-8 `tsc`, `eslint` (0 erros), vitest verdes; `next build` | PARCIAL: tsc, eslint, vitest PASS (VERIFIED, abaixo); **`next build` PENDENTE** (dev em uso; so o usuario) | ROTEIRO X42 |
+
+### Verificacao (VERIFIED em 2026-10-13, banco novo `leadforge_069e_test`, `PAYMENT_PROVIDER=mock ABACATEPAY_API_KEY= ABACATEPAY_WEBHOOK_SECRET= APP_BASE_URL=http://app.test APP_URL=http://app.test`)
+- `npx tsc --noEmit`: limpo. `npx eslint .`: 0 erros (26 warnings preexistentes). `npx vitest run`: ver "Resultado final" no `docs/RETOMAR.md` secao 0.
+
+### Pendencias para virar IMPLEMENTED
+1. Aplicar no dev `npx prisma migrate deploy` (migration `20261023120000_admin_policy_069c`) e `npx prisma db seed` (nao feito pelo agente; banco dev e do usuario).
+2. E2E em navegador (ROTEIRO bloco X, X1-X42; roteiro curto ao fim do bloco): AC-1, AC-7 e 390/1280 px, claro/escuro, teclado.
+3. `npm run build` com o dev parado (AC-8).
+4. Fora do escopo/abertas: aviso de teto so em tela; `member` ainda edita conteudo de agentes (Q-069-11); precos/limites PLACEHOLDER; `PLATFORM_LLM_API_KEY` na Vercel.

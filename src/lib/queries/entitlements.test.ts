@@ -10,7 +10,7 @@ import { purgeTestOrg } from "@/lib/test-utils/org-fixture";
 import { mkCampaign } from "@/lib/test-utils/trial-fixture";
 import { asOwner, changePlan, mkPlanOrg, uniq, type PlanOrg } from "@/lib/test-utils/entitlements-fixture";
 import { UnauthorizedError } from "@/lib/auth/require-user";
-import { getAiBudget, getAiBudgetAlert, getExtraUsage, getTenantEntitlements } from "./entitlements";
+import { aiBudgetForViewer, getAiBudget, getAiBudgetAlert, getExtraUsage, getTenantEntitlements, buildAiBudget } from "./entitlements";
 
 /** SPEC-069d — leituras do tenant (so leitura): plano efetivo, medidores extras e aviso de teto de IA (80%/100%), com isolamento por organizacao. */
 const orgs: PlanOrg[] = [];
@@ -135,5 +135,26 @@ describe("getAiBudgetAlert: aviso ao PROPRIETARIO em 80% e 100%", () => {
     expect(await getAiBudgetAlert()).toMatchObject({ state: "exhausted" });
     await changePlan(o, "pro"); // R$ 200: 5000/20000 = 25%
     expect(await getAiBudgetAlert()).toBeNull();
+  });
+});
+
+describe("SPEC-069e: aiBudget so ao owner e origem do teto (override x plano)", () => {
+  it("aiBudgetForViewer: member recebe null; owner recebe o objeto", () => {
+    const b = buildAiBudget(1000 * 10_000, 5000);
+    expect(aiBudgetForViewer(false, b)).toBeNull();
+    expect(aiBudgetForViewer(true, b)).toBe(b);
+  });
+
+  it("capFromOverride: false no teto do plano; true com override ativo que define o teto; false se expirado ou override de outra chave", async () => {
+    const o = await mk("069e-cap", "starter");
+    await asOwner(o);
+    expect((await getAiBudget()).capFromOverride).toBe(false);
+    await prisma.orgEntitlementOverride.create({ data: { orgId: o.orgId, features: {}, limits: { maxCreativesPerMonth: 5 }, reason: "zz teste", createdBy: "zz" } });
+    expect((await getAiBudget()).capFromOverride).toBe(false); // override ativo, mas de outra chave
+    await prisma.orgEntitlementOverride.update({ where: { orgId: o.orgId }, data: { limits: { maxAiBudgetCentsMonth: 800 } } });
+    const b = await getAiBudget();
+    expect(b).toMatchObject({ capCents: 800, capFromOverride: true });
+    await prisma.orgEntitlementOverride.update({ where: { orgId: o.orgId }, data: { expiresAt: new Date(Date.now() - 1000) } });
+    expect(await getAiBudget()).toMatchObject({ capCents: 5000, capFromOverride: false });
   });
 });

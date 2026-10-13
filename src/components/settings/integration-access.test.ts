@@ -30,6 +30,11 @@ describe("toItemView (M1 do QA 069c): chave da plataforma nunca devolve URL comp
     expect(JSON.stringify(v)).not.toContain("segredo");
     expect(JSON.stringify(v)).not.toContain("token=abc");
   });
+  it("SPEC-069e: managedByPlatform nao expoe lastTestError ao tenant; chave propria mantem", () => {
+    const err = "Falha ao conectar em evo.interno:8080 (token=abc)";
+    expect(toItemView({ ...base, managedByPlatform: true, lastTestError: err, lastTestedAt: new Date(), lastTestOk: false }).lastTestError).toBeNull();
+    expect(toItemView({ ...base, managedByPlatform: false, lastTestError: err, lastTestedAt: new Date(), lastTestOk: false }).lastTestError).toBe(err);
+  });
   it("chave do proprio tenant mantem o comportamento (ele digitou a URL)", () => {
     const v = toItemView({ ...base, managedByPlatform: false });
     expect(v.baseUrl).toBe(base.baseUrl);

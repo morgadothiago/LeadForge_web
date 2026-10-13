@@ -7,14 +7,14 @@ import { UPGRADE_HREF } from "./trial-ui";
 const brl = (cents: number): string => (cents / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 
 /** Texto do aviso de teto de IA do plano: 80% (alerta) e 100% (agentes pausados). `null` = sem aviso. PURO. */
-export function aiBudgetNoticeText(b: Pick<AiBudgetView, "state" | "spentCents" | "capCents">): { tone: "warn" | "full"; title: string; body: string } | null {
+export function aiBudgetNoticeText(b: Pick<AiBudgetView, "state" | "spentCents" | "capCents"> & { capFromOverride?: boolean }): { tone: "warn" | "full"; contactSupport: boolean; title: string; body: string } | null {
   if (b.capCents === null || b.capCents <= 0) return null;
   const used = `${brl(b.spentCents)} de ${brl(b.capCents)}`;
   if (b.state === "exhausted") {
-    return { tone: "full", title: "Teto de IA do mês atingido", body: `Você usou ${used} do teto de IA do seu plano. Os agentes estão pausados até o próximo mês; nada foi apagado. Faça upgrade para liberar mais.` };
+    return { tone: "full", contactSupport: !!b.capFromOverride, title: "Teto de IA do mês atingido", body: `Você usou ${used} do teto de IA do seu plano. Os agentes estão pausados até o próximo mês; nada foi apagado. ${b.capFromOverride ? "Esse teto foi definido pela plataforma para a sua organização: fale com o suporte para ampliá-lo." : "Faça upgrade para liberar mais."}` };
   }
   if (b.state === "alert") {
-    return { tone: "warn", title: "Teto de IA quase no limite", body: `Você já usou ${used} (80% ou mais) do teto de IA deste mês. Ao chegar em 100%, os agentes pausam automaticamente.` };
+    return { tone: "warn", contactSupport: false, title: "Teto de IA quase no limite", body: `Você já usou ${used} (80% ou mais) do teto de IA deste mês. Ao chegar em 100%, os agentes pausam automaticamente.` };
   }
   return null;
 }
@@ -23,7 +23,7 @@ export function aiBudgetNoticeText(b: Pick<AiBudgetView, "state" | "spentCents" 
  * SPEC-069d — aviso ao PROPRIETARIO quando o gasto de IA do mes chega a 80% (atencao) e a 100% (agentes pausados). `role="status"` no alerta e
  * `role="alert"` no estouro. Mesmo padrao visual das faixas do layout (HealthBanner/TrialBanner).
  */
-export function AiBudgetNotice({ budget, variant = "card", className }: { budget: Pick<AiBudgetView, "state" | "spentCents" | "capCents">; variant?: "card" | "banner"; className?: string }) {
+export function AiBudgetNotice({ budget, variant = "card", className }: { budget: Pick<AiBudgetView, "state" | "spentCents" | "capCents"> & { capFromOverride?: boolean }; variant?: "card" | "banner"; className?: string }) {
   const n = aiBudgetNoticeText(budget);
   if (!n) return null;
   const Icon = n.tone === "full" ? OctagonAlert : AlertTriangle;
@@ -40,7 +40,7 @@ export function AiBudgetNotice({ budget, variant = "card", className }: { budget
         <strong className="font-medium">{n.title}.</strong> {n.body}
       </p>
       <Link href={UPGRADE_HREF} className="inline-flex min-h-9 items-center rounded-sm font-medium text-foreground underline underline-offset-2 outline-none hover:no-underline focus-visible:ring-2 focus-visible:ring-primary/40">
-        Fazer upgrade
+        {n.contactSupport ? "Ver assinatura" : "Fazer upgrade"}
       </Link>
     </div>
   );

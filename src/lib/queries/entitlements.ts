@@ -58,20 +58,33 @@ export interface AiBudgetView {
   state: BudgetState | "not_included";
   /** 0..1 (so quando ha teto > 0). */
   ratio: number;
+  /** O teto vem de um override ATIVO do admin (nao do plano): o upgrade nao resolve, quem libera e o suporte. */
+  capFromOverride: boolean;
 }
 
 /** Aviso do teto de custo de IA do plano: 80% = `alert`, 100% = `exhausted` (o agente pausa, D-069 secao B). Gasto = soma da ORG no mes (agentes + simulacoes). */
-export function buildAiBudget(spentMicros: number, capCents: number | null): AiBudgetView {
+export function buildAiBudget(spentMicros: number, capCents: number | null, capFromOverride = false): AiBudgetView {
   const spentCents = Math.round(spentMicros / MICROS_PER_CENT);
-  if (capCents === null) return { spentCents, capCents, state: "no_budget", ratio: 0 };
-  if (capCents <= 0) return { spentCents, capCents, state: "not_included", ratio: 0 };
-  return { spentCents, capCents, state: budgetState(spentMicros, capCents), ratio: Math.min(1, spentMicros / (capCents * MICROS_PER_CENT)) };
+  if (capCents === null) return { spentCents, capCents, state: "no_budget", ratio: 0, capFromOverride };
+  if (capCents <= 0) return { spentCents, capCents, state: "not_included", ratio: 0, capFromOverride };
+  return { spentCents, capCents, state: budgetState(spentMicros, capCents), ratio: Math.min(1, spentMicros / (capCents * MICROS_PER_CENT)), capFromOverride };
+}
+
+/** SPEC-069e: gasto/teto de IA da org so vai ao navegador do PROPRIETARIO (membro recebe `null`). */
+export const aiBudgetForViewer = (isOwner: boolean, b: AiBudgetView | null): AiBudgetView | null => (isOwner ? b : null);
+
+/** SPEC-069e: o teto de IA efetivo vem de override ativo (a chave `maxAiBudgetCentsMonth` esta no override vigente)? Le so a chave, nunca o motivo. */
+async function aiCapFromOverride(orgId: string, ent: Entitlements): Promise<boolean> {
+  if (!ent.overrideActive) return false;
+  const ov = await prisma.orgEntitlementOverride.findUnique({ where: { orgId }, select: { limits: true } });
+  const l = ov?.limits;
+  return !!l && typeof l === "object" && !Array.isArray(l) && "maxAiBudgetCentsMonth" in l;
 }
 
 export async function getAiBudget(now: Date = new Date()): Promise<AiBudgetView> {
   const { orgId } = await requireProviderOrg();
   const [ent, spent] = await Promise.all([getEntitlements(prisma, orgId, now), monthlyOrgSpend(orgId, now)]);
-  return buildAiBudget(spent, ent.limits.maxAiBudgetCentsMonth);
+  return buildAiBudget(spent, ent.limits.maxAiBudgetCentsMonth, await aiCapFromOverride(orgId, ent));
 }
 
 /**
@@ -104,6 +117,6 @@ export async function getAiBudgetAlert(now: Date = new Date()): Promise<AiBudget
   const ent = await getEntitlements(prisma, orgId, now);
   const cap = ent.limits.maxAiBudgetCentsMonth;
   if (cap === null || cap <= 0 || ent.source === "blocked") return null;
-  const b = buildAiBudget(await monthlyOrgSpend(orgId, now), cap);
+  const b = buildAiBudget(await monthlyOrgSpend(orgId, now), cap, await aiCapFromOverride(orgId, ent));
   return b.state === "alert" || b.state === "exhausted" ? b : null;
 }

@@ -55,6 +55,19 @@ describe("AiBudgetNotice (aviso ao owner 80%/100%)", () => {
   });
 });
 
+describe("AiBudgetNotice 100% (SPEC-069e): upgrade x suporte", () => {
+  it("teto do plano: orienta upgrade; teto de override: orienta falar com o suporte, sem 'Faça upgrade'", () => {
+    const plan = renderToStaticMarkup(<AiBudgetNotice budget={buildAiBudget(5000 * 10_000, 5000)} />);
+    expect(plan).toContain("Faça upgrade");
+    expect(plan).not.toContain("suporte");
+    const ov = renderToStaticMarkup(<AiBudgetNotice budget={buildAiBudget(5000 * 10_000, 5000, true)} />);
+    expect(ov).toContain("fale com o suporte");
+    expect(ov).not.toContain("Faça upgrade");
+    expect(ov).not.toContain("Fazer upgrade");
+    expect(ov).toContain('href="/configuracoes/assinatura"');
+  });
+});
+
 describe("PlanComparison (069d)", () => {
   it("tabela (desktop) + cartoes por grupo (mobile), com texto em toda celula e plano atual marcado", () => {
     const html = renderToStaticMarkup(<PlanComparison columns={["free", "starter", "pro", "business"]} currentKey="starter" />);

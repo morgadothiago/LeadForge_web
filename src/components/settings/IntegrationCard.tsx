@@ -151,7 +151,7 @@ function IntegrationCard({ summary, features, onAnnounce }: { summary: Integrati
         </div>
       )}
 
-      {item && (
+      {item && access.mode !== "platform" && (
         <p className="text-xs text-muted-foreground">
           {item.lastTestedAt
             ? item.lastTestOk
@@ -160,8 +160,8 @@ function IntegrationCard({ summary, features, onAnnounce }: { summary: Integrati
             : "Nunca testada."}
         </p>
       )}
-      {item && summary.integration === "llm" && !item.baseUrl && <p className="text-xs text-muted-foreground">O teste de conexão só existe para provedores com URL base (OpenAI-compatível). O Claude é validado ao rodar um agente.</p>}
-      {!summary.testAvailable && <p className="text-xs text-muted-foreground">O teste real de conexão ainda não está disponível para esta integração.</p>}
+      {item && access.mode !== "platform" && summary.integration === "llm" && !item.baseUrl && <p className="text-xs text-muted-foreground">O teste de conexão só existe para provedores com URL base (OpenAI-compatível). O Claude é validado ao rodar um agente.</p>}
+      {access.mode !== "platform" && !summary.testAvailable && <p className="text-xs text-muted-foreground">O teste real de conexão ainda não está disponível para esta integração.</p>}
       {testNote && (
         <p role="status" className="rounded-md bg-muted px-3 py-2 text-xs">
           {testNote}
@@ -180,7 +180,7 @@ function IntegrationCard({ summary, features, onAnnounce }: { summary: Integrati
             <KeyRound /> Configurar
           </Button>
         )}
-        {item && access.mode !== "locked" && !(summary.integration === "llm" && !item.baseUrl) && (
+        {item && access.mode !== "locked" && access.mode !== "platform" && !(summary.integration === "llm" && !item.baseUrl) && (
           <Button size="sm" variant="outline" className="min-h-11 sm:min-h-8" onClick={test} disabled={testing} aria-busy={testing}>
             {testing ? <Loader2 className="animate-spin" /> : <Plug />}
             {testing ? "Testando…" : "Testar conexão"}
