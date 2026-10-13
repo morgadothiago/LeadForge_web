@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
+import { OrgPolicyPanel } from "@/components/admin/policy/OrgPolicyPanel";
 import { OrganizationStatusActions } from "@/components/admin/OrganizationStatusActions";
 import { OrgStatusBadge } from "@/components/admin/OrgStatusBadge";
 import { SUBSCRIPTION_STATUS_LABELS } from "@/components/admin/org-format";
@@ -9,6 +10,7 @@ import { Card } from "@/components/ui/card";
 import { ForbiddenError } from "@/lib/auth/require-admin";
 import { UnauthorizedError } from "@/lib/auth/require-user";
 import { getOrganizationDetail } from "@/lib/queries/admin/organizations";
+import { getOrganizationPolicy } from "@/lib/queries/admin/org-policy";
 import { orgIdSchema } from "@/lib/schemas/admin";
 
 export const dynamic = "force-dynamic";
@@ -40,6 +42,8 @@ export default async function Page({ params }: { params: Promise<{ id: string }>
     throw e;
   }
   if (!org) notFound();
+  // SPEC-069c: política por organização (só campos de política; sem leads/conversas/segredos). Mesmo guard `platform_admin` do detalhe.
+  const policy = await getOrganizationPolicy(id);
 
   return (
     <div className="space-y-6">
@@ -95,6 +99,8 @@ export default async function Page({ params }: { params: Promise<{ id: string }>
           </div>
         </dl>
       </Card>
+
+      {policy ? <OrgPolicyPanel policy={policy} /> : null}
     </div>
   );
 }
