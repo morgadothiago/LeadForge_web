@@ -603,6 +603,21 @@ Faça o passo 1.3 e reinicie o `npm run dev`. Entre em **`/criativos`** (item "C
 O provider padrão é **`mock`**: faz um vídeo placeholder (de enfeite), custo zero, e nunca usa a internet. Em
 produção, só liga com `CREATIVE_PROVIDER=mock` escrito de propósito.
 
+### 7.2b O vídeo de enfeite agora toca (e tem uma moça falando)
+
+O vídeo de enfeite não é mais uma tela vazia: ele é um vídeo de verdade. Se você escolher o avatar **Luciana (mock)**, aparece uma
+moça falando em português por uns 20 segundos. **Ela fala sempre a mesma coisa**, não o texto que você escreveu: é só para ver
+como a tela vai ficar. Para o vídeo falar o SEU texto, um dia vai ser preciso um serviço de avatar de verdade (ainda não temos).
+
+- **Por que o vídeo fica "Na fila"?** Porque em casa o despertador não toca sozinho. Para só os criativos andarem (sem mandar
+  WhatsApp nem e-mail por engano), abra um terminal e deixe rodando: `npm run creatives:dev`. Em uns 5 a 10 segundos o vídeo fica pronto.
+
+### 7.2c Quem pode fazer vídeo? (os planos)
+
+Cada plano libera uma quantidade: **Free = nenhum**, **Starter = 3 por mês**, **Pro = 20 por mês**. Se a sua conta é Free e você tenta
+criar, aparece um aviso dizendo que o plano não inclui criativos. Para testar em casa, o administrador pode liberar (um "empréstimo"
+com data para acabar). Isso vale para outras coisas também (agentes, caixa de atendimento, Google Ads e Meta): cada plano tem a sua lista.
+
 ### 7.3 Os criativos só andam quando o despertador (tick) toca
 
 Em casa, ninguém toca o despertador sozinho. Num **segundo terminal**, deixe rodando:

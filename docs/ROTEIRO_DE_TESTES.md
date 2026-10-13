@@ -425,6 +425,24 @@ Pré-requisitos: `docker compose up -d evolution` (porta 8080), instância conec
 | W8 | O amigo **responde** | Em até alguns segundos a resposta aparece no lead (Histórico de contatos) e em `/atendimento`; a sequência pausa ("respondeu") | [ ] | Sem resposta no app: conferir o webhook da instância (URL do túnel atual e token igual ao do banco) e o log do dev (`POST /api/webhooks/whatsapp/... 200`) |
 | W9 | Repetir o teste com o mesmo número | Não dá na mesma campanha (lead único por campanha+telefone; 1 toque por lead+passo): use **Duplicar campanha** ou outro lead | [ ] | |
 
+## X. Limites por plano (SPEC-069) e criativos (SPEC-051c) — local
+Pré-requisitos: migration `20261022120000_entitlement_override_069a` aplicada (`npx prisma migrate deploy`) e `npx prisma db seed`; `npm run dev` e, para criativos, `npm run creatives:dev` em outro terminal. A tela de admin para configurar política/override é a **069c (ainda não existe)**; por isso os testes de override abaixo são por SQL no banco local.
+
+| # | Passo | Esperado | OK | Obs |
+|---|---|---|---|---|
+| X1 | Conta Free (trial): `/criativos/novo`, preencher as 4 etapas e **Criar e enviar** | Bloqueio "Seu plano não inclui criativos" (hoje com texto técnico `plan_limit creatives 0 0`; a UI amigável com botão de upgrade é a 069d) | [ ] | |
+| X2 | Inserir override local de 20 criativos (tabela `OrgEntitlementOverride`, `limits={"maxCreativesPerMonth":20}`, motivo, validade) e repetir X1 | Criativo é criado e fica "Na fila", depois "Pronto" com `npm run creatives:dev` | [ ] | |
+| X3 | Avatar **Luciana (mock)** + voz feminina pt-BR | Vídeo de ~20 s com uma moça falando em português (sempre o mesmo; não lê o roteiro digitado) | [ ] | |
+| X4 | Outro avatar (Ana/Clara) | Vídeo de demonstração padrão, toca no player | [ ] | |
+| X5 | Excluir um criativo | Some da biblioteca; a cota do mês continua contada | [ ] | |
+| X6 | Free tenta ativar agente (`/configuracoes/agentes`) | Bloqueado no servidor (`plan_feature_locked`); no Starter só `followup` em rascunho; no Pro até 3 | [ ] | |
+| X7 | Free tenta responder na caixa `/atendimento` | Só leitura; Starter responde texto | [ ] | |
+| X8 | Free/Starter tentam salvar integração Google Ads/Meta ou n8n | Bloqueado (só Pro); a configuração antiga é preservada e volta no upgrade | [ ] | |
+| X9 | Convidar membros além do limite (Free 1, Starter 3, Pro 10) | Recusado com mensagem em português | [ ] | |
+| X10 | Criar sequência com mais passos que o plano (Free 3, Starter 5) | Recusado; editar uma sequência já maior (após downgrade) continua possível e só pode encolher | [ ] | |
+| X11 | Mudar a assinatura para `past_due` no banco local | IA e envio automático pausam (adiados); leitura continua; nada é apagado | [ ] | |
+| X12 | `/configuracoes/assinatura` | Carrega sem o erro "[entitlements] falha ao ler o plano" (se aparecer, falta a migration/seed) | [ ] | |
+
 ## Se algo falhar, me mande
 
 1. O passo (ex.: `B5`), o e-mail logado e a URL.
