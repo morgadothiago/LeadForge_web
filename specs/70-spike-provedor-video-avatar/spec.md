@@ -1,7 +1,7 @@
 # SPEC-070 — Spike: validar provedor de vídeo com avatar (voz e lip-sync em PT-BR) antes de integrar
 
 - id: SPEC-070
-- status: **DRAFT** (aguardando `APROVAR SPEC-070`) | domain: backend (**sem código de produção**: spike manual + relatório em `docs/`) | criada em 2026-10-12 | depende de: 051 (interface `AvatarVideoProvider`, provedor `mock`) | bloqueia: 071, 072
+- status: **APPROVED (2026-10-13, recomendações aceitas)** | domain: backend (**sem código de produção**: spike manual + relatório em `docs/`) | criada em 2026-10-12 | depende de: 051 (interface `AvatarVideoProvider`, provedor `mock`) | bloqueia: 071, 072
 - Origem: pedido do usuário "criar as specs para usar a recomendação". CONFIRMED: prototipar sem gastar, produção barata com D-ID como candidato, evitar código aberto próprio (GPU; Vercel não roda), preços de blogs de terceiros não são verdade.
 - Classificação: D-070-n = INFERRED (recomendação do orquestrador). Nenhum código, schema ou migration é tocado.
 
