@@ -143,3 +143,8 @@ Estados do criativo e acoes habilitadas: `draft` (enviar, excluir) -> `queued` (
 
 ## Decisao D-051-19 (2026-10-11)
 D-051-19 (Q-051-11, CONFIRMED por delegacao do usuario: "aceite o default"): mantem-se o comportamento atual como default aceito: SEM teto de retries manuais por criativo; retry de falha do provedor cria nova geracao e a cota mensal continua contando so o primeiro envio do mes (D-051-7). Risco aceito: custo de retries repetidos com provedor real; revisitar (teto N por criativo e/ou consumo de cota) na SPEC do provedor real de avatar, junto de D-051-15. Nenhum codigo alterado.
+
+## 051c — mock com MP4 real (2026-10-13)
+- Pedido do usuário ("resolver isso"): o placeholder do mock era um MP4 falso (só `ftyp` + bytes aleatórios) e o player mostrava "Não foi possível carregar o vídeo".
+- `src/lib/creatives/providers/mock-video.ts`: MP4 real de 4,5 KB (H.264 + AAC mudo, 216x384 vertical, 4 s). `mock.ts` serve esse arquivo em stream (determinístico). Passa na checagem de magic bytes de SPEC-050. Sem mudança de schema nem de contrato.
+- Criativos já gerados antes continuam com o arquivo falso: gerar um novo. tsc, eslint (0 erros) e vitest de `src/lib/creatives` verdes (39 testes).

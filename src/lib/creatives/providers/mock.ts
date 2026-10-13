@@ -1,11 +1,12 @@
 import { createHash } from "node:crypto";
 import { AppError } from "@/lib/errors";
+import { MOCK_DEMO_VIDEO } from "./mock-video";
 import type { AvatarVideoProvider, CreateVideoInput, ProviderVideoState, ProviderVideoStream } from "../provider";
 import type { CreativeAvatar, CreativeVoice } from "../types";
 
 /**
  * SPEC-051 (D-051-1) — adapter `mock`: padrao do projeto (sem chave, custo zero, NUNCA rede). Catalogo fixo (D-051-3) e
- * "video" placeholder DETERMINISTICO (caixa `ftyp` de MP4 + bytes derivados do id do job), servido em stream.
+ * "video" placeholder DETERMINISTICO (MP4 real de 4 s, SPEC-051c), servido em stream.
  *
  * Idempotencia: o id do job deriva do `idempotencyKey` (mesma chave => mesmo id, sem nova "cobranca"). O tempo de
  * criacao fica num Map em memoria do processo; id desconhecido (processo novo) conta como ja concluido.
@@ -26,7 +27,6 @@ export const MOCK_VOICES: CreativeVoice[] = [
 ];
 
 const FLAG = { ok: "n", fail: "f", hang: "h" } as const;
-const MOCK_VIDEO_BYTES = 4096;
 const CHUNK = 512;
 
 export interface MockOptions {
@@ -99,26 +99,15 @@ export class MockAvatarVideoProvider implements AvatarVideoProvider {
     return { state: "processing", progressPct: Math.max(1, Math.min(99, Math.floor((elapsed / Math.max(1, this.delayMs)) * 100))), rawStatus: "rendering" };
   }
 
-  async fetchVideo(providerJobId: string): Promise<ProviderVideoStream> {
+  async fetchVideo(_providerJobId: string): Promise<ProviderVideoStream> {
     this.stats.fetch++;
     if (this.failNextFetch) {
       this.failNextFetch = false;
       throw new AppError({ code: "network", userMessage: "Falha de rede ao baixar o vídeo.", retryable: true });
     }
-    const seed = createHash("sha256").update(providerJobId).digest();
+    // MP4 real e pequeno (SPEC-051c): o player do navegador toca o placeholder de demonstracao.
     async function* gen(): AsyncGenerator<Uint8Array> {
-      // caixa ftyp (isom) — passa a checagem de magic bytes de `video/mp4` da SPEC-050
-      yield Buffer.from([0, 0, 0, 24, 0x66, 0x74, 0x79, 0x70, 0x69, 0x73, 0x6f, 0x6d, 0, 0, 2, 0, 0x69, 0x73, 0x6f, 0x6d, 0x69, 0x73, 0x6f, 0x32]);
-      let sent = 24;
-      let i = 0;
-      while (sent < MOCK_VIDEO_BYTES) {
-        const n = Math.min(CHUNK, MOCK_VIDEO_BYTES - sent);
-        const b = Buffer.alloc(n);
-        for (let k = 0; k < n; k++) b[k] = seed[(i + k) % seed.length];
-        i += n;
-        sent += n;
-        yield b;
-      }
+      for (let off = 0; off < MOCK_DEMO_VIDEO.length; off += CHUNK) yield MOCK_DEMO_VIDEO.subarray(off, off + CHUNK);
     }
     return { body: gen(), contentType: "video/mp4" };
   }
