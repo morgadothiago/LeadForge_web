@@ -12,9 +12,11 @@ import { formatDateTime } from "@/components/leads/lead-format";
 import { removeIntegration, testIntegration } from "@/lib/actions/integration";
 import type { IntegrationItemView, IntegrationSummary } from "@/lib/integrations/view";
 import { IntegrationFormDialog } from "./IntegrationFormDialog";
-import { isRateLimitMessage, maskHint, originLabel, statusLabel } from "./integration-format";
+import { FeatureLockNotice, PlatformManagedNote, featureLockId } from "@/components/billing/FeatureLockNotice";
+import { integrationAccess, isRateLimitMessage, maskHint, originLabel, statusLabel } from "./integration-format";
+import type { FeatureKey } from "@/lib/billing/plan-catalog";
 
-export function IntegrationCards({ summaries }: { summaries: IntegrationSummary[] }) {
+export function IntegrationCards({ summaries, features = {} }: { summaries: IntegrationSummary[]; /** SPEC-069d: funcionalidades efetivas do plano (define o que o cliente pode editar). */ features?: Partial<Record<FeatureKey, boolean>> }) {
   const [announce, setAnnounce] = React.useState("");
   return (
     <>
@@ -24,7 +26,7 @@ export function IntegrationCards({ summaries }: { summaries: IntegrationSummary[
       <ul className="grid gap-4 lg:grid-cols-2">
         {summaries.map((s) => (
           <li key={s.integration}>
-            <IntegrationCard summary={s} onAnnounce={setAnnounce} />
+            <IntegrationCard summary={s} features={features} onAnnounce={setAnnounce} />
           </li>
         ))}
       </ul>
@@ -32,7 +34,7 @@ export function IntegrationCards({ summaries }: { summaries: IntegrationSummary[
   );
 }
 
-function IntegrationCard({ summary, onAnnounce }: { summary: IntegrationSummary; onAnnounce: (m: string) => void }) {
+function IntegrationCard({ summary, features, onAnnounce }: { summary: IntegrationSummary; features: Partial<Record<FeatureKey, boolean>>; onAnnounce: (m: string) => void }) {
   const router = useRouter();
   const item: IntegrationItemView | undefined = summary.items.find((i) => i.name === "default") ?? summary.items[0];
   const [editing, setEditing] = React.useState(false);
@@ -43,6 +45,8 @@ function IntegrationCard({ summary, onAnnounce }: { summary: IntegrationSummary;
   const [testNote, setTestNote] = React.useState<string>();
 
   const Icon = summary.configured ? CheckCircle2 : CircleDashed;
+  const access = integrationAccess(summary.integration, features, item);
+  const editable = access.mode === "editable";
 
   async function test() {
     if (!item) return;
@@ -112,13 +116,19 @@ function IntegrationCard({ summary, onAnnounce }: { summary: IntegrationSummary;
           <dt className="sr-only">Origem</dt>
           <dd className="text-muted-foreground">{originLabel(summary.origin)}</dd>
         </div>
-        {item && (
+        {item && editable && (
           <div className="flex items-center gap-1.5">
             <dt className="text-muted-foreground">Chave:</dt>
             <dd className="font-mono">{maskHint(item.hint)}</dd>
           </div>
         )}
-        {item?.baseUrl && (
+        {item && !editable && item.hostMasked && (
+          <div className="flex flex-wrap gap-1.5">
+            <dt className="text-muted-foreground">Servidor:</dt>
+            <dd className="break-all">{item.hostMasked}</dd>
+          </div>
+        )}
+        {item?.baseUrl && editable && (
           <div className="flex flex-wrap gap-1.5">
             <dt className="text-muted-foreground">URL base:</dt>
             <dd className="break-all">{item.baseUrl}</dd>
@@ -126,7 +136,16 @@ function IntegrationCard({ summary, onAnnounce }: { summary: IntegrationSummary;
         )}
       </dl>
 
-      {item?.allowPrivateHost && (
+      {access.mode === "platform" && (
+        <div className="space-y-1.5">
+          <Badge variant="muted">Gerenciada pela plataforma</Badge>
+          <PlatformManagedNote>{access.note}</PlatformManagedNote>
+          {!summary.configured && <p className="text-xs text-muted-foreground">Ainda não configurada pela plataforma. Se precisar, fale com o suporte.</p>}
+        </div>
+      )}
+      {access.mode === "locked" && <FeatureLockNotice feature={access.feature} />}
+
+      {item?.allowPrivateHost && editable && (
         <div>
           <Badge className="bg-warning/15 text-warning">Instância própria (rede privada)</Badge>
         </div>
@@ -150,18 +169,25 @@ function IntegrationCard({ summary, onAnnounce }: { summary: IntegrationSummary;
       )}
 
       <div className="mt-auto flex flex-wrap gap-2 pt-1">
-        <Button size="sm" onClick={() => setEditing(true)}>
-          {item ? <Pencil /> : <KeyRound />}
-          {item ? "Editar / trocar chave" : summary.origin === "env" ? "Salvar no painel" : "Configurar"}
-        </Button>
-        {item && !(summary.integration === "llm" && !item.baseUrl) && (
-          <Button size="sm" variant="outline" onClick={test} disabled={testing} aria-busy={testing}>
+        {editable && (
+          <Button size="sm" className="min-h-11 sm:min-h-8" onClick={() => setEditing(true)}>
+            {item ? <Pencil /> : <KeyRound />}
+            {item ? "Editar / trocar chave" : summary.origin === "env" ? "Salvar no painel" : "Configurar"}
+          </Button>
+        )}
+        {access.mode === "locked" && (
+          <Button size="sm" className="min-h-11 sm:min-h-8" disabled aria-disabled="true" aria-describedby={featureLockId(access.feature)}>
+            <KeyRound /> Configurar
+          </Button>
+        )}
+        {item && access.mode !== "locked" && !(summary.integration === "llm" && !item.baseUrl) && (
+          <Button size="sm" variant="outline" className="min-h-11 sm:min-h-8" onClick={test} disabled={testing} aria-busy={testing}>
             {testing ? <Loader2 className="animate-spin" /> : <Plug />}
             {testing ? "Testando…" : "Testar conexão"}
           </Button>
         )}
-        {item && (
-          <Button size="sm" variant="outline" onClick={() => { setDelError(undefined); setConfirmDel(true); }}>
+        {item && editable && (
+          <Button size="sm" variant="outline" className="min-h-11 sm:min-h-8" onClick={() => { setDelError(undefined); setConfirmDel(true); }}>
             <Trash2 /> Remover
           </Button>
         )}

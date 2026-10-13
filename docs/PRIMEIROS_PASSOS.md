@@ -659,7 +659,25 @@ escola e quanto papel cada um pode gastar. Quem decide isso é o diretor (o `pla
 - **Plano e features:** dá um "passe livre" temporário (com motivo e data de validade) ou tira.
 - **Auditoria:** o caderno que anota quem mudou o quê, quando e por quê.
 - O aluno (o cliente) só vê o que ficou decidido. Não edita.
-- Estado: telas prontas, **ainda não testadas no navegador**. Falta também a tela de bloqueio e upgrade para o cliente (069d).
+- Estado: telas prontas, **ainda não testadas no navegador**.
+
+### 7.6 O que o cliente enxerga (bloqueios, avisos e comparação de planos)
+
+Continuando a escola: o aluno agora entende **por que** não pode fazer uma coisa, em vez de só ver um erro.
+
+- **Cadeado com explicação:** quando o plano não inclui algo (por exemplo, o robô "Closer" no plano Starter), o botão fica
+  apagado e aparece uma frase como "Disponível no plano Pro" com um link "Fazer upgrade". Nada some em silêncio.
+- **Campos do diretor:** modelo da IA, teto de custo, mensagens por dia e turnos por conversa aparecem só para ler, com o
+  aviso "Definido pela plataforma". O aluno escreve a personalidade e o conhecimento do robô, mas não mexe nesses números.
+- **Chaves da plataforma:** WhatsApp (servidor), busca de leads e IA aparecem como "Gerenciada pela plataforma". Ninguém
+  vê chave nem endereço completo, só uma dica.
+- **Medidores:** em Configurações > Assinatura há barras de quanto já foi usado (robôs ativos, gasto de IA do mês,
+  criativos, equipe). "Não incluído no seu plano" quer dizer que aquele plano não tem aquilo.
+- **Aviso do cofrinho de IA:** quando o gasto de IA do mês chega a 80% do teto, o dono da organização vê uma faixa
+  amarela; ao chegar em 100%, uma faixa vermelha avisando que os robôs pararam até o mês seguinte (nada é apagado).
+- **Comparar planos:** uma tabela (no celular, cartões) mostra o que cada plano tem. Ela é montada do mesmo arquivo que o
+  servidor usa para decidir, então nunca conta uma coisa diferente da verdade. Também aparece na página inicial.
+- Estado: pronto no código e nos testes automáticos; **ainda não olhado no navegador** (celular e computador, claro e escuro).
 
 ### Coisas para saber
 

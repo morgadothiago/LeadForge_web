@@ -17,6 +17,9 @@ export const PLAN_ORDER: readonly PlanKey[] = ["free", "starter", "pro", "busine
 export const FREE_PLAN_KEY: PlanKey = "free";
 export const isFreePlanKey = (key: string | null | undefined): boolean => key === FREE_PLAN_KEY;
 
+/** SPEC-069d: plano destacado ("Mais popular") na vitrine e na assinatura. Unico lugar que o define: componentes nao comparam `plan.key` com literal. */
+export const HIGHLIGHTED_PLAN_KEY: PlanKey = "pro";
+
 /** Planos com TUDO liberado e sem limites (D-065-25 preservado): independem do que estiver gravado em `Plan.limits`. */
 export const FULL_ACCESS_PLAN_KEYS: readonly string[] = ["business", "courtesy"];
 

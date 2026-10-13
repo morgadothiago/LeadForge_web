@@ -4,6 +4,7 @@ import { TeamPanel } from "@/components/org/TeamPanel";
 import { getFormError } from "@/components/campaigns/form-utils";
 import { listMembers } from "@/lib/actions/org";
 import { redirectIfTrialExpired } from "@/lib/auth/require-page";
+import { getExtraUsage } from "@/lib/queries/entitlements";
 
 export const dynamic = "force-dynamic";
 
@@ -20,5 +21,6 @@ export default async function EquipePage() {
       </Card>
     );
   }
-  return <TeamPanel team={res.data} />;
+  const planMembers = (await getExtraUsage().catch(() => [])).find((i) => i.metric === "members") ?? null;
+  return <TeamPanel team={res.data} planMembers={planMembers} />;
 }

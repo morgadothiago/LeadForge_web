@@ -46,7 +46,7 @@ export function handleActionError<T = never>(e: unknown): ActionResult<T> {
   if (e instanceof TrialExpiredError) return { ok: false, errors: { _form: [e.message], code: ["trial_expired"] } };
   if (e instanceof PlanLimitError) return { ok: false, errors: { _form: [e.message], code: ["plan_limit"], metric: [e.metric], limit: [String(e.limit)], used: [String(e.used)] } };
   // SPEC-069a: funcionalidade bloqueada pelo plano (mensagem PT-BR com o nome do plano necessario).
-  if (e instanceof PlanFeatureLockedError) return { ok: false, errors: { _form: [e.message], code: ["plan_feature_locked"], feature: [e.feature], requiredPlan: [e.requiredPlan] } };
+  if (e instanceof PlanFeatureLockedError) return { ok: false, errors: { _form: [e.message], code: ["plan_feature_locked"], feature: [e.feature], requiredPlan: [e.requiredPlan], reason: [e.reason] } };
   // SPEC-069c: politica definida pela plataforma (tenant nao edita).
   if (e instanceof PolicyManagedByAdminError) return { ok: false, errors: { _form: [e.message], code: ["policy_admin_only"], fields: [...e.fields] } };
   if (e instanceof ForbiddenError) return formError("Sem permissão.");

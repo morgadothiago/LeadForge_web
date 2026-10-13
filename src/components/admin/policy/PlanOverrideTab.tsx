@@ -10,7 +10,7 @@ import { formatDate, formatDateTime } from "@/components/leads/lead-format";
 import { SUBSCRIPTION_STATUS_LABELS } from "@/components/admin/org-format";
 import { clearOrgEntitlementOverride, setOrgEntitlementOverride } from "@/lib/actions/admin/entitlements";
 import type { OrgPolicyView } from "@/lib/queries/admin/org-policy";
-import { draftToPayload, formatLimit, overrideToDraft, type FeatureMode, type LimitMode, type OverrideDraft } from "./policy-format";
+import { draftToPayload, emptyOverrideMessage, formatLimit, isEmptyOverrideDraft, overrideToDraft, type FeatureMode, type LimitMode, type OverrideDraft } from "./policy-format";
 import { FormError, ReasonField, Section, useAdminAction } from "./policy-ui";
 
 const SOURCE_LABEL: Record<string, string> = {
@@ -84,11 +84,16 @@ export function PlanOverrideTab({ policy }: { policy: OrgPolicyView }) {
 function OverrideForm({ policy }: { policy: OrgPolicyView }) {
   const uid = React.useId();
   const [draft, setDraft] = React.useState<OverrideDraft>(() => overrideToDraft(policy));
-  const { run, errors, pending } = useAdminAction();
+  const { run, errors, pending, setErrors } = useAdminAction();
   const eff = policy.effective;
 
   function submit(e: React.FormEvent) {
     e.preventDefault();
+    // B2 (QA 069c): tudo em "Seguir plano" = nada a gravar; bloqueia no cliente e orienta (Remover override).
+    if (isEmptyOverrideDraft(draft)) {
+      setErrors({ _form: [emptyOverrideMessage(policy.override !== null)] });
+      return;
+    }
     run(() => setOrgEntitlementOverride(draftToPayload(policy.org.id, draft)), "Override gravado.", () => setDraft((d) => ({ ...d, reason: "" })));
   }
 
@@ -99,23 +104,17 @@ function OverrideForm({ policy }: { policy: OrgPolicyView }) {
         description="“Seguir plano” não altera nada. “Liberar” e “Bloquear” sobrepõem o plano (também é possível restringir). Mostramos o efetivo atual ao lado."
       >
         <div className="divide-y divide-border">
-          {policy.catalog.features.map((f) => {
-            const id = `${uid}-f-${f.key}`;
-            const on = eff.features[f.key as keyof typeof eff.features] === true;
-            return (
-              <div key={f.key} className="grid gap-2 py-2.5 sm:grid-cols-[1fr_11rem] sm:items-center">
-                <label htmlFor={id} className="min-w-0 text-sm">
-                  <span className="font-medium">{f.label}</span>
-                  <span className="ml-2 text-xs text-muted-foreground">Efetivo: {on ? "liberado" : "bloqueado"}</span>
-                </label>
-                <select id={id} className={selectCls} value={draft.features[f.key]} onChange={(e) => setDraft((d) => ({ ...d, features: { ...d.features, [f.key]: e.target.value as FeatureMode } }))}>
-                  <option value="plan">Seguir plano</option>
-                  <option value="on">Liberar</option>
-                  <option value="off">Bloquear</option>
-                </select>
-              </div>
-            );
-          })}
+          {policy.catalog.features.map((f) => (
+            <FeatureOverrideRow
+              key={f.key}
+              id={`${uid}-f-${f.key}`}
+              label={f.label}
+              effectiveOn={eff.features[f.key as keyof typeof eff.features] === true}
+              value={draft.features[f.key]}
+              error={fieldError(errors, `features.${f.key}`)}
+              onChange={(mode) => setDraft((d) => ({ ...d, features: { ...d.features, [f.key]: mode } }))}
+            />
+          ))}
         </div>
       </Section>
 
@@ -176,6 +175,28 @@ function OverrideForm({ policy }: { policy: OrgPolicyView }) {
         </div>
       </Section>
     </form>
+  );
+}
+
+/** Uma linha do override por funcionalidade, com o erro do servidor (`features.<chave>`) sob o campo (B2 do QA 069c). Exportada para teste. */
+export function FeatureOverrideRow({ id, label, effectiveOn, value, error, onChange }: { id: string; label: string; effectiveOn: boolean; value: FeatureMode; error?: string; onChange: (m: FeatureMode) => void }) {
+  return (
+    <div className="grid gap-2 py-2.5 sm:grid-cols-[1fr_11rem] sm:items-center">
+      <label htmlFor={id} className="min-w-0 text-sm">
+        <span className="font-medium">{label}</span>
+        <span className="ml-2 text-xs text-muted-foreground">Efetivo: {effectiveOn ? "liberado" : "bloqueado"}</span>
+      </label>
+      <select id={id} className={selectCls} value={value} aria-invalid={Boolean(error)} aria-describedby={error ? `${id}-err` : undefined} onChange={(e) => onChange(e.target.value as FeatureMode)}>
+        <option value="plan">Seguir plano</option>
+        <option value="on">Liberar</option>
+        <option value="off">Bloquear</option>
+      </select>
+      {error ? (
+        <p id={`${id}-err`} role="alert" className="text-xs text-destructive sm:col-span-2">
+          {error}
+        </p>
+      ) : null}
+    </div>
   );
 }
 

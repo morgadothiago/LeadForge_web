@@ -4,6 +4,8 @@ import { Card } from "@/components/ui/card";
 import { getAgentUsage } from "@/lib/actions/agent";
 import { redirectIfTrialExpired, requirePageUser } from "@/lib/auth/require-page";
 import { getAgentSettings, listAgents } from "@/lib/queries/agent";
+import { getAiBudget, getTenantEntitlements } from "@/lib/queries/entitlements";
+import { toAgentPlanView } from "@/components/agents/agent-format";
 
 export const dynamic = "force-dynamic";
 
@@ -14,12 +16,12 @@ export default async function Page() {
     return (
       <Card role="alert" className="flex flex-col items-center gap-2 p-10 text-center">
         <Lock className="size-8 text-muted-foreground" aria-hidden="true" />
-        <p className="font-heading text-lg font-semibold">Você não tem permissão para gerenciar agentes</p>
-        <p className="text-sm text-muted-foreground">Somente administradores configuram os agentes. Você ainda pode revisar rascunhos em Aprovações.</p>
+        <p className="font-heading text-lg font-semibold">Esta área é da organização do cliente</p>
+        <p className="text-sm text-muted-foreground">Os agentes são usados pela organização do cliente. A política deles (modelo, custo e limites) é configurada em Admin &gt; Organizações.</p>
       </Card>
     );
   }
-  const [agents, settings] = await Promise.all([listAgents(), getAgentSettings()]);
+  const [agents, settings, ent, aiBudget] = await Promise.all([listAgents(), getAgentSettings(), getTenantEntitlements(), getAiBudget().catch(() => null)]);
   const views = await Promise.all(
     agents.map(async (a: (typeof agents)[number]) => {
       const u = await getAgentUsage({ id: a.id });
@@ -36,9 +38,15 @@ export default async function Page() {
     <div className="space-y-6">
       <div>
         <h2 className="font-heading text-lg font-semibold">Agentes de IA</h2>
-        <p className="text-sm text-muted-foreground">SDR, Follow-up e Closer. Todos nascem desligados e em modo rascunho.</p>
+        <p className="text-sm text-muted-foreground">SDR, Follow-up e Closer. Todos nascem desligados e em modo rascunho. Você define persona, objetivo, tom e conhecimento; modelo, custo e limites são definidos pela plataforma.</p>
       </div>
-      <AgentsPanel agents={views} settings={{ killSwitch: settings.killSwitch, monthlyBudgetCents: settings.monthlyBudgetCents }} />
+      <AgentsPanel
+        agents={views}
+        settings={{ killSwitch: settings.killSwitch, monthlyBudgetCents: settings.monthlyBudgetCents, lockedByAdmin: "lockedByAdmin" in settings ? settings.lockedByAdmin : false }}
+        plan={toAgentPlanView(ent, agents.filter((a: (typeof agents)[number]) => a.active).length)}
+        aiBudget={aiBudget}
+        isOwner={ent.isOwner}
+      />
     </div>
   );
 }

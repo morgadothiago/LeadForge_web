@@ -1,4 +1,5 @@
 "use client";
+import { notifyActionErrorOr } from "@/components/feedback/notify";
 import * as React from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
@@ -19,7 +20,7 @@ export function SequenceActions({ id, name, afterDeleteHref }: { id: string; nam
       if (r.ok) {
         toast.success("Sequência duplicada.");
         router.push(`/sequences/${r.data.id}`);
-      } else toast.error(Object.values(r.errors).flat()[0] ?? "Não foi possível duplicar.");
+      } else notifyActionErrorOr(r.errors, Object.values(r.errors).flat()[0] ?? "Não foi possível duplicar.");
     });
   }
 

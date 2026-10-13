@@ -1,4 +1,5 @@
 "use client";
+import { notifyActionErrorOr } from "@/components/feedback/notify";
 import * as React from "react";
 import { useRouter } from "next/navigation";
 import { Controller, useForm } from "react-hook-form";
@@ -21,7 +22,7 @@ const ROLE_OPTIONS = [
 ];
 
 /** SPEC-049b — convite nominal por e-mail (owner). O servidor responde igual para qualquer e-mail (anti-enumeração): a UI só informa envio. */
-export function InviteMemberDialog({ open: controlledOpen, onOpenChange, triggerLabel = "Convidar por e-mail", triggerVariant = "default", triggerSize = "default" }: { open?: boolean; onOpenChange?: (open: boolean) => void; triggerLabel?: string; triggerVariant?: "default" | "outline"; triggerSize?: "default" | "sm" }) {
+export function InviteMemberDialog({ open: controlledOpen, onOpenChange, triggerLabel = "Convidar por e-mail", triggerVariant = "default", triggerSize = "default", disabledReason }: { /** SPEC-069d: id do aviso de limite do plano; com ele o botao fica desabilitado e descrito. */ disabledReason?: string; open?: boolean; onOpenChange?: (open: boolean) => void; triggerLabel?: string; triggerVariant?: "default" | "outline"; triggerSize?: "default" | "sm" }) {
   const [innerOpen, setInnerOpen] = React.useState(false);
   // D-049-17: modo controlado (sem botão próprio) usado pelo seletor da sidebar; sem `open`, comporta-se como antes.
   const controlled = controlledOpen !== undefined;
@@ -30,7 +31,7 @@ export function InviteMemberDialog({ open: controlledOpen, onOpenChange, trigger
   return (
     <>
       {!controlled && (
-        <Button variant={triggerVariant} size={triggerSize} onClick={() => setOpen(true)}>
+        <Button variant={triggerVariant} size={triggerSize} onClick={() => setOpen(true)} disabled={Boolean(disabledReason)} aria-describedby={disabledReason}>
           <UserPlus aria-hidden="true" /> {triggerLabel}
         </Button>
       )}
@@ -69,7 +70,7 @@ function InviteForm({ onDone }: { onDone: () => void }) {
         router.refresh();
         return;
       }
-      toast.error(applyServerErrors(res.errors, setError, setFocus, FIELDS));
+      notifyActionErrorOr(res.errors, applyServerErrors(res.errors, setError, setFocus, FIELDS));
     });
   });
 

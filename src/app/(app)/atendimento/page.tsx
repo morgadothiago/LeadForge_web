@@ -1,5 +1,7 @@
 import { InboxShell } from "@/components/inbox/InboxShell";
 import { redirectIfTrialExpired, requirePageUser } from "@/lib/auth/require-page";
+import { getTenantEntitlements } from "@/lib/queries/entitlements";
+import type { LockReason } from "@/components/billing/FeatureLockNotice";
 
 export const dynamic = "force-dynamic";
 
@@ -19,5 +21,8 @@ export default async function Page({ searchParams }: { searchParams: Promise<{ c
   }
   const raw = (await searchParams).c;
   const c = Array.isArray(raw) ? raw[0] : raw;
-  return <InboxShell initialConversationId={c && UUID_RE.test(c) ? c.toLowerCase() : null} />;
+  // SPEC-069d: Free le, Starter responde texto; `past_due`/assinatura inativa nao respondem pelo plano.
+  const ent = await getTenantEntitlements().catch(() => null);
+  const replyLock: LockReason | null = ent && !ent.features["inbox.reply"] ? (ent.paused ? "past_due" : ent.source === "blocked" ? "blocked" : "plan") : null;
+  return <InboxShell initialConversationId={c && UUID_RE.test(c) ? c.toLowerCase() : null} replyLock={replyLock} />;
 }

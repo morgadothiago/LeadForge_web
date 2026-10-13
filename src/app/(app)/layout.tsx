@@ -5,6 +5,7 @@ import { HealthBanner } from "@/components/layout/HealthBanner";
 import { VerifyEmailBanner } from "@/components/auth/VerifyEmailBanner";
 import { PendingSetupBanner } from "@/components/billing/PendingSetupBanner";
 import { SubscriptionPendingBanner } from "@/components/billing/SubscriptionPendingBanner";
+import { AiBudgetBanner } from "@/components/billing/AiBudgetBanner";
 import { TrialBanner } from "@/components/billing/TrialBanner";
 import { showsTrialChip } from "@/components/billing/trial-ui";
 import { trialDaysLeft } from "@/lib/billing/access";
@@ -69,6 +70,11 @@ export default async function AppLayout({ children }: LayoutProps<"/">) {
             <React.Suspense fallback={null}>
               <HealthBanner />
             </React.Suspense>
+            {user.platformRole === "provider" && (
+              <React.Suspense fallback={null}>
+                <AiBudgetBanner />
+              </React.Suspense>
+            )}
           </>
         )}
         <div className="min-h-0 flex-1 overflow-y-auto p-4 md:p-6">{children}</div>

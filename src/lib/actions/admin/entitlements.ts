@@ -2,8 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { requirePlatformAdmin } from "@/lib/auth/require-admin";
-import { clearOverride, removeOrgIntegration, saveOrgIntegration, setAgentPolicy, setOrgAgentSettings, setOverride, type AgentPolicyView, type OrgAgentSettingsView, type OverrideView } from "@/lib/admin/org-policy";
-import type { IntegrationItemView } from "@/lib/integrations/view";
+import { clearOverride, removeOrgIntegration, saveOrgIntegration, setAgentPolicy, setOrgAgentSettings, setOverride, type AgentPolicyView, type OrgAgentSettingsView, type OverrideView, type SavedOrgIntegrationView } from "@/lib/admin/org-policy";
 import { safeAction, type ActionResult } from "@/lib/actions/result";
 
 /**
@@ -58,7 +57,7 @@ export async function setAgentPolicyByAdmin(input: unknown): Promise<ActionResul
 }
 
 /** Grava/gira a chave de uma integracao (LLM da plataforma, Places, Evolution, n8n) para a org, como chave da PLATAFORMA. Write-only; so `hint` volta. */
-export async function saveOrgIntegrationByAdmin(input: unknown): Promise<ActionResult<IntegrationItemView>> {
+export async function saveOrgIntegrationByAdmin(input: unknown): Promise<ActionResult<SavedOrgIntegrationView>> {
   return safeAction(async () => {
     const { user } = await requirePlatformAdmin();
     const r = await saveOrgIntegration(user.id, input);

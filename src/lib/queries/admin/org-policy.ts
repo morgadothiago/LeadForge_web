@@ -18,7 +18,7 @@ export interface OrgPolicyView {
   override: { features: Record<string, boolean>; limits: Record<string, number | null>; reason: string; expiresAt: string | null; createdBy: string; updatedAt: string } | null;
   agentSettings: { killSwitch: boolean; lockedByAdmin: boolean; monthlyBudgetCents: number | null };
   agents: { id: string; role: AgentRole; active: boolean; autonomy: AgentAutonomy; model: string; monthlyBudgetCents: number | null; dailyMessageLimit: number; maxTurnsPerLead: number }[];
-  integrations: { id: string; integration: IntegrationKind; name: string; hint: string; hostMasked: string | null; managedByPlatform: boolean; lastTestOk: boolean | null; updatedAt: string }[];
+  integrations: { id: string; integration: IntegrationKind; name: string; hint: string; hostMasked: string | null; allowPrivateHost: boolean; managedByPlatform: boolean; lastTestOk: boolean | null; updatedAt: string }[];
   platformLlmConfigured: boolean;
   catalog: { features: { key: string; label: string }[]; limits: { key: string; label: string }[] };
   audit: { id: string; adminUserId: string; action: string; reason: string | null; at: string; meta: unknown }[];
@@ -35,7 +35,7 @@ export async function getOrganizationPolicy(orgId: unknown): Promise<OrgPolicyVi
     adminPrisma.orgEntitlementOverride.findUnique({ where: { orgId: org.id } }),
     adminPrisma.agentSettings.findUnique({ where: { orgId: org.id }, select: { killSwitch: true, lockedByAdmin: true, monthlyBudgetCents: true } }),
     adminPrisma.agent.findMany({ where: { orgId: org.id }, orderBy: [{ role: "asc" }, { createdAt: "asc" }], select: { id: true, role: true, active: true, autonomy: true, model: true, monthlyBudgetCents: true, dailyMessageLimit: true, maxTurnsPerLead: true } }),
-    adminPrisma.integrationSecret.findMany({ where: { orgId: org.id }, orderBy: [{ integration: "asc" }, { name: "asc" }], select: { id: true, integration: true, name: true, hint: true, baseUrl: true, managedByPlatform: true, lastTestOk: true, updatedAt: true } }),
+    adminPrisma.integrationSecret.findMany({ where: { orgId: org.id }, orderBy: [{ integration: "asc" }, { name: "asc" }], select: { id: true, integration: true, name: true, hint: true, baseUrl: true, allowPrivateHost: true, managedByPlatform: true, lastTestOk: true, updatedAt: true } }),
     adminPrisma.platformAuditLog.findMany({ where: { orgId: org.id }, orderBy: { at: "desc" }, take: 50, select: { id: true, adminUserId: true, action: true, reason: true, at: true, meta: true } }),
   ]);
   const planKey = org.subscription?.plan.key ?? null;
@@ -46,7 +46,7 @@ export async function getOrganizationPolicy(orgId: unknown): Promise<OrgPolicyVi
     override: ov ? { features: ov.features as Record<string, boolean>, limits: ov.limits as Record<string, number | null>, reason: ov.reason, expiresAt: ov.expiresAt?.toISOString() ?? null, createdBy: ov.createdBy, updatedAt: ov.updatedAt.toISOString() } : null,
     agentSettings: settings ?? { killSwitch: true, lockedByAdmin: false, monthlyBudgetCents: null },
     agents,
-    integrations: secrets.map((s) => ({ id: s.id, integration: s.integration, name: s.name, hint: s.hint, hostMasked: hostOf(s.baseUrl), managedByPlatform: s.managedByPlatform, lastTestOk: s.lastTestOk, updatedAt: s.updatedAt.toISOString() })),
+    integrations: secrets.map((s) => ({ id: s.id, integration: s.integration, name: s.name, hint: s.hint, hostMasked: hostOf(s.baseUrl), allowPrivateHost: s.allowPrivateHost, managedByPlatform: s.managedByPlatform, lastTestOk: s.lastTestOk, updatedAt: s.updatedAt.toISOString() })),
     platformLlmConfigured: !!(process.env.PLATFORM_LLM_API_KEY?.trim() || process.env.PLATFORM_LLM_BASE_URL?.trim()),
     catalog: {
       features: Object.entries(FEATURE_CATALOG).map(([key, v]) => ({ key, label: v.label })),

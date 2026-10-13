@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { auditFields, centsToReaisInput, draftToPayload, formatBRL, overrideToDraft, reaisToCents } from "./policy-format";
+import { auditFields, centsToReaisInput, draftToPayload, emptyOverrideMessage, formatBRL, isEmptyOverrideDraft, overrideToDraft, reaisToCents } from "./policy-format";
 
 const catalog = { features: [{ key: "sources.ads", label: "Ads" }, { key: "llm.byok", label: "BYOK" }, { key: "ingest.api", label: "API" }], limits: [{ key: "maxMembers", label: "Membros" }, { key: "maxCampaigns", label: "Campanhas" }, { key: "maxCreativesPerMonth", label: "Criativos" }] };
 
@@ -45,5 +45,17 @@ describe("policy-format (SPEC-069c)", () => {
     expect(auditFields({ area: "x", fields: ["llm", "rotate", 3] })).toEqual(["llm", "rotate"]);
     expect(auditFields(null)).toEqual([]);
     expect(auditFields({ fields: "x" })).toEqual([]);
+  });
+
+  it("B2 (QA 069c): tudo em 'Seguir plano' e vazio (bloqueia no cliente e orienta 'Remover override')", () => {
+    const d = overrideToDraft({ override: null, catalog });
+    expect(isEmptyOverrideDraft(d)).toBe(true);
+    expect(emptyOverrideMessage(true)).toMatch(/Remover override/);
+    expect(emptyOverrideMessage(false)).not.toMatch(/Remover override/);
+    d.features["sources.ads"] = "on";
+    expect(isEmptyOverrideDraft(d)).toBe(false);
+    d.features["sources.ads"] = "plan";
+    d.limits.maxMembers = { mode: "value", value: "0" };
+    expect(isEmptyOverrideDraft(d)).toBe(false);
   });
 });

@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { Info } from "lucide-react";
-import { UPGRADE_HREF, isAtLimit, limitReachedText, type UsageItem } from "./trial-ui";
+import { UPGRADE_HREF, isAtLimit, isNotIncluded, limitReachedText, type UsageItem } from "./trial-ui";
 
 export function limitNoticeId(metric: UsageItem["metric"]): string {
   return `limit-notice-${metric}`;
@@ -17,7 +17,7 @@ export function LimitNotice({ item, soft = false, hint }: { item: UsageItem | un
     <div id={limitNoticeId(item.metric)} role="note" data-slot="limit-notice" className="flex flex-wrap items-start gap-x-2 gap-y-1 rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-sm">
       <Info className="mt-0.5 size-4 shrink-0 text-warning" aria-hidden="true" />
       <p className="min-w-0 flex-1">
-        {limitReachedText(item.metric, item.limit)} {soft ? (hint ?? "") : "Para continuar, faça upgrade do plano."}
+        {isNotIncluded(item) ? `${item.label}: não incluído no seu plano.` : limitReachedText(item.metric, item.limit)} {soft ? (hint ?? "") : "Para continuar, faça upgrade do plano."}
       </p>
       <Link href={UPGRADE_HREF} className="inline-flex min-h-9 items-center font-medium text-foreground underline underline-offset-2 hover:no-underline focus-visible:ring-2 focus-visible:ring-primary/40">
         Fazer upgrade

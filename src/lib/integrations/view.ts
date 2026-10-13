@@ -11,7 +11,10 @@ export interface IntegrationItemView {
   hint: string;
   /** "••••1234" */
   hintDisplay: string;
+  /** SPEC-069d (M1): `null` em chave da PLATAFORMA (`managedByPlatform`): o tenant ve so `hostMasked`. */
   baseUrl: string | null;
+  /** Host mascarado (sem caminho/credenciais); seguro para exibir ao tenant. */
+  hostMasked: string | null;
   allowPrivateHost: boolean;
   updatedAt: Date;
   lastTestedAt: Date | null;
@@ -45,7 +48,9 @@ type Row = {
 export function toItemView(r: Row): IntegrationItemView {
   // `Row.integration` é o enum Prisma inteiro (inclui os kinds da SPEC-041, sem tela própria ainda); esta view só
   // é chamada pelos 4 kinds de `INTEGRATIONS` (filtro em `listIntegrations`), nunca pelos novos.
-  return { ...r, integration: r.integration as IntegrationKindName, hintDisplay: `••••${r.hint}` };
+  // SPEC-069d (M1): chave da plataforma nunca devolve URL completa nem dica ao navegador do tenant (so host mascarado).
+  const platform = r.managedByPlatform;
+  return { ...r, integration: r.integration as IntegrationKindName, hint: platform ? "" : r.hint, hintDisplay: platform ? "" : `••••${r.hint}`, baseUrl: platform ? null : r.baseUrl, hostMasked: hostOf(r.baseUrl) };
 }
 
 export function summarize(integration: IntegrationKindName, items: IntegrationItemView[], envConfigured: boolean): IntegrationSummary {

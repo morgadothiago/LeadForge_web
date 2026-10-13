@@ -227,7 +227,8 @@ describe("cobertura 069b: gates de dominio / tick", () => {
 // 4) Todo item do catalogo e APLICADO em algum lugar
 // -------------------------------------------------------------------------------------------------------------------------------
 describe("cobertura 069b: catalogo x aplicacao", () => {
-  const MODULE_FILES = ["src/lib/billing/plan-catalog.ts", "src/lib/billing/entitlements.ts", "src/lib/billing/plans.ts"];
+  // `plan-ui.ts` (069d) so APRESENTA o catalogo (comparativo/textos); nao aplica permissao.
+  const MODULE_FILES = ["src/lib/billing/plan-catalog.ts", "src/lib/billing/entitlements.ts", "src/lib/billing/plans.ts", "src/lib/billing/plan-ui.ts"];
   const consumers = [...walk("src/lib"), ...walk("src/app")].filter((f) => isProd(f) && !MODULE_FILES.includes(f));
   const corpus = consumers.map((f) => read(f)).join("\n");
   /** Features ainda sem ponto de entrada porque o recurso nao existe (SPECs futuras): ao nascer, o teste exige remover da lista e aplicar. */
@@ -256,11 +257,11 @@ describe("cobertura 069b: catalogo x aplicacao", () => {
 // 5) Nenhum `plan.key ===` fora do catalogo/modulo (AC-5)
 // -------------------------------------------------------------------------------------------------------------------------------
 describe("cobertura 069b: nenhuma checagem por chave de plano fora do modulo/catalogo", () => {
-  // Servidor inteiro (`src/lib`, `src/app/api`, paginas/layouts server `src/app/**`). Componentes de UI (`src/components`) sao da 069d.
+  // Servidor inteiro (`src/lib`, `src/app/api`, paginas/layouts server `src/app/**`) E componentes de UI (`src/components`, 069d): a UI usa catalogo/entitlements.
   const ALLOWED = ["src/lib/billing/entitlements.ts", "src/lib/billing/plan-catalog.ts"];
   const KEY = /(?:\b(?:plan|subscription|sub)\.(?:plan\.)?key|\bplanKey|\.planKey)\s*[!=]==?\s*["'`](?:free|starter|pro|business|courtesy)["'`]|["'`](?:free|starter|pro|business|courtesy)["'`]\s*[!=]==?\s*(?:\w+\.)*(?:plan\.key|planKey)\b/;
-  it("sem `plan.key === \"...\"` / `planKey === \"...\"` em src/lib, src/app", () => {
-    const offenders = [...walk("src/lib"), ...walk("src/app")].filter((f) => isProd(f) && !ALLOWED.includes(f) && KEY.test(read(f)));
+  it("sem `plan.key === \"...\"` / `planKey === \"...\"` em src/lib, src/app, src/components", () => {
+    const offenders = [...walk("src/lib"), ...walk("src/app"), ...walk("src/components")].filter((f) => isProd(f) && !ALLOWED.includes(f) && KEY.test(read(f)));
     expect(offenders).toEqual([]);
   });
   it("auto-teste do detector", () => {

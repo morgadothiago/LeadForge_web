@@ -1,4 +1,5 @@
 "use client";
+import { notifyActionErrorOr } from "@/components/feedback/notify";
 import * as React from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
@@ -30,7 +31,7 @@ export function DraftQueue({ drafts, needsHuman }: { drafts: DraftView[]; needsH
   function bulk() {
     start(async () => {
       const r = await bulkApproveFollowups({ ids: [...selected] });
-      if (r.ok) { toast.success(bulkSummary(r.data)); setConfirmBulk(false); setSelected(new Set()); router.refresh(); } else { toast.error(getFormError(r.errors)); setConfirmBulk(false); }
+      if (r.ok) { toast.success(bulkSummary(r.data)); setConfirmBulk(false); setSelected(new Set()); router.refresh(); } else { notifyActionErrorOr(r.errors, getFormError(r.errors)); setConfirmBulk(false); }
     });
   }
   return (
@@ -83,7 +84,7 @@ function DraftCard({ d, checked, onToggle, locked, onBusy }: { d: DraftView; che
     });
     async function run() {
       const r = await fn();
-      if (!r.ok) return void toast.error(isEmailNotVerified(r.errors) ? EMAIL_NOT_VERIFIED_MESSAGE : getFormError(r.errors));
+      if (!r.ok) return void (isEmailNotVerified(r.errors) ? toast.error(EMAIL_NOT_VERIFIED_MESSAGE) : notifyActionErrorOr(r.errors, getFormError(r.errors)));
       if (r.data.status === "blocked") toast.warning(`Bloqueado pela política de envio${r.data.reason ? `: ${r.data.reason}` : "."}`); else toast.success(msg);
       router.refresh();
     }

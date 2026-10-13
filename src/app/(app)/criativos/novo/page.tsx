@@ -6,6 +6,9 @@ import { CreativeWizard } from "@/components/creatives/CreativeWizard";
 import { getFormError } from "@/components/campaigns/form-utils";
 import { listAvatarsAndVoices } from "@/lib/actions/creative";
 import { redirectIfTrialExpired } from "@/lib/auth/require-page";
+import { getExtraUsage } from "@/lib/queries/entitlements";
+import { LimitNotice } from "@/components/billing/LimitNotice";
+import { isAtLimit } from "@/components/billing/trial-ui";
 
 export const dynamic = "force-dynamic";
 
@@ -23,6 +26,18 @@ export default async function NovoCriativoPage() {
           Voltar para a biblioteca
         </Link>
       </Card>
+    );
+  }
+  // SPEC-069d: plano sem criativos (ou cota do plano esgotada): explica e oferece upgrade; o servidor tambem barra o envio.
+  const creatives = (await getExtraUsage().catch(() => [])).find((i) => i.metric === "creatives");
+  if (creatives && isAtLimit(creatives)) {
+    return (
+      <div className="mx-auto max-w-xl space-y-4">
+        <LimitNotice item={creatives} />
+        <Link href="/criativos" className={buttonVariants({ variant: "outline" })}>
+          Voltar para a biblioteca
+        </Link>
+      </div>
     );
   }
   return <CreativeWizard info={res.data} />;

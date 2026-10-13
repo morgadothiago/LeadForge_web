@@ -3,6 +3,7 @@ import * as React from "react";
 import { MessageSquareText } from "lucide-react";
 import type { StatusTab } from "@/lib/inbox/client-types";
 import { cn } from "@/lib/utils";
+import type { LockReason } from "@/components/billing/FeatureLockNotice";
 import { ChatPanel } from "./ChatPanel";
 import { ConversationList } from "./ConversationList";
 import { useInboxUnread } from "./InboxUnreadProvider";
@@ -12,7 +13,7 @@ import { loadErrorText, useConversationList } from "./use-inbox-data";
  * SPEC-068b: caixa de atendimento. >= 1024 px: 2 colunas (lista ~360 px + chat). Abaixo: pilha (lista OU chat, com botao Voltar).
  * Estado da conversa aberta so em memoria + `?c=` inicial (link direto); nada sensivel na URL alem do uuid.
  */
-export function InboxShell({ initialConversationId }: { initialConversationId: string | null }) {
+export function InboxShell({ initialConversationId, replyLock = null }: { initialConversationId: string | null; /** SPEC-069d: o plano nao libera responder (so ler) ou a assinatura esta pausada. */ replyLock?: LockReason | null }) {
   const [tab, setTab] = React.useState<StatusTab>("all");
   const [query, setQuery] = React.useState("");
   const [debounced, setDebounced] = React.useState("");
@@ -76,6 +77,7 @@ export function InboxShell({ initialConversationId }: { initialConversationId: s
             onListPatch={patch}
             onUnreadChanged={refreshUnread}
             onListRefresh={refresh}
+            replyLock={replyLock}
           />
         ) : (
           <div className="flex flex-1 flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-border p-8 text-center">

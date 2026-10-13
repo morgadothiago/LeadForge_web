@@ -1,5 +1,6 @@
 import type { IntegrationKind } from "@prisma/client";
-import type { IntegrationOrigin } from "@/lib/integrations/types";
+import type { IntegrationKindName, IntegrationOrigin } from "@/lib/integrations/types";
+import type { FeatureKey } from "@/lib/billing/plan-catalog";
 
 export const ORIGIN_LABEL: Record<IntegrationOrigin, string> = {
   db: "Salva no painel",
@@ -69,3 +70,23 @@ export function validateBaseUrl(raw: string, required: boolean): string | undefi
 
 /** Interpreta a mensagem de rate limit do backend. */
 export const isRateLimitMessage = (m: string): boolean => /muitos testes/i.test(m);
+
+/**
+ * SPEC-069d — o que o TENANT pode fazer em cada integracao (so UX; o servidor recusa de qualquer jeito):
+ * - `platform`: a chave/servidor e da PLATAFORMA (Evolution, Places, LLM sem BYOK, ou qualquer chave gravada pelo admin): somente leitura.
+ * - `locked`: o plano nao libera (n8n sem `ingest.api`): explicacao + upgrade.
+ * - `editable`: o cliente cadastra a propria chave (n8n no Pro; LLM so com BYOK liberado).
+ */
+export type IntegrationAccess =
+  | { mode: "editable" }
+  | { mode: "platform"; note: string }
+  | { mode: "locked"; feature: FeatureKey };
+
+export function integrationAccess(kind: IntegrationKindName, features: Partial<Record<FeatureKey, boolean>>, item?: { managedByPlatform: boolean } | null): IntegrationAccess {
+  if (kind === "evolution") return { mode: "platform", note: "O servidor do WhatsApp é gerenciado pela plataforma. Você só conecta o seu número (QR code) em Configurações > WhatsApp." };
+  if (kind === "places") return { mode: "platform", note: "A chave da busca de leads é gerenciada pela plataforma. Você só usa a busca, dentro do limite do seu plano." };
+  if (item?.managedByPlatform) return { mode: "platform", note: "Esta chave é gerenciada pela plataforma; você não precisa (nem pode) editá-la." };
+  if (kind === "llm") return features["llm.byok"] === true ? { mode: "editable" } : { mode: "platform", note: "A IA dos agentes é fornecida e paga pela plataforma. Você não precisa configurar chave nem provedor." };
+  if (kind === "n8n") return features["ingest.api"] === true ? { mode: "editable" } : { mode: "locked", feature: "ingest.api" };
+  return { mode: "editable" };
+}

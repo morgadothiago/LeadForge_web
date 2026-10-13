@@ -5,7 +5,8 @@ import { getEncryptionKey } from "@/lib/env";
 import { AppError } from "@/lib/errors";
 import { invalidateIntegrationCache } from "@/lib/integrations/config";
 import { assertAllowedHost, parseIntegrationUrl } from "@/lib/integrations/url-guard";
-import { hostOf, SELECT_ITEM, toItemView, type IntegrationItemView } from "@/lib/integrations/view";
+import { hostOf, SELECT_ITEM } from "@/lib/integrations/view";
+import type { IntegrationKindName } from "@/lib/integrations/types";
 import { saveIntegrationSchema, secretHint } from "@/lib/schemas/integration";
 import { adminIntegrationBaseSchema, clearOrgEntitlementOverrideSchema, removeOrgIntegrationSchema, setAgentPolicySchema, setOrgAgentSettingsSchema, setOrgEntitlementOverrideSchema } from "@/lib/schemas/admin-policy";
 import { failure, formError, success, zodErrors, type ActionResult } from "@/lib/actions/result";
@@ -156,7 +157,10 @@ export async function setAgentPolicy(adminId: string, input: unknown): Promise<A
  * Grava (cria/gira/atualiza URL) a chave de uma integracao PARA a org, como chave da plataforma (o tenant nao edita nem remove). `value` e write-only: nunca volta,
  * nunca vai a log/auditoria/erro (so `hostMasked`). Mesmas travas de URL/SSRF do cadastro do tenant.
  */
-export async function saveOrgIntegration(adminId: string, input: unknown): Promise<ActionResult<IntegrationItemView>> {
+/** SPEC-069d (M1): o que volta ao navegador do admin apos gravar a chave: so ids, host MASCARADO e a dica; NUNCA a URL completa nem o valor da chave. */
+export interface SavedOrgIntegrationView { id: string; integration: IntegrationKindName; name: string; hint: string; hostMasked: string | null; allowPrivateHost: boolean }
+
+export async function saveOrgIntegration(adminId: string, input: unknown): Promise<ActionResult<SavedOrgIntegrationView>> {
   const base = adminIntegrationBaseSchema.safeParse(input);
   if (!base.success) return failure(zodErrors(base.error));
   const parsed = saveIntegrationSchema.safeParse(input);
@@ -214,7 +218,7 @@ export async function saveOrgIntegration(adminId: string, input: unknown): Promi
     return saved;
   });
   invalidateIntegrationCache(orgId);
-  return success(toItemView(row));
+  return success({ id: row.id, integration: row.integration as IntegrationKindName, name: row.name, hint: row.hint, hostMasked: hostOf(row.baseUrl), allowPrivateHost: row.allowPrivateHost });
 }
 
 export async function removeOrgIntegration(adminId: string, input: unknown): Promise<ActionResult<{ id: string }>> {

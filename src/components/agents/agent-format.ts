@@ -1,3 +1,7 @@
+import type { FeatureKey } from "@/lib/billing/plan-catalog";
+import { lockedFeatureText } from "@/lib/billing/plan-ui";
+import type { TenantEntitlementsView } from "@/lib/queries/entitlements";
+
 export const ROLE_LABELS = { sdr: "SDR (1º toque)", followup: "Follow-up", closer: "Closer" } as const;
 export const AUTONOMY_LABELS = { draft: "Rascunho (aprovo tudo)", sampled: "Amostragem", auto: "Automático" } as const;
 export const RUN_STATUS_LABELS: Record<string, string> = { queued: "Na fila", done: "Concluída", blocked: "Bloqueada", error: "Erro", skipped: "Ignorada" };
@@ -46,3 +50,60 @@ export const canConfirmAuto = (c1: boolean, c2: boolean, disclosureEnabled: bool
 /** Desligar o aviso de IA num Closer autônomo faz o backend voltar a autonomia para rascunho. */
 export const disclosureOffDowngrades = (role: string, autonomy: string, disclosure: boolean): boolean => role === "closer" && autonomy !== "draft" && !disclosure;
 export const guardrailsLabel = (g: unknown): string => (Array.isArray(g) && g.length ? g.join(", ") : "");
+
+// ---------------------------------------------------------------------------------------------------------------------------------
+// SPEC-069d — o que o PLANO (+ override do admin) libera em agentes. So UX: a barreira real e o servidor (`assertFeature`).
+// ---------------------------------------------------------------------------------------------------------------------------------
+type RoleKey = keyof typeof ROLE_LABELS;
+type AutonomyKey = keyof typeof AUTONOMY_LABELS;
+export const ROLE_FEATURE_KEY: Record<RoleKey, FeatureKey> = { sdr: "agents.role.sdr", followup: "agents.role.followup", closer: "agents.role.closer" };
+export const AUTONOMY_FEATURE_KEY: Record<AutonomyKey, FeatureKey> = { draft: "agents.autonomy.draft", sampled: "agents.autonomy.sample", auto: "agents.autonomy.auto" };
+
+export interface AgentPlanView {
+  roles: Record<RoleKey, boolean>;
+  autonomy: Record<AutonomyKey, boolean>;
+  /** `null` = sem teto; 0 = o plano nao inclui agentes. */
+  maxActiveAgents: number | null;
+  activeCount: number;
+  /** IA nao confiavel agora (pagamento em atraso/assinatura inativa): nada de IA ate regularizar. */
+  costlyBlocked: boolean;
+  lockReason: "plan" | "past_due" | "blocked";
+}
+
+export function toAgentPlanView(ent: Pick<TenantEntitlementsView, "features" | "limits" | "paused" | "costlyBlocked">, activeCount: number): AgentPlanView {
+  const f = ent.features;
+  return {
+    roles: { sdr: f["agents.role.sdr"] === true, followup: f["agents.role.followup"] === true, closer: f["agents.role.closer"] === true },
+    autonomy: { draft: f["agents.autonomy.draft"] === true, sampled: f["agents.autonomy.sample"] === true, auto: f["agents.autonomy.auto"] === true },
+    maxActiveAgents: ent.limits.maxActiveAgents,
+    activeCount,
+    costlyBlocked: ent.costlyBlocked,
+    lockReason: ent.paused ? "past_due" : ent.costlyBlocked ? "blocked" : "plan",
+  };
+}
+
+export const anyRoleAllowed = (p: AgentPlanView): boolean => Object.values(p.roles).some(Boolean);
+
+/** "Disponível no plano Pro" para um papel de agente. */
+export const roleLockText = (role: RoleKey): string => lockedFeatureText(ROLE_FEATURE_KEY[role]).text;
+export const autonomyLockText = (a: AutonomyKey): string => lockedFeatureText(AUTONOMY_FEATURE_KEY[a]).text;
+
+export type ActivateBlock = { kind: "role" | "autonomy" | "limit" | "billing" | "budget"; text: string } | null;
+
+/**
+ * Por que o botao "Ativar" de um agente esta bloqueado (ou `null` se pode tentar). Ordem: pagamento/assinatura, papel, modo de autonomia, limite de
+ * agentes ativos e teto de custo do agente (definido pelo admin). Agente ja ativo nunca e bloqueado para DESLIGAR.
+ */
+export function activateBlock(plan: AgentPlanView, a: { role: RoleKey; autonomy: AutonomyKey; active: boolean; monthlyBudgetCents: number | null }): ActivateBlock {
+  if (a.active) return null;
+  if (plan.costlyBlocked) {
+    return { kind: "billing", text: plan.lockReason === "past_due" ? "IA pausada por pagamento em atraso. Regularize a assinatura para ativar agentes." : "Assinatura inativa: regularize para ativar agentes." };
+  }
+  if (!plan.roles[a.role]) return { kind: "role", text: `${ROLE_LABELS[a.role]}: ${roleLockText(a.role).replace(/^D/, "d")}.` };
+  if (!plan.autonomy[a.autonomy]) return { kind: "autonomy", text: `Modo ${AUTONOMY_LABELS[a.autonomy]}: ${autonomyLockText(a.autonomy).replace(/^D/, "d")}. Volte o agente para rascunho para ativar.` };
+  if (plan.maxActiveAgents !== null && plan.activeCount >= plan.maxActiveAgents) {
+    return { kind: "limit", text: plan.maxActiveAgents === 0 ? "Seu plano não inclui agentes de IA ativos." : `Seu plano permite ${plan.maxActiveAgents} agente${plan.maxActiveAgents === 1 ? "" : "s"} ativo${plan.maxActiveAgents === 1 ? "" : "s"} ao mesmo tempo. Desligue um ou faça upgrade.` };
+  }
+  if (!a.monthlyBudgetCents) return { kind: "budget", text: "Aguardando o teto de custo deste agente, definido pela plataforma." };
+  return null;
+}

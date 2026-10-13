@@ -11,6 +11,8 @@ import { getFormError } from "@/components/campaigns/form-utils";
 import type { AvatarsAndVoices, CreativeView, ListCreativesResult } from "@/lib/creatives/types";
 import { CreativeCard } from "./CreativeCard";
 import { MockProviderNotice } from "./MockProviderNotice";
+import { LimitNotice, limitNoticeId } from "@/components/billing/LimitNotice";
+import { isAtLimit, type UsageItem } from "@/components/billing/trial-ui";
 import { STATUS_LABEL, filtersToQuery, isMockProvider, quotaSummary, type LibraryFilters } from "./creative-format";
 
 const PAGE_SIZE = 20;
@@ -24,11 +26,14 @@ export function CreativeLibrary({
   filters,
   info,
   loadError,
+  planUsage = null,
 }: {
   initial: ListCreativesResult | null;
   filters: LibraryFilters;
   info: AvatarsAndVoices | null;
   loadError?: string;
+  /** SPEC-069d: uso x limite de criativos do PLANO (0 = nao incluido). */
+  planUsage?: UsageItem | null;
 }) {
   const router = useRouter();
   // "Carregar mais" acumula em `more`, atrelado à 1a página (`src`): nova página do servidor (filtro/refresh) descarta o acumulado.
@@ -40,6 +45,7 @@ export function CreativeLibrary({
   const [pending, startTransition] = React.useTransition();
   const [q, setQ] = React.useState(filters.q ?? "");
 
+  const planFull = planUsage ? isAtLimit(planUsage) : false;
   const hasFilter = Boolean(filters.status || filters.q);
   const quota = info ? quotaSummary(info) : null;
 
@@ -69,10 +75,17 @@ export function CreativeLibrary({
             </p>
           )}
         </div>
-        <Link href="/criativos/novo" className={buttonVariants()}>
-          <Plus aria-hidden="true" /> Novo criativo
-        </Link>
+        {planFull ? (
+          <Button disabled aria-disabled="true" aria-describedby={limitNoticeId("creatives")} className="min-h-11 sm:min-h-9">
+            <Plus aria-hidden="true" /> Novo criativo
+          </Button>
+        ) : (
+          <Link href="/criativos/novo" className={buttonVariants()}>
+            <Plus aria-hidden="true" /> Novo criativo
+          </Link>
+        )}
       </div>
+      <LimitNotice item={planUsage ?? undefined} />
 
       {info && isMockProvider(info.provider) && <MockProviderNotice />}
 
@@ -128,7 +141,7 @@ export function CreativeLibrary({
           <p className="text-sm text-muted-foreground">
             {hasFilter ? "Tente outros termos ou limpe os filtros." : "Crie seu primeiro vídeo de avatar com IA a partir de um roteiro."}
           </p>
-          {!hasFilter && (
+          {!hasFilter && !planFull && (
             <Link href="/criativos/novo" className={buttonVariants({ className: "mt-2" })}>
               <Plus aria-hidden="true" /> Novo criativo
             </Link>

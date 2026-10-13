@@ -7,6 +7,7 @@ import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { formatDate } from "@/components/leads/lead-format";
 import { trialDaysLeft } from "@/lib/billing/trial-days";
+import { isFreePlanKey } from "@/lib/billing/plan-catalog";
 import { createPortalSession } from "@/lib/actions/billing";
 import type { BillingSummary } from "@/lib/queries/billing";
 import { CancelSubscriptionPanel } from "./CancelSubscriptionPanel";
@@ -46,7 +47,7 @@ export function SubscriptionSummaryCard({ summary, now = new Date() }: { summary
 
   const tone = subscriptionStatusTone(subscription.status);
   // SPEC-065b: no teste gratis (plano `free`) nao ha cobranca nem portal nem cancelamento: so o prazo e o convite ao upgrade.
-  const onFreeTrial = subscription.planKey === "free" && subscription.status === "trialing";
+  const onFreeTrial = isFreePlanKey(subscription.planKey) && subscription.status === "trialing";
   const daysLeft = onFreeTrial ? trialDaysLeft(subscription.trialEndsAt, now) : 0;
   return (
     <Card>

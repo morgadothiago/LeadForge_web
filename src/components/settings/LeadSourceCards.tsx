@@ -1,4 +1,5 @@
 "use client";
+import { notifyActionErrorOr } from "@/components/feedback/notify";
 import * as React from "react";
 import { useRouter } from "next/navigation";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -162,7 +163,7 @@ function LeadSourceCard({
       }
       if (r.errors._form) setError("root", { type: "server", message: r.errors._form.join(" ") });
       const msg = getFormError(r.errors);
-      toast.error(msg);
+      notifyActionErrorOr(r.errors, msg);
       onAnnounce(msg);
       if (firstField) setFocus(firstField);
     });

@@ -1,11 +1,12 @@
 "use client";
 import * as React from "react";
-import { toast } from "sonner";
 import { Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { createCheckoutSession } from "@/lib/actions/billing";
 import type { PlanView } from "@/lib/billing/plans";
+import { HIGHLIGHTED_PLAN_KEY } from "@/lib/billing/plan-catalog";
+import { notifyActionError } from "@/components/feedback/notify";
 import { PlanCard } from "./PlanCard";
 
 /**
@@ -50,7 +51,7 @@ export function PlanSelectionSection({
         return;
       }
       setLoadingKey(null);
-      toast.error(Object.values(r.errors).flat()[0] ?? "Não foi possível iniciar o checkout.");
+      notifyActionError(r.errors);
     });
   }
 
@@ -94,7 +95,7 @@ export function PlanSelectionSection({
               plan={plan}
               cadence={cadence}
               current={isCurrent}
-              highlighted={initialPlanKey ? plan.key === initialPlanKey : plan.key === "pro"}
+              highlighted={initialPlanKey ? plan.key === initialPlanKey : plan.key === HIGHLIGHTED_PLAN_KEY}
               highlightLabel={initialPlanKey ? "Escolhido por você" : "Mais popular"}
               footer={
                 isCurrent ? (

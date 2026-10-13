@@ -222,7 +222,7 @@ describe("PlanFeatureLockedError / plan_feature_locked", () => {
   });
   it("handleActionError converte em ActionResult tipado", () => {
     const r = handleActionError(new PlanFeatureLockedError("sources.ads"));
-    expect(r).toEqual({ ok: false, errors: { _form: [expect.stringContaining("plano Pro")], code: ["plan_feature_locked"], feature: ["sources.ads"], requiredPlan: ["Pro"] } });
+    expect(r).toEqual({ ok: false, errors: { _form: [expect.stringContaining("plano Pro")], code: ["plan_feature_locked"], feature: ["sources.ads"], requiredPlan: ["Pro"], reason: ["plan"] } });
   });
   it("plan_limit continua intacto e aceita as metricas novas", () => {
     const r = handleActionError(new PlanLimitError("agents", 1, 1));

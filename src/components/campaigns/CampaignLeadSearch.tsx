@@ -3,6 +3,8 @@ import * as React from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
+import { notifyActionError } from "@/components/feedback/notify";
+import { isPlanOrPolicyError } from "@/components/feedback/action-errors";
 import { Loader2, Search, TriangleAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -92,6 +94,12 @@ export function CampaignLeadSearch({ campaignId, campaignName, campaignActive, p
     startTransition(async () => {
       const r = await searchLeads(campaignId);
       if (!r.ok) {
+        // SPEC-069d: limite de buscas do plano / recurso bloqueado => toast com a explicacao e "Fazer upgrade".
+        if (isPlanOrPolicyError(r.errors)) {
+          setOpen(false);
+          notifyActionError(r.errors);
+          return;
+        }
         setError(getFormError(r.errors));
         return;
       }

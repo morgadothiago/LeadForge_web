@@ -1,4 +1,5 @@
 "use client";
+import { HIGHLIGHTED_PLAN_KEY } from "@/lib/billing/plan-catalog";
 import * as React from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -152,7 +153,7 @@ export function PlanCheckoutSection({ plans, initialPlanKey, initialCadence, ema
                 key={plan.key}
                 plan={plan}
                 cadence={cadence}
-                highlighted={initialPlanKey ? isIntent : plan.key === "pro"}
+                highlighted={initialPlanKey ? isIntent : plan.key === HIGHLIGHTED_PLAN_KEY}
                 highlightLabel={initialPlanKey ? "Escolhido por você" : "Mais popular"}
                 footer={
                   plan.selfServiceCheckout ? (

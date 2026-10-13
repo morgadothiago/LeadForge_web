@@ -11,6 +11,7 @@ import { removeOrgIntegrationByAdmin, saveOrgIntegrationByAdmin } from "@/lib/ac
 import { formatDateTime } from "@/components/leads/lead-format";
 import { REQUIRES_BASE_URL, type IntegrationKindName } from "@/lib/integrations/types";
 import type { OrgPolicyView } from "@/lib/queries/admin/org-policy";
+import { allowPrivatePayload, initialAllowPrivateHost } from "./policy-format";
 import { FormError, ReasonField, Section, useAdminAction } from "./policy-ui";
 
 type Row = OrgPolicyView["integrations"][number];
@@ -106,7 +107,8 @@ function SaveForm({ orgId, kind, existing, onDone }: { orgId: string; kind: Inte
   const needsUrl = REQUIRES_BASE_URL[kind];
   const [value, setValue] = React.useState("");
   const [baseUrl, setBaseUrl] = React.useState("");
-  const [allowPrivate, setAllowPrivate] = React.useState(false);
+  // B1 (QA 069c): inicia com o valor gravado (nao sensivel) e envia `false` explicito ao desmarcar.
+  const [allowPrivate, setAllowPrivate] = React.useState(initialAllowPrivateHost(existing));
   const [reason, setReason] = React.useState("");
   const { run, errors, pending } = useAdminAction();
   const showUrl = needsUrl || kind === "llm";
@@ -114,7 +116,7 @@ function SaveForm({ orgId, kind, existing, onDone }: { orgId: string; kind: Inte
   function submit(e: React.FormEvent) {
     e.preventDefault();
     run(
-      () => saveOrgIntegrationByAdmin({ orgId, reason, integration: kind, name: "default", value, baseUrl, allowPrivateHost: allowPrivate || undefined }),
+      () => saveOrgIntegrationByAdmin({ orgId, reason, integration: kind, name: "default", value, baseUrl, ...allowPrivatePayload(showUrl, allowPrivate) }),
       "Chave gravada. O valor não é exibido novamente.",
       () => {
         setValue("");

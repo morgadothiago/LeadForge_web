@@ -1,7 +1,8 @@
 "use client";
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { AlertTriangle, Bot, Plus, Power } from "lucide-react";
+import Link from "next/link";
+import { AlertTriangle, Bot, Lock, Plus, Power } from "lucide-react";
 import { toast } from "sonner";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm, type FieldPath } from "react-hook-form";
@@ -18,8 +19,12 @@ import { createAgent, getAgentRuns, type AgentRunView, deleteKnowledge, saveKnow
 import type { FieldErrors } from "@/lib/actions/result";
 import type { SimulationResult } from "@/lib/agents/simulate";
 import type { AgentTool } from "@/lib/agents/types";
-import { agentFieldsSchema, createAgentSchema, globalSettingsSchema, knowledgeSchema, simulateSchema, updateAgentSchema } from "@/lib/schemas/agent";
-import { AUTONOMY_LABELS, ROLE_LABELS, formatBRLCents, RUN_STATUS_LABELS, budgetToInput, canConfirmAuto, disclosureOffDowngrades, formatMicroUsd, guardrailsLabel, needsAutoConfirm, parseLines, resolveBudgetInput, usageLevel, usagePercent } from "./agent-format";
+import { agentFieldsSchema, createAgentSchema, knowledgeSchema, simulateSchema, updateAgentSchema } from "@/lib/schemas/agent";
+import { FeatureLockNotice, PlatformManagedNote } from "@/components/billing/FeatureLockNotice";
+import { AiBudgetNotice } from "@/components/billing/AiBudgetNotice";
+import { notifyActionError } from "@/components/feedback/notify";
+import type { AiBudgetView } from "@/lib/queries/entitlements";
+import { AUTONOMY_LABELS, ROLE_LABELS, activateBlock, anyRoleAllowed, autonomyLockText, roleLockText, type AgentPlanView, formatBRLCents, RUN_STATUS_LABELS, budgetToInput, canConfirmAuto, disclosureOffDowngrades, formatMicroUsd, guardrailsLabel, needsAutoConfirm, parseLines, resolveBudgetInput, usageLevel, usagePercent } from "./agent-format";
 
 type Role = keyof typeof ROLE_LABELS;
 type Autonomy = keyof typeof AUTONOMY_LABELS;
@@ -30,7 +35,7 @@ export interface AgentView {
   knowledge: { id: string; title: string; version: number }[];
   spentCents: number;
 }
-export interface SettingsView { killSwitch: boolean; monthlyBudgetCents: number | null }
+export interface SettingsView { killSwitch: boolean; monthlyBudgetCents: number | null; /** SPEC-069d: a plataforma travou o kill switch (o tenant so LIGA). */ lockedByAdmin: boolean }
 
 const selectCls = "h-9 w-full rounded-md border border-input bg-transparent px-2 text-sm outline-none focus-visible:border-primary focus-visible:ring-[3px] focus-visible:ring-primary/20";
 const areaCls = "min-h-20 w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm outline-none focus:border-primary focus:ring-[3px] focus:ring-primary/20";
@@ -41,30 +46,47 @@ function useRun() {
   function run<T>(fn: () => Promise<{ ok: true; data: T } | { ok: false; errors: FieldErrors }>, ok: string, onErr?: (e: FieldErrors) => void, onOk?: (d: T) => void) {
     start(async () => {
       const r = await fn();
-      if (r.ok) { toast.success(ok); onOk?.(r.data); router.refresh(); } else { onErr?.(r.errors); toast.error(getFormError(r.errors)); }
+      if (r.ok) { toast.success(ok); onOk?.(r.data); router.refresh(); } else { onErr?.(r.errors); notifyActionError(r.errors); }
     });
   }
   return { run, pending };
 }
 
-export function AgentsPanel({ agents, settings }: { agents: AgentView[]; settings: SettingsView }) {
+export function AgentsPanel({ agents, settings, plan, aiBudget, isOwner }: { agents: AgentView[]; settings: SettingsView; plan: AgentPlanView; aiBudget: AiBudgetView | null; isOwner: boolean }) {
   const [editing, setEditing] = React.useState<AgentView | "new" | null>(null);
   const { run, pending } = useRun();
   const [confirmRelease, setConfirmRelease] = React.useState(false);
   const missing = (["sdr", "followup", "closer"] as Role[]).filter((r) => !agents.some((a) => a.role === r));
+  const creatable = missing.filter((r) => plan.roles[r]);
+  const noAgentsInPlan = !anyRoleAllowed(plan);
+  const newBlocked = noAgentsInPlan || creatable.length === 0;
+  const newBlockedText = noAgentsInPlan ? (plan.costlyBlocked ? "IA indisponível: regularize a assinatura." : "Seu plano não inclui agentes de IA.") : missing.length === 0 ? "Você já criou os três papéis." : "Os papéis que faltam não estão no seu plano.";
   return (
     <div className="space-y-6">
+      {noAgentsInPlan && (
+        <FeatureLockNotice feature="agents.role.followup" reason={plan.lockReason} text={plan.costlyBlocked ? undefined : `Seu plano não inclui agentes de IA. ${roleLockText("followup")} (follow-up).`} />
+      )}
+      {!noAgentsInPlan && plan.costlyBlocked && <FeatureLockNotice feature="agents.role.followup" reason={plan.lockReason} />}
+      {aiBudget && isOwner && <AiBudgetNotice budget={aiBudget} />}
+
       <Card className={`flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between ${settings.killSwitch ? "border-destructive/50" : ""}`}>
         <div className="flex items-start gap-3">
           <Power className={`mt-0.5 size-5 ${settings.killSwitch ? "text-destructive" : "text-success"}`} aria-hidden="true" />
-          <div>
+          <div className="space-y-1">
             <p className="font-medium">Kill switch global: {settings.killSwitch ? "LIGADO (todos os agentes parados)" : "desligado (agentes ativos podem rodar)"}</p>
             <p className="text-xs text-muted-foreground">Teto global do mês: {settings.monthlyBudgetCents ? formatBRLCents(settings.monthlyBudgetCents) : "não definido"}. Pausa automática em 100%, alerta em 80%.</p>
+            <PlatformManagedNote>Teto e regras de custo definidos pela plataforma. Você pode parar todos os agentes a qualquer momento.</PlatformManagedNote>
+            {settings.lockedByAdmin && settings.killSwitch && <p id="kill-locked" className="text-xs text-warning">A plataforma travou o kill switch: só o administrador da plataforma pode liberar os agentes. Fale com o suporte.</p>}
           </div>
         </div>
         <div className="flex flex-wrap gap-2">
-          <GlobalBudget key={settings.monthlyBudgetCents ?? "none"} current={settings.monthlyBudgetCents} />
-          <Button variant={settings.killSwitch ? "default" : "destructive"} disabled={pending} onClick={() => (settings.killSwitch ? setConfirmRelease(true) : run(() => updateAgentSettings({ killSwitch: true }), "Todos os agentes foram parados."))}>
+          <Button
+            variant={settings.killSwitch ? "default" : "destructive"}
+            className="min-h-11 sm:min-h-9"
+            disabled={pending || (settings.killSwitch && settings.lockedByAdmin)}
+            aria-describedby={settings.killSwitch && settings.lockedByAdmin ? "kill-locked" : undefined}
+            onClick={() => (settings.killSwitch ? setConfirmRelease(true) : run(() => updateAgentSettings({ killSwitch: true }), "Todos os agentes foram parados."))}
+          >
             {settings.killSwitch ? "Liberar agentes" : "Parar todos"}
           </Button>
         </div>
@@ -82,81 +104,35 @@ export function AgentsPanel({ agents, settings }: { agents: AgentView[]; setting
 
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="text-sm text-muted-foreground">O agente propõe; supressão, cadência, janela e saúde do chip continuam decidindo se a mensagem sai.</p>
-        <Button onClick={() => setEditing("new")} disabled={missing.length === 0}><Plus /> Novo agente</Button>
+        <div className="flex flex-col items-start gap-1 sm:items-end">
+          <Button onClick={() => setEditing("new")} disabled={newBlocked} aria-describedby={newBlocked ? "new-agent-blocked" : undefined} className="min-h-11 sm:min-h-9"><Plus /> Novo agente</Button>
+          {newBlocked && <p id="new-agent-blocked" className="text-xs text-muted-foreground">{newBlockedText}</p>}
+        </div>
       </div>
 
       {agents.length === 0 && <Card className="p-8 text-center text-sm text-muted-foreground">Nenhum agente ainda. Crie o SDR e o Follow-up primeiro (sempre em modo rascunho).</Card>}
       <div className="grid gap-4 lg:grid-cols-2">
-        {agents.map((a) => <AgentCard key={a.id} agent={a} killSwitch={settings.killSwitch} onEdit={() => setEditing(a)} />)}
+        {agents.map((a) => <AgentCard key={a.id} agent={a} killSwitch={settings.killSwitch} plan={plan} onEdit={() => setEditing(a)} />)}
       </div>
 
       <Dialog open={editing !== null} onOpenChange={(o) => !o && setEditing(null)}>
         <DialogContent className="max-h-[90dvh] max-w-2xl overflow-y-auto">
-          {editing && <AgentForm key={editing === "new" ? "new" : editing.id} agent={editing === "new" ? null : editing} availableRoles={editing === "new" ? missing : []} onDone={() => setEditing(null)} />}
+          {editing && <AgentForm key={editing === "new" ? "new" : editing.id} agent={editing === "new" ? null : editing} availableRoles={editing === "new" ? missing : []} plan={plan} onDone={() => setEditing(null)} />}
         </DialogContent>
       </Dialog>
     </div>
   );
 }
 
-/** Valores do form (SPEC-044): números ficam como texto na UI e viram número no submit; erros usam as chaves do schema ("monthlyBudgetCents", "dailyMessageLimit", ...). */
-interface GlobalBudgetValues {
-  monthlyBudgetCents: string;
-}
-
-type GlobalBudgetSubmit = z.output<typeof globalSettingsSchema>;
-
-/** Texto em reais → cents; vazio/inválido vira `null` (o formato é checado em `onSubmit` com as mensagens originais). */
-function budgetCentsOf(text: string): number | null {
-  if (!text.trim()) return null;
-  const r = resolveBudgetInput(text);
-  return r.ok ? r.cents : null;
-}
-
-function GlobalBudget({ current }: { current: number | null }) {
-  const [confirmClear, setConfirmClear] = React.useState(false);
-  const { run, pending } = useRun();
-  const resolver = React.useMemo(
-    () => zodResolver(z.preprocess((v: GlobalBudgetValues) => ({ monthlyBudgetCents: budgetCentsOf(v.monthlyBudgetCents) }), globalSettingsSchema)),
-    [],
-  );
-  const { register, handleSubmit, getValues, setError, formState } = useForm<GlobalBudgetValues, unknown, GlobalBudgetSubmit>({
-    resolver,
-    defaultValues: { monthlyBudgetCents: budgetToInput(current) },
-  });
-  const { errors } = formState;
-
-  const onSubmit = handleSubmit(() => {
-    const text = getValues().monthlyBudgetCents;
-    if (!text.trim()) {
-      if (current) { setConfirmClear(true); return; }
-      setError("monthlyBudgetCents", { type: "client", message: "Informe um valor em reais maior que zero." });
-      return;
-    }
-    const r = resolveBudgetInput(text);
-    if (!r.ok) { setError("monthlyBudgetCents", { type: "client", message: r.error }); return; }
-    run(() => updateAgentSettings({ monthlyBudgetCents: r.cents }), "Teto global salvo.");
-  });
-
-  return (
-    <form onSubmit={onSubmit} className="flex flex-col gap-1" noValidate>
-      <div className="flex gap-2">
-        <Input aria-label="Teto global mensal em reais" inputMode="decimal" className="w-28" placeholder="R$ teto" {...register("monthlyBudgetCents")} />
-        <Button type="submit" variant="outline" disabled={pending}>Salvar teto</Button>
-      </div>
-      {errors.monthlyBudgetCents && <p role="alert" className="text-xs text-destructive">{errors.monthlyBudgetCents.message}</p>}
-      <ConfirmDialog open={confirmClear} onOpenChange={setConfirmClear} title="Remover teto global?" description="Sem teto global, o gasto mensal dos agentes deixa de ter limite conjunto." confirmLabel="Remover teto" destructive pending={pending}
-        onConfirm={() => run(() => updateAgentSettings({ monthlyBudgetCents: null }), "Teto global removido.", undefined, () => setConfirmClear(false))} />
-    </form>
-  );
-}
-
-function AgentCard({ agent: a, killSwitch, onEdit }: { agent: AgentView; killSwitch: boolean; onEdit: () => void }) {
+function AgentCard({ agent: a, killSwitch, plan, onEdit }: { agent: AgentView; killSwitch: boolean; plan: AgentPlanView; onEdit: () => void }) {
   const { run, pending } = useRun();
   const [sim, setSim] = React.useState(false);
   const [auto, setAuto] = React.useState<Autonomy | null>(null);
   const level = usageLevel(a.spentCents, a.monthlyBudgetCents);
   const pct = usagePercent(a.spentCents, a.monthlyBudgetCents);
+  const block = activateBlock(plan, a);
+  const roleLocked = !plan.roles[a.role];
+  const blockId = `activate-block-${a.id}`;
   return (
     <Card className="space-y-4 p-5">
       <div className="flex items-start justify-between gap-2">
@@ -183,19 +159,45 @@ function AgentCard({ agent: a, killSwitch, onEdit }: { agent: AgentView; killSwi
             if (needsAutoConfirm(a.role, v)) setAuto(v);
             else run(() => setAgentAutonomy({ id: a.id, autonomy: v }), "Autonomia atualizada.");
           }}>
-            {(Object.keys(AUTONOMY_LABELS) as Autonomy[]).map((k) => <option key={k} value={k}>{AUTONOMY_LABELS[k]}{k === "sampled" ? ` (${a.samplePercent}% revisados)` : ""}</option>)}
+            {(Object.keys(AUTONOMY_LABELS) as Autonomy[]).map((k) => {
+              const locked = !plan.autonomy[k] && k !== a.autonomy; // voltar a rascunho/manter o atual nunca e bloqueado na UI
+              return <option key={k} value={k} disabled={locked}>{AUTONOMY_LABELS[k]}{k === "sampled" ? ` (${a.samplePercent}% revisados)` : ""}{locked ? ` — ${autonomyLockText(k).replace(/^D/, "d")}` : ""}</option>;
+            })}
           </select>
         )}
       </Field>
 
       <p className="text-xs text-muted-foreground">{a.knowledge.length} documento(s) de conhecimento · {a.dailyMessageLimit} msgs/dia · {a.maxTurnsPerLead} turnos/lead</p>
+      {roleLocked && <FeatureLockNotice feature={a.role === "sdr" ? "agents.role.sdr" : a.role === "closer" ? "agents.role.closer" : "agents.role.followup"} reason={plan.lockReason} text={plan.costlyBlocked ? undefined : `Este agente está parado: ${ROLE_LABELS[a.role]} — ${roleLockText(a.role).replace(/^D/, "d")}. Nada foi apagado; ele volta com o upgrade.`} />}
       <div className="flex flex-wrap gap-2">
-        <Button size="sm" variant="outline" onClick={onEdit}>Editar</Button>
-        <Button size="sm" variant="outline" onClick={() => setSim(true)}>Simular</Button>
-        <Button size="sm" variant={a.active ? "secondary" : "default"} disabled={pending} onClick={() => run(() => setAgentActive({ id: a.id, active: !a.active }), a.active ? "Agente desligado." : "Agente ativado.")}>
+        <Button size="sm" variant="outline" className="min-h-11 sm:min-h-8" onClick={onEdit}>Editar</Button>
+        <Button size="sm" variant="outline" className="min-h-11 sm:min-h-8" onClick={() => setSim(true)} disabled={roleLocked || plan.costlyBlocked}>Simular</Button>
+        <Button
+          size="sm"
+          className="min-h-11 sm:min-h-8"
+          variant={a.active ? "secondary" : "default"}
+          disabled={pending || block !== null}
+          aria-describedby={block ? blockId : undefined}
+          onClick={() => run(() => setAgentActive({ id: a.id, active: !a.active }), a.active ? "Agente desligado." : "Agente ativado.")}
+        >
           {a.active ? "Desligar" : "Ativar"}
         </Button>
       </div>
+      {block && !roleLocked && (
+        <p id={blockId} role="note" className="flex items-start gap-1.5 text-xs text-muted-foreground">
+          <Lock className="mt-0.5 size-3 shrink-0" aria-hidden="true" />
+          <span>
+            {block.text}
+            {(block.kind === "limit" || block.kind === "autonomy") && (
+              <>
+                {" "}
+                <Link href="/configuracoes/assinatura" className="font-medium text-foreground underline underline-offset-2">Fazer upgrade</Link>
+              </>
+            )}
+          </span>
+        </p>
+      )}
+      {block && roleLocked && <span id={blockId} className="sr-only">{block.text}</span>}
       <RunHistory agentId={a.id} />
       {auto && <CloserAutoDialog agent={a} autonomy={auto} onClose={() => setAuto(null)} />}
       {sim && <SimulateDialog agent={a} onClose={() => setSim(false)} />}
@@ -374,7 +376,7 @@ function buildBody(v: AgentFormValues, agent: AgentView | null): z.input<typeof 
   };
 }
 
-function AgentForm({ agent, availableRoles, onDone }: { agent: AgentView | null; availableRoles: Role[]; onDone: () => void }) {
+function AgentForm({ agent, availableRoles, plan, onDone }: { agent: AgentView | null; availableRoles: Role[]; plan: AgentPlanView; onDone: () => void }) {
   const uid = React.useId();
   const rules = (agent?.escalationRules ?? {}) as { keywords?: string[]; forbiddenPhrases?: string[]; handoffOnHumanRequest?: boolean };
   const { run, pending } = useRun();
@@ -390,7 +392,7 @@ function AgentForm({ agent, availableRoles, onDone }: { agent: AgentView | null;
   const { register, handleSubmit, watch, getValues, setValue, setError, setFocus, formState } = useForm<AgentFormValues, unknown, AgentSubmit>({
     resolver,
     defaultValues: {
-      role: agent?.role ?? availableRoles[0] ?? "sdr",
+      role: agent?.role ?? availableRoles.find((r) => plan.roles[r]) ?? availableRoles[0] ?? "sdr",
       name: agent?.name ?? "",
       persona: agent?.persona ?? "",
       objective: agent?.objective ?? "",
@@ -406,7 +408,7 @@ function AgentForm({ agent, availableRoles, onDone }: { agent: AgentView | null;
       keywords: (rules.keywords ?? []).join("\n"),
       forbidden: (rules.forbiddenPhrases ?? []).join("\n"),
       humanReq: rules.handoffOnHumanRequest ?? true,
-      disclosure: agent?.disclosureEnabled ?? (agent?.role ?? availableRoles[0] ?? "sdr") === "closer",
+      disclosure: agent?.disclosureEnabled ?? (agent?.role ?? availableRoles.find((r) => plan.roles[r]) ?? availableRoles[0] ?? "sdr") === "closer",
       disclosureText: agent?.disclosureText ?? "",
       callLink: agent?.callLink ?? "",
     },
@@ -446,8 +448,11 @@ function AgentForm({ agent, availableRoles, onDone }: { agent: AgentView | null;
   const area = (id: "persona" | "objective" | "tone" | "keywords" | "forbidden", label: string, hint?: string) => (
     <Field id={`${uid}-${id}`} label={label} hint={hint} error={errors[id]?.message}>{(f) => <textarea {...f} {...register(id)} className={areaCls} />}</Field>
   );
-  const num = (id: "dailyMessageLimit" | "maxTurnsPerLead" | "samplePercent", label: string) => (
-    <Field id={`${uid}-${id}`} label={label} error={errors[id]?.message}>{(f) => <Input {...f} {...register(id)} inputMode="numeric" />}</Field>
+  // SPEC-069d: modelo, teto e limites de mensagens/turnos sao POLITICA da plataforma (somente leitura para o cliente; o servidor tambem recusa mudanca).
+  const num = (id: "dailyMessageLimit" | "maxTurnsPerLead" | "samplePercent", label: string, platform = false) => (
+    <Field id={`${uid}-${id}`} label={label} hint={platform ? "Definido pela plataforma." : undefined} error={errors[id]?.message}>
+      {(f) => <Input {...f} {...register(id)} inputMode="numeric" {...(platform ? { readOnly: true, "aria-readonly": true, className: "bg-muted/40" } : {})} />}
+    </Field>
   );
   return (
     <form onSubmit={onSubmit} className="grid gap-4" noValidate>
@@ -459,7 +464,7 @@ function AgentForm({ agent, availableRoles, onDone }: { agent: AgentView | null;
       <div className="grid gap-4 sm:grid-cols-2">
         <Field id={`${uid}-role`} label="Papel" required>
           {(f) => <select {...f} className={selectCls} value={role} disabled={!!agent} onChange={(e) => { const r = e.target.value as Role; setValue("role", r); setValue("disclosure", r === "closer"); }}>
-            {(agent ? [agent.role] : availableRoles).map((r) => <option key={r} value={r}>{ROLE_LABELS[r]}</option>)}
+            {(agent ? [agent.role] : availableRoles).map((r) => <option key={r} value={r} disabled={!plan.roles[r]}>{ROLE_LABELS[r]}{plan.roles[r] ? "" : ` — ${roleLockText(r).replace(/^D/, "d")}`}</option>)}
           </select>}
         </Field>
         <Field id={`${uid}-name`} label="Nome" required error={errors.name?.message}>{(f) => <Input {...f} {...register("name")} maxLength={80} />}</Field>
@@ -468,13 +473,12 @@ function AgentForm({ agent, availableRoles, onDone }: { agent: AgentView | null;
       {area("objective", "Objetivo")}
       {area("tone", "Tom de voz")}
       <div className="grid gap-4 sm:grid-cols-2">
-        <Field id={`${uid}-model`} label="Modelo" error={errors.model?.message}>{(f) => <Input {...f} {...register("model")} />}</Field>
-        <Field id={`${uid}-budget`} label="Teto mensal (R$)" hint="Obrigatório para ativar." error={errors.monthlyBudgetCents?.message}>
-          {(f) => <div className="space-y-1"><Input {...f} {...register("monthlyBudgetCents")} inputMode="decimal" disabled={clearBudget} />
-            {agent?.monthlyBudgetCents ? <label className="flex gap-2 text-xs"><input type="checkbox" checked={clearBudget} onChange={(e) => { const on = e.target.checked; setValue("clearBudget", on); setValue("monthlyBudgetCents", on ? "" : budgetToInput(agent.monthlyBudgetCents), { shouldValidate: true }); }} /> Remover teto (o agente não poderá ficar ativo)</label> : null}</div>}
+        <Field id={`${uid}-model`} label="Modelo" hint="Definido pela plataforma." error={errors.model?.message}>{(f) => <Input {...f} {...register("model")} readOnly aria-readonly="true" className="bg-muted/40" />}</Field>
+        <Field id={`${uid}-budget`} label="Teto mensal (R$)" hint="Definido pela plataforma. Sem teto, o agente não ativa." error={errors.monthlyBudgetCents?.message}>
+          {(f) => <Input {...f} {...register("monthlyBudgetCents")} inputMode="decimal" readOnly aria-readonly="true" className="bg-muted/40" />}
         </Field>
-        {num("dailyMessageLimit", "Limite diário de mensagens")}
-        {num("maxTurnsPerLead", "Turnos máximos por lead")}
+        {num("dailyMessageLimit", "Limite diário de mensagens", true)}
+        {num("maxTurnsPerLead", "Turnos máximos por lead", true)}
         {num("samplePercent", "% revisado na amostragem")}
       </div>
       <fieldset className="space-y-2">

@@ -9,7 +9,7 @@ export async function listAgents() {
 
 export async function getAgentSettings() {
   const { orgId } = await requireProviderOrg();
-  return (await scopedPrisma(orgId).agentSettings.findUnique({ where: { orgId } })) ?? { id: null, orgId, killSwitch: true, monthlyBudgetCents: null };
+  return (await scopedPrisma(orgId).agentSettings.findUnique({ where: { orgId } })) ?? { id: null, orgId, killSwitch: true, lockedByAdmin: false, monthlyBudgetCents: null };
 }
 
 export async function listDrafts(status: "pending" | "all" = "pending", take = 100) {

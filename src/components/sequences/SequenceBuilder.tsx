@@ -1,4 +1,5 @@
 "use client";
+import { notifyActionErrorOr } from "@/components/feedback/notify";
 import * as React from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -194,7 +195,7 @@ export function SequenceBuilder({ mode, templates, sequence, activeCampaigns = 0
         const r = await createSequence({ name: values.name, steps: values.steps.map(({ day, channel, templateId }) => ({ day, channel, templateId })) });
         if (!r.ok) {
           applyServerErrors(r.errors);
-          toast.error("Não foi possível salvar a sequência.");
+          notifyActionErrorOr(r.errors, "Não foi possível salvar a sequência.");
           return;
         }
         toast.success("Sequência criada.");
@@ -213,7 +214,7 @@ export function SequenceBuilder({ mode, templates, sequence, activeCampaigns = 0
       const r = await saveSequenceSteps({ sequenceId: sequence.id, steps: values.steps });
       if (!r.ok) {
         applyServerErrors(r.errors);
-        toast.error("Não foi possível salvar a sequência.");
+        notifyActionErrorOr(r.errors, "Não foi possível salvar a sequência.");
         return;
       }
       toast.success(

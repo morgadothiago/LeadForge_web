@@ -5,6 +5,8 @@ import Link from "next/link";
 import { buttonVariants } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { PlanCard } from "@/components/billing/PlanCard";
+import { PlanComparison } from "@/components/billing/PlanComparison";
+import { HIGHLIGHTED_PLAN_KEY } from "@/lib/billing/plan-catalog";
 import { cn } from "@/lib/utils";
 import type { PlanView } from "@/lib/billing/plans";
 import { SALES_CONTACT_HREF } from "@/components/billing/sales-contact";
@@ -53,7 +55,7 @@ export function PricingSection({ plans }: { plans: PlanView[] }) {
                 key={plan.key}
                 plan={plan}
                 cadence={cadence}
-                highlighted={plan.key === "pro"}
+                highlighted={plan.key === HIGHLIGHTED_PLAN_KEY}
                 className="rounded-2xl shadow-sm shadow-black/[0.03]"
                 footer={
                   plan.selfServiceCheckout ? (
@@ -73,6 +75,18 @@ export function PricingSection({ plans }: { plans: PlanView[] }) {
               />
             ))}
           </div>
+        )}
+
+        {plans.length > 0 && (
+          <details className="group mx-auto mt-8 max-w-5xl rounded-2xl border border-border bg-card p-4 sm:p-5">
+            <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-3 rounded-md text-sm font-medium outline-none focus-visible:ring-2 focus-visible:ring-primary/40 [&::-webkit-details-marker]:hidden">
+              Ver comparativo completo dos planos
+              <span aria-hidden="true" className="text-muted-foreground transition-transform group-open:rotate-180">⌄</span>
+            </summary>
+            <div className="mt-4">
+              <PlanComparison columns={["starter", "pro", "business"]} id="comparativo-landing" />
+            </div>
+          </details>
         )}
 
         <div className="mx-auto mt-10 max-w-3xl rounded-2xl border border-border bg-card p-5 text-left sm:p-6">

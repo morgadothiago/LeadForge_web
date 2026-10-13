@@ -11,6 +11,7 @@ import {
 } from "@/lib/inbox/client-types";
 import { toast } from "sonner";
 import { windowHint } from "./inbox-format";
+import { FeatureLockNotice, featureLockId, type LockReason } from "@/components/billing/FeatureLockNotice";
 
 const BLOCKED_CODES: readonly ReplyBlockReason[] = ["opted_out", "conversation_window_closed", "instance_unavailable"];
 
@@ -38,9 +39,11 @@ export interface ComposerProps {
   onBlocked: (r: ReplyBlockReason) => void;
   /** Pede ao pai para buscar mensagens ja (bolha `failed` criada no servidor). */
   onRefresh: () => void;
+  /** SPEC-069d: o plano nao libera responder (ou assinatura pausada): mostra explicacao + upgrade no lugar do campo. */
+  replyLock?: LockReason | null;
 }
 
-export function Composer({ conversation, blockedReason, nowMs, onSent, onBlocked, onRefresh }: ComposerProps) {
+export function Composer({ conversation, blockedReason, nowMs, onSent, onBlocked, onRefresh, replyLock = null }: ComposerProps) {
   const [text, setText] = React.useState("");
   const [sending, setSending] = React.useState(false);
   const [inlineError, setInlineError] = React.useState<string | null>(null);
@@ -90,6 +93,16 @@ export function Composer({ conversation, blockedReason, nowMs, onSent, onBlocked
     if (!canSend) return;
     if (conversation.lead.possibleOptOut) setConfirmOpen(true);
     else void doSend();
+  }
+
+  if (replyLock) {
+    return (
+      <div className="space-y-2 border-t border-border bg-muted/50 p-3">
+        <FeatureLockNotice feature="inbox.reply" reason={replyLock} />
+        <label htmlFor="inbox-composer-locked" className="sr-only">Mensagem (indisponível no seu plano)</label>
+        <textarea id="inbox-composer-locked" disabled aria-disabled="true" aria-describedby={featureLockId("inbox.reply")} rows={1} placeholder="Responder não está incluído no seu plano" className="hidden w-full resize-none rounded-md border border-input bg-transparent p-2 text-sm opacity-50 sm:block" />
+      </div>
+    );
   }
 
   if (blockedReason) {

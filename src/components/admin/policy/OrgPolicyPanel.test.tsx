@@ -21,7 +21,7 @@ const policy: OrgPolicyView = {
   override: { features: { "llm.byok": true }, limits: {}, reason: "cliente piloto", expiresAt: "2030-01-31T23:59:59.999Z", createdBy: "adm", updatedAt: "2026-10-13T10:00:00.000Z" },
   agentSettings: { killSwitch: false, lockedByAdmin: true, monthlyBudgetCents: 10000 },
   agents: [{ id: "a1", role: "followup", active: true, autonomy: "draft", model: "claude-haiku-4-5", monthlyBudgetCents: 3000, dailyMessageLimit: 20, maxTurnsPerLead: 5 }],
-  integrations: [{ id: "i1", integration: "evolution", name: "default", hint: "ab12", hostMasked: "ev***.example.com", managedByPlatform: true, lastTestOk: true, updatedAt: "2026-10-13T10:00:00.000Z" }],
+  integrations: [{ id: "i1", integration: "evolution", name: "default", hint: "ab12", hostMasked: "ev***.example.com", allowPrivateHost: false, managedByPlatform: true, lastTestOk: true, updatedAt: "2026-10-13T10:00:00.000Z" }],
   platformLlmConfigured: false,
   catalog: { features: [{ key: "agents.role.sdr", label: "Agente SDR" }, { key: "llm.byok", label: "Provedor de IA próprio (BYOK)" }], limits: [{ key: "maxMembers", label: "Membros da equipe" }] },
   audit: [{ id: "x1", adminUserId: "12345678-aaaa", action: "integration_key_set", reason: "gravar chave", at: "2026-10-13T10:00:00.000Z", meta: { area: "integration", fields: ["evolution", "create"] } }],
@@ -63,5 +63,27 @@ describe("OrgPolicyPanel (SPEC-069c)", () => {
   it("auditoria: lista com rótulo PT-BR e campos; vazia mostra aviso", () => {
     expect(renderToStaticMarkup(<AuditTab audit={policy.audit} />)).toContain("Chave de integração gravada");
     expect(renderToStaticMarkup(<AuditTab audit={[]} />)).toContain("Nenhuma alteração registrada");
+  });
+
+  it("B1 (QA 069c): a view do admin traz allowPrivateHost; checkbox inicia no valor gravado e envia false explícito", async () => {
+    const { initialAllowPrivateHost, allowPrivatePayload } = await import("./policy-format");
+    expect(policy.integrations[0].allowPrivateHost).toBe(false);
+    expect(initialAllowPrivateHost({ allowPrivateHost: true })).toBe(true);
+    expect(initialAllowPrivateHost({ allowPrivateHost: false })).toBe(false);
+    expect(initialAllowPrivateHost(undefined)).toBe(false);
+    expect(allowPrivatePayload(true, false)).toEqual({ allowPrivateHost: false }); // desligar: false EXPLICITO (antes virava undefined e nao desligava)
+    expect(allowPrivatePayload(true, true)).toEqual({ allowPrivateHost: true });
+    expect(allowPrivatePayload(false, true)).toEqual({}); // integracao sem URL (Places): nada
+  });
+
+  it("B2 (QA 069c): erro por campo features.<chave> aparece sob a funcionalidade (role=alert, aria-invalid); sem erro nada aparece", async () => {
+    const { FeatureOverrideRow } = await import("./PlanOverrideTab");
+    const withErr = renderToStaticMarkup(<FeatureOverrideRow id="f1" label="Agente SDR" effectiveOn={false} value="on" error="Funcionalidade desconhecida: x." onChange={() => {}} />);
+    expect(withErr).toContain('role="alert"');
+    expect(withErr).toContain("Funcionalidade desconhecida: x.");
+    expect(withErr).toContain('aria-invalid="true"');
+    const ok = renderToStaticMarkup(<FeatureOverrideRow id="f1" label="Agente SDR" effectiveOn={false} value="plan" onChange={() => {}} />);
+    expect(ok).not.toContain('role="alert"');
+    expect(renderToStaticMarkup(<PlanOverrideTab policy={policy} />)).toContain("Remover override");
   });
 });

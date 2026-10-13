@@ -8,6 +8,8 @@ import { getMetaAppSecret, getMetaWebhookVerifyToken, isGoogleAdsLeadsEnabled, i
 import { listIntegrationAudit, listIntegrations } from "@/lib/queries/integration";
 import { listLeadSourceBindings, listLeadSourceCampaigns } from "@/lib/queries/lead-source";
 import { redirectIfTrialExpired } from "@/lib/auth/require-page";
+import { getTenantEntitlements } from "@/lib/queries/entitlements";
+import { FeatureLockNotice } from "@/components/billing/FeatureLockNotice";
 
 export const dynamic = "force-dynamic";
 
@@ -28,20 +30,21 @@ export default async function Page({ searchParams }: { searchParams: Promise<Rec
   };
   let data;
   try {
-    const [summaries, audit, bindings, campaigns] = await Promise.all([
+    const [summaries, audit, bindings, campaigns, ent] = await Promise.all([
       listIntegrations(),
       listIntegrationAudit({ page: parsePage(p.page) }),
       listLeadSourceBindings(),
       listLeadSourceCampaigns(),
+      getTenantEntitlements(),
     ]);
-    data = { summaries, audit, bindings, campaigns };
+    data = { summaries, audit, bindings, campaigns, ent };
   } catch (e) {
     if (e instanceof ForbiddenError || (e instanceof Error && e.message.includes("Sem permissão"))) {
       return (
         <Card role="alert" className="flex flex-col items-center gap-2 p-10 text-center">
           <Lock className="size-8 text-muted-foreground" aria-hidden="true" />
           <p className="font-heading text-lg font-semibold">Você não tem permissão para gerenciar integrações</p>
-          <p className="text-sm text-muted-foreground">Somente administradores acessam esta área. Peça a um administrador para configurar as chaves.</p>
+          <p className="text-sm text-muted-foreground">Esta área é da organização do cliente. As chaves da plataforma são configuradas em Admin &gt; Organizações.</p>
         </Card>
       );
     }
@@ -52,7 +55,7 @@ export default async function Page({ searchParams }: { searchParams: Promise<Rec
     <div className="space-y-8">
       <div>
         <h2 className="font-heading text-lg font-semibold">Integrações</h2>
-        <p className="text-sm text-muted-foreground">Chaves e endereços dos serviços externos. As chaves são cifradas no banco e nunca são exibidas de volta.</p>
+        <p className="text-sm text-muted-foreground">Os serviços externos. As chaves da plataforma (IA, busca de leads e servidor de WhatsApp) são gerenciadas por ela; aqui você vê o status e usa o que o seu plano inclui. Chaves são cifradas e nunca são exibidas de volta.</p>
       </div>
 
       <div className="space-y-3">
@@ -78,7 +81,7 @@ export default async function Page({ searchParams }: { searchParams: Promise<Rec
         </div>
       </div>
 
-      <IntegrationCards summaries={data.summaries} />
+      <IntegrationCards summaries={data.summaries} features={data.ent.features} />
 
       <section aria-labelledby="leadsource-h" className="space-y-3">
         <div>
@@ -87,7 +90,10 @@ export default async function Page({ searchParams }: { searchParams: Promise<Rec
             Vínculo 1:1 entre cada conta de anúncios/Página e uma campanha (SPEC-041). O identificador que chega no webhook resolve a origem — nunca um segredo global.
           </p>
         </div>
-        <LeadSourceCards bindings={data.bindings} campaigns={data.campaigns} flags={flags} />
+        {!data.ent.features["sources.ads"] && <FeatureLockNotice feature="sources.ads" reason={data.ent.costlyBlocked && data.ent.paused ? "past_due" : "plan"} />}
+        <div inert={!data.ent.features["sources.ads"]} className={data.ent.features["sources.ads"] ? undefined : "opacity-60"}>
+          <LeadSourceCards bindings={data.bindings} campaigns={data.campaigns} flags={flags} />
+        </div>
       </section>
 
       <section aria-labelledby="audit-h" className="space-y-3">

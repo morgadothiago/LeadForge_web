@@ -11,6 +11,7 @@ import {
   STATUS_LABEL, effectiveBlockReason, type ConversationStatus, type ConversationView, type MessageView, type ReplyBlockReason,
 } from "@/lib/inbox/client-types";
 import { Avatar } from "./ConversationList";
+import type { LockReason } from "@/components/billing/FeatureLockNotice";
 import { Composer, interpretSend, newClientMessageId } from "./Composer";
 import { MessageList, MessageListSkeleton } from "./MessageList";
 import { loadErrorText, useConversationDetail, useMessages } from "./use-inbox-data";
@@ -29,10 +30,12 @@ export interface ChatPanelProps {
   onListRefresh: () => void;
   /** Mobile: leva o foco ao titulo do chat ao abrir pela escolha do usuario. */
   focusTitleOnMount?: boolean;
+  /** SPEC-069d: responder bloqueado pelo plano (o Composer mostra a explicacao + upgrade). */
+  replyLock?: LockReason | null;
 }
 
 /** Chat da conversa aberta. Montar com `key={conversationId}` (os hooks de dados nao tem efeito de reset). */
-export function ChatPanel({ conversationId: id, onBack, onListPatch, onUnreadChanged, onListRefresh, focusTitleOnMount }: ChatPanelProps) {
+export function ChatPanel({ conversationId: id, onBack, onListPatch, onUnreadChanged, onListRefresh, focusTitleOnMount, replyLock = null }: ChatPanelProps) {
   const detail = useConversationDetail(id);
   const [newBelow, setNewBelow] = React.useState(0);
   const [announce, setAnnounce] = React.useState("");
@@ -254,7 +257,7 @@ export function ChatPanel({ conversationId: id, onBack, onListPatch, onUnreadCha
         />
       ) : null}
       {conv ? (
-        <Composer conversation={conv} blockedReason={blocked} nowMs={nowMs} onSent={onSent} onBlocked={onBlocked} onRefresh={messages.refresh} />
+        <Composer conversation={conv} blockedReason={blocked} nowMs={nowMs} onSent={onSent} onBlocked={onBlocked} onRefresh={messages.refresh} replyLock={replyLock} />
       ) : null}
       <ConfirmDialog
         open={confirmResend !== null}

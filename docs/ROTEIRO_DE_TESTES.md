@@ -426,11 +426,11 @@ Pré-requisitos: `docker compose up -d evolution` (porta 8080), instância conec
 | W9 | Repetir o teste com o mesmo número | Não dá na mesma campanha (lead único por campanha+telefone; 1 toque por lead+passo): use **Duplicar campanha** ou outro lead | [ ] | |
 
 ## X. Limites por plano (SPEC-069) e criativos (SPEC-051c) — local
-Pré-requisitos: migration `20261022120000_entitlement_override_069a` aplicada (`npx prisma migrate deploy`) e `npx prisma db seed`; `npm run dev` e, para criativos, `npm run creatives:dev` em outro terminal. A tela de admin para configurar política/override (**069c frontend**) já existe em `/admin/organizacoes/[id]`; use-a nos testes X13 a X21 (X2 ainda pode ser feito por SQL). Migration `20261023120000_admin_policy_069c` também precisa estar aplicada.
+Pré-requisitos: migration `20261022120000_entitlement_override_069a` aplicada (`npx prisma migrate deploy`) e `npx prisma db seed`; `npm run dev` e, para criativos, `npm run creatives:dev` em outro terminal. A tela de admin para configurar política/override (**069c frontend**) e a UI do cliente (**069d**) já existem em `/admin/organizacoes/[id]`; use-a nos testes X13 a X21 (X2 ainda pode ser feito por SQL). Migration `20261023120000_admin_policy_069c` também precisa estar aplicada.
 
 | # | Passo | Esperado | OK | Obs |
 |---|---|---|---|---|
-| X1 | Conta Free (trial): `/criativos/novo`, preencher as 4 etapas e **Criar e enviar** | Bloqueio "Seu plano não inclui criativos" (hoje com texto técnico `plan_limit creatives 0 0`; a UI amigável com botão de upgrade é a 069d) | [ ] | |
+| X1 | Conta Free (trial): abrir `/criativos` e `/criativos/novo` | Aviso "Criativos de vídeo: não incluído no seu plano" com link "Fazer upgrade"; botão "Novo criativo" desabilitado na biblioteca; `/criativos/novo` mostra só o aviso (069d) | [ ] | |
 | X2 | Inserir override local de 20 criativos (tabela `OrgEntitlementOverride`, `limits={"maxCreativesPerMonth":20}`, motivo, validade) e repetir X1 | Criativo é criado e fica "Na fila", depois "Pronto" com `npm run creatives:dev` | [ ] | |
 | X3 | Avatar **Luciana (mock)** + voz feminina pt-BR | Vídeo de ~20 s com uma moça falando em português (sempre o mesmo; não lê o roteiro digitado) | [ ] | |
 | X4 | Outro avatar (Ana/Clara) | Vídeo de demonstração padrão, toca no player | [ ] | |
@@ -451,6 +451,20 @@ Pré-requisitos: migration `20261022120000_entitlement_override_069a` aplicada (
 | X19 | Aba Agentes: ligar a trava `lockedByAdmin` e o kill switch | Tenant só liga o kill switch, não desliga enquanto travado | [ ] | |
 | X20 | Aba Auditoria | Últimas 50 alterações com ação, motivo, campos, data e prefixo do id do admin; nenhum valor de segredo | [ ] | |
 | X21 | Abrir o painel em 390 px e 1280 px, claro e escuro | Sem rolagem horizontal da página; abas rolam; diálogos cabem na tela (**não verificado em navegador ainda**) | [ ] | |
+| X22 | Admin, aba Integrações: gravar Evolution com "rede privada" marcada, reabrir "Gravar nova chave" | O checkbox já vem marcado; desmarcar e salvar de fato desliga (B1 do QA 069c) | [ ] | |
+| X23 | Admin, aba Plano e features: deixar tudo em "Seguir plano" e clicar em Gravar | Bloqueia no cliente com texto orientando "Remover override"; nada é enviado ao servidor (B2) | [ ] | |
+| X24 | Admin, aba Plano: mandar uma funcionalidade inválida (ex.: forçar pela ferramenta do navegador) | O erro aparece sob a linha da funcionalidade (`features.<chave>`) | [ ] | |
+| X25 | Admin grava Evolution/LLM com URL com caminho e olha a resposta de rede | A resposta da Server Action traz só `hostMasked`, nunca a URL inteira (M1) | [ ] | |
+| X26 | Tenant Free em `/configuracoes/agentes` | Aviso "Seu plano não inclui agentes de IA… disponível no plano Starter"; "Novo agente" desabilitado com o motivo | [ ] | |
+| X27 | Tenant Starter: criar follow-up, tentar ativar 2º agente, Closer e modo Automático | Cada bloqueio explica o motivo ("Disponível no plano Pro", "Seu plano permite 1 agente ativo…") com link de upgrade; modelo, teto, mensagens/dia e turnos aparecem somente leitura ("Definido pela plataforma"); sem campo de teto global | [ ] | |
+| X28 | Admin trava o kill switch e o tenant tenta liberar | Botão "Liberar agentes" desabilitado com a explicação "A plataforma travou…"; "Parar todos" continua livre | [ ] | |
+| X29 | `/configuracoes/integracoes` como tenant | Evolution e Places: "Gerenciada pela plataforma", sem editar/remover, sem chave nem URL completa (só host mascarado); LLM sem BYOK: "A IA é fornecida pela plataforma"; n8n no Starter: aviso "Disponível no plano Pro" e botão desabilitado; Google Ads/Meta: aviso e cartões inativos | [ ] | |
+| X30 | `/configuracoes/assinatura` | Cartão "O que o seu plano inclui", medidor com agentes/custo de IA/criativos/equipe ("Não incluído no seu plano" quando for 0) e o comparativo completo (tabela no desktop, cartões no celular) | [ ] | |
+| X31 | Gastar IA até 80% e 100% do teto (ou inserir `AgentRun.costMicros` no banco local) como owner | Faixa de aviso em todas as telas: 80% atenção, 100% "agentes pausados"; member não vê; upgrade tira o aviso | [ ] | |
+| X32 | `/atendimento` no Free | Lê as conversas; no lugar do campo de resposta aparece "Caixa de atendimento: responder: disponível no plano Starter" com link de upgrade | [ ] | |
+| X33 | Landing `/` | "Ver comparativo completo dos planos" abre o comparativo gerado do mesmo catálogo | [ ] | |
+| X34 | Convidar membro acima do limite / sequência acima do limite / busca de leads acima do limite | Toast com a mensagem e o botão "Fazer upgrade"; botão de convidar desabilitado quando a equipe já está no limite | [ ] | |
+| X35 | Telas das X26 a X34 em 390 px e 1280 px, claro e escuro | Sem rolagem horizontal; botões com altura de toque ≥ 44 px no celular (**não verificado em navegador ainda**) | [ ] | |
 
 ## Se algo falhar, me mande
 

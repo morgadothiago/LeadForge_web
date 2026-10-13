@@ -44,6 +44,23 @@ export function draftToPayload(orgId: string, d: OverrideDraft) {
   return { orgId, reason: d.reason, features, limits, expiresAt: d.expiresAt };
 }
 
+/** B2 (QA 069c): `true` quando TODO campo esta em "Seguir plano" (nada foge do plano): o servidor recusa; o cliente bloqueia antes com orientacao. */
+export function isEmptyOverrideDraft(d: Pick<OverrideDraft, "features" | "limits">): boolean {
+  return Object.values(d.features).every((m) => m === "plan") && Object.values(d.limits).every((l) => l.mode === "plan");
+}
+
+export function emptyOverrideMessage(hasExistingOverride: boolean): string {
+  return hasExistingOverride
+    ? "Todos os campos estão em “Seguir plano”: não há o que gravar. Para voltar a valer só o plano, use “Remover override”."
+    : "Todos os campos estão em “Seguir plano”. Libere, bloqueie ou limite ao menos uma funcionalidade para gravar um override.";
+}
+
+/** B1 (QA 069c): valor inicial do checkbox "rede privada" = o gravado (`allowPrivateHost` nao e segredo); sem chave ainda = desmarcado. */
+export const initialAllowPrivateHost = (existing: { allowPrivateHost: boolean } | undefined): boolean => existing?.allowPrivateHost ?? false;
+
+/** B1: payload de rede privada. Envia SEMPRE o booleano (inclusive `false`) quando a integracao tem URL, para o admin conseguir DESLIGAR; sem URL, nada. */
+export const allowPrivatePayload = (showUrl: boolean, checked: boolean): { allowPrivateHost?: boolean } => (showUrl ? { allowPrivateHost: checked } : {});
+
 /** "12,50" ou "12.5" -> 1250 centavos; vazio -> null; inválido -> NaN. */
 export function reaisToCents(s: string): number | null {
   const t = s.trim().replace(/^R\$\s*/, "");

@@ -6,6 +6,11 @@ import { SubscriptionSummaryCard } from "@/components/billing/SubscriptionSummar
 import { PlanSelectionSection } from "@/components/billing/PlanSelectionSection";
 import { TrialBlockedPanel } from "@/components/billing/TrialBlockedPanel";
 import { UsageMeter } from "@/components/billing/UsageMeter";
+import { AiBudgetNotice } from "@/components/billing/AiBudgetNotice";
+import { PlanComparison } from "@/components/billing/PlanComparison";
+import { PlanFeaturesCard } from "@/components/billing/PlanFeaturesCard";
+import { getAiBudget, getExtraUsage, getTenantEntitlements, type AiBudgetView, type TenantEntitlementsView } from "@/lib/queries/entitlements";
+import type { UsageItem } from "@/components/billing/trial-ui";
 import { ForbiddenError } from "@/lib/auth/require-admin";
 import { requirePageUser } from "@/lib/auth/require-page";
 import { getBillingSummary } from "@/lib/queries/billing";
@@ -27,12 +32,15 @@ export default async function AssinaturaPage({ searchParams }: { searchParams: P
   const blocked = user.platformRole === "provider" && user.orgAccess === "trial_expirado";
   let data;
   try {
-    const [summary, plans, usage] = await Promise.all([
+    const [summary, plans, usage, extra, ent, ai] = await Promise.all([
       getBillingSummary(),
       listActivePlans(),
       blocked ? Promise.resolve<PlanUsage | null>(null) : getPlanUsage().catch(() => null),
+      blocked ? Promise.resolve<UsageItem[]>([]) : getExtraUsage().catch(() => [] as UsageItem[]),
+      blocked ? Promise.resolve<TenantEntitlementsView | null>(null) : getTenantEntitlements().catch(() => null),
+      blocked ? Promise.resolve<AiBudgetView | null>(null) : getAiBudget().catch(() => null),
     ]);
-    data = { summary, plans, usage };
+    data = { summary, plans, usage, extra, ent, ai };
   } catch (e) {
     if (e instanceof ForbiddenError || (e instanceof Error && e.message.includes("Sem permissão"))) {
       return (
@@ -46,7 +54,7 @@ export default async function AssinaturaPage({ searchParams }: { searchParams: P
     throw e;
   }
 
-  const { summary, plans, usage } = data;
+  const { summary, plans, usage, extra, ent, ai } = data;
   const sub = summary.subscription;
   const onTrial = sub?.status === "trialing";
   return (
@@ -67,7 +75,11 @@ export default async function AssinaturaPage({ searchParams }: { searchParams: P
         <SubscriptionSummaryCard summary={summary} />
       )}
 
-      {usage && usage.items.some((i) => i.limit !== null) && <UsageMeter items={usage.items} trialing={usage.trialing} />}
+      {ai && summary.isOwner && !blocked && <AiBudgetNotice budget={ai} />}
+
+      {usage && (usage.items.some((i) => i.limit !== null) || extra.length > 0) && <UsageMeter items={usage.items} trialing={usage.trialing} extraItems={extra} />}
+
+      {ent && !blocked && <PlanFeaturesCard view={ent} />}
 
       {/* Membro nao paga: no bloqueio nao ha o que escolher (so o proprietario assina). */}
       {!(blocked && !summary.isOwner) && (
@@ -82,6 +94,8 @@ export default async function AssinaturaPage({ searchParams }: { searchParams: P
           initialCadence={resolveCadence(firstParam(sp.cadence))}
         />
       )}
+
+      {!(blocked && !summary.isOwner) && <PlanComparison columns={["free", "starter", "pro", "business"]} currentKey={sub?.planKey ?? null} />}
     </div>
   );
 }

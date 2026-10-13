@@ -324,8 +324,9 @@ describe("chave da plataforma por org: write-only, sem segredo em log/auditoria,
     const r = await saveOrgIntegrationByAdmin({ orgId: o.orgId, reason: REASON, integration: "places", value: SECRET });
     expect(r.ok).toBe(true);
     expect(dump(r)).not.toContain(SECRET);
-    expect(r.ok && r.data.managedByPlatform).toBe(true);
-    expect(r.ok && r.data.hintDisplay).toBe("••••wxyz");
+    expect(r.ok && r.data.hint).toBe("wxyz");
+    expect(r.ok && "baseUrl" in r.data).toBe(false); // M1: nunca a URL completa no retorno
+    expect(r.ok && "managedByPlatform" in r.data).toBe(false);
     const row = await prisma.integrationSecret.findFirstOrThrow({ where: { orgId: o.orgId, integration: "places" } });
     expect(row.encryptedValue).toMatch(/^v1:/);
     expect(row.encryptedValue).not.toContain(SECRET);
@@ -375,8 +376,11 @@ describe("chave da plataforma por org: write-only, sem segredo em log/auditoria,
     const b = await mk("key-evo-b");
     _setIntegrationResolver(async () => ["93.184.216.34"]);
     await asAdmin();
-    const saved = await saveOrgIntegrationByAdmin({ orgId: a.orgId, reason: REASON, integration: "evolution", value: SECRET, baseUrl: "https://evo.exemplo.test" });
+    const saved = await saveOrgIntegrationByAdmin({ orgId: a.orgId, reason: REASON, integration: "evolution", value: SECRET, baseUrl: "https://evo.exemplo.test/instancia/segredo" });
     expect(saved.ok).toBe(true);
+    expect(dump(saved)).not.toContain("instancia/segredo"); // M1: so host mascarado
+    expect(dump(saved)).not.toContain("evo.exemplo.test/");
+    expect(saved.ok && saved.data.hostMasked).toBeTruthy();
     const id = saved.ok ? saved.data.id : "";
     await prisma.whatsAppInstance.create({ data: { orgId: a.orgId, instanceName: `zz069c-${uniq()}`, number: "+5511912340000", webhookToken: `zz069c-${uniq()}`, provider: "evolution" } as never });
     const blocked = await removeOrgIntegrationByAdmin({ orgId: a.orgId, reason: REASON, id });

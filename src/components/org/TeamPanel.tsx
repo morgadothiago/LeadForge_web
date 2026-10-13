@@ -10,6 +10,8 @@ import { ConfirmDialog } from "@/components/campaigns/ConfirmDialog";
 import { getFormError } from "@/components/campaigns/form-utils";
 import { changeMemberRole, disableJoinCode, removeMember, revokeInvite, type MemberRow, type TeamView } from "@/lib/actions/org";
 import { InviteMemberDialog } from "./InviteMemberDialog";
+import { LimitNotice, limitNoticeId } from "@/components/billing/LimitNotice";
+import { isAtLimit, type UsageItem } from "@/components/billing/trial-ui";
 import { JoinCodeDialog } from "./JoinCodeDialog";
 import { countOwners, formatDate, joinCodeState, joinCodeSummary, roleLabel } from "./org-format";
 
@@ -20,10 +22,11 @@ type Pending = { kind: "remove" | "promote" | "demote"; member: MemberRow } | { 
  * lista somente leitura (o servidor já devolve `invites: []`/`joinCode: null` para ele). A UI desabilita rebaixar/
  * remover o último owner, mas a barreira real é o servidor (D-049-1/12).
  */
-export function TeamPanel({ team }: { team: TeamView }) {
+export function TeamPanel({ team, planMembers = null }: { team: TeamView; /** SPEC-069d: uso x limite de membros do PLANO. */ planMembers?: UsageItem | null }) {
   const router = useRouter();
   const isOwner = team.orgRole === "owner";
   const owners = countOwners(team.members);
+  const planFull = planMembers ? isAtLimit(planMembers) : false;
   const [confirm, setConfirm] = React.useState<Pending>(null);
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState<string>();
@@ -79,8 +82,9 @@ export function TeamPanel({ team }: { team: TeamView }) {
             {isOwner ? "Convide pessoas, defina papéis e controle quem acessa esta organização." : "Pessoas desta organização. Só proprietários podem alterar a equipe."}
           </p>
         </div>
-        {isOwner && <InviteMemberDialog />}
+        {isOwner && <InviteMemberDialog disabledReason={planFull ? limitNoticeId("members") : undefined} />}
       </div>
+      {isOwner && <LimitNotice item={planMembers ?? undefined} />}
 
       <section aria-labelledby="members-h" className="space-y-3">
         <h3 id="members-h" className="font-heading text-base font-semibold">
