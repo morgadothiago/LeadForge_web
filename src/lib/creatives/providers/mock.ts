@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { AppError } from "@/lib/errors";
 import { MOCK_DEMO_VIDEO } from "./mock-video";
+import { MOCK_DEMO_VIDEO_BRUNO } from "./mock-video-bruno";
 import type { AvatarVideoProvider, CreateVideoInput, ProviderVideoState, ProviderVideoStream } from "../provider";
 import type { CreativeAvatar, CreativeVoice } from "../types";
 
@@ -76,7 +77,8 @@ export class MockAvatarVideoProvider implements AvatarVideoProvider {
       throw new AppError({ code: "validation", userMessage: "O provedor recusou a solicitação.", status: 422 });
     }
     const flag = input.script.includes("[[mock:fail]]") ? FLAG.fail : input.script.includes("[[mock:hang]]") ? FLAG.hang : FLAG.ok;
-    const id = `mock_${createHash("sha256").update(input.idempotencyKey).digest("hex").slice(0, 16)}_${flag}`;
+    const variant = input.avatarId === "mock-bruno" ? "b" : "a"; // avatar masculino => video do Bruno
+    const id = `mock_${createHash("sha256").update(input.idempotencyKey).digest("hex").slice(0, 16)}${variant}_${flag}`;
     if (!this.created.has(id)) this.created.set(id, this.now());
     return { providerJobId: id };
   }
@@ -87,7 +89,7 @@ export class MockAvatarVideoProvider implements AvatarVideoProvider {
       this.failNextStatus--;
       throw new AppError({ code: "upstream", userMessage: "Provedor de vídeo indisponível.", status: 503, retryable: true });
     }
-    if (!/^mock_[0-9a-f]{16}_[nfh]$/.test(providerJobId)) throw new AppError({ code: "not_found", userMessage: "Job do provedor não encontrado.", status: 404 });
+    if (!/^mock_[0-9a-f]{16}[ab]?_[nfh]$/.test(providerJobId)) throw new AppError({ code: "not_found", userMessage: "Job do provedor não encontrado.", status: 404 });
     if (this.canceled.has(providerJobId)) return { state: "failed", rawStatus: "canceled" };
     const flag = providerJobId.slice(-1);
     if (flag === FLAG.hang) return { state: "processing", progressPct: 10, rawStatus: "rendering" };
@@ -99,15 +101,16 @@ export class MockAvatarVideoProvider implements AvatarVideoProvider {
     return { state: "processing", progressPct: Math.max(1, Math.min(99, Math.floor((elapsed / Math.max(1, this.delayMs)) * 100))), rawStatus: "rendering" };
   }
 
-  async fetchVideo(_providerJobId: string): Promise<ProviderVideoStream> {
+  async fetchVideo(providerJobId: string): Promise<ProviderVideoStream> {
     this.stats.fetch++;
     if (this.failNextFetch) {
       this.failNextFetch = false;
       throw new AppError({ code: "network", userMessage: "Falha de rede ao baixar o vídeo.", retryable: true });
     }
     // MP4 real e pequeno (SPEC-051c): o player do navegador toca o placeholder de demonstracao.
+    const video = /^mock_[0-9a-f]{16}b_/.test(providerJobId) ? MOCK_DEMO_VIDEO_BRUNO : MOCK_DEMO_VIDEO;
     async function* gen(): AsyncGenerator<Uint8Array> {
-      for (let off = 0; off < MOCK_DEMO_VIDEO.length; off += CHUNK) yield MOCK_DEMO_VIDEO.subarray(off, off + CHUNK);
+      for (let off = 0; off < video.length; off += CHUNK) yield video.subarray(off, off + CHUNK);
     }
     return { body: gen(), contentType: "video/mp4" };
   }

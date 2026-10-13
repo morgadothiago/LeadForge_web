@@ -63,6 +63,15 @@ describe("provider mock", () => {
     expect(b1.length).toBeGreaterThan(1000);
   });
 
+  it("avatar Bruno (masculino) serve o video do Bruno; os demais servem o video padrao (SPEC-051c)", async () => {
+    const p = new MockAvatarVideoProvider({ delayMs: 0 });
+    const bruno = await collect((await p.fetchVideo((await p.createVideo(input({ avatarId: "mock-bruno" }))).providerJobId)).body);
+    const ana = await collect((await p.fetchVideo((await p.createVideo(input({ avatarId: "mock-ana" }))).providerJobId)).body);
+    expect(matchesMagic("video/mp4", bruno.subarray(0, 16))).toBe(true);
+    expect(bruno.length).toBeGreaterThan(ana.length);
+    expect(bruno.equals(ana)).toBe(false);
+  });
+
   it("diretivas de teste: fail / hang / reject / unavailable; avatar/voz fora do catalogo e recusado", async () => {
     const p = new MockAvatarVideoProvider({ delayMs: 0 });
     expect(await p.getStatus((await p.createVideo(input({ script: "x [[mock:fail]]" }))).providerJobId)).toMatchObject({ state: "failed" });
