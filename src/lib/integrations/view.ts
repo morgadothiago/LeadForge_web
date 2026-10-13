@@ -17,6 +17,8 @@ export interface IntegrationItemView {
   lastTestedAt: Date | null;
   lastTestOk: boolean | null;
   lastTestError: string | null;
+  /** SPEC-069c: chave da PLATAFORMA (gravada pelo admin); o tenant so ve, nao edita nem remove. */
+  managedByPlatform: boolean;
 }
 
 export interface IntegrationSummary {
@@ -32,12 +34,12 @@ export interface IntegrationSummary {
 
 export const SELECT_ITEM = {
   id: true, integration: true, name: true, hint: true, baseUrl: true, allowPrivateHost: true, updatedAt: true,
-  lastTestedAt: true, lastTestOk: true, lastTestError: true,
+  lastTestedAt: true, lastTestOk: true, lastTestError: true, managedByPlatform: true,
 } as const;
 
 type Row = {
   id: string; integration: IntegrationKind; name: string; hint: string; baseUrl: string | null; allowPrivateHost: boolean; updatedAt: Date;
-  lastTestedAt: Date | null; lastTestOk: boolean | null; lastTestError: string | null;
+  lastTestedAt: Date | null; lastTestOk: boolean | null; lastTestError: string | null; managedByPlatform: boolean;
 };
 
 export function toItemView(r: Row): IntegrationItemView {

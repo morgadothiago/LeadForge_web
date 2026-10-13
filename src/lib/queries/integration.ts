@@ -13,8 +13,10 @@ export async function listIntegrations(): Promise<IntegrationSummary[]> {
   const { orgId } = await requireProviderOrg();
   const rows = await scopedPrisma(orgId).integrationSecret.findMany({ orderBy: [{ integration: "asc" }, { name: "asc" }], select: SELECT_ITEM });
   const envEvolution = !!process.env.EVOLUTION_API_URL?.trim() && !!process.env.EVOLUTION_API_KEY?.trim();
+  // SPEC-069c: LLM da plataforma por env (`PLATFORM_LLM_API_KEY`/`PLATFORM_LLM_BASE_URL`) conta como "configurada via env" (sem revelar valor).
+  const envLlm = !!process.env.PLATFORM_LLM_API_KEY?.trim() || !!process.env.PLATFORM_LLM_BASE_URL?.trim();
   return INTEGRATIONS.map((i) =>
-    summarize(i, rows.filter((r: { integration: IntegrationKindName }) => r.integration === i).map(toItemView), i === "evolution" && envEvolution),
+    summarize(i, rows.filter((r: { integration: IntegrationKindName }) => r.integration === i).map(toItemView), (i === "evolution" && envEvolution) || (i === "llm" && envLlm)),
   );
 }
 

@@ -44,7 +44,7 @@ export function exportedFunctions(src: string): Record<string, string> {
 // -------------------------------------------------------------------------------------------------------------------------------
 const ACTIONS: Record<string, Record<string, Spec>> = {
   "src/lib/actions/agent.ts": {
-    createAgent: G, updateAgent: ex("edita CONTEUDO (persona/tom/limites do agente); sem custo. Ativar e mudar autonomia sao barrados; o runner reaplica o plano (min() do plano)"),
+    createAgent: G, updateAgent: ex("edita CONTEUDO (persona/tom/objetivo); a POLITICA (modelo/teto/msgs/turnos) e recusada para o tenant (069c, coberto na secao 7); sem custo. Ativar e mudar autonomia sao barrados; o runner reaplica o plano (min() do plano)"),
     setAgentActive: G, setAgentAutonomy: G, updateAgentSettings: G,
     saveKnowledge: ex("base de conhecimento e conteudo do cliente; sem custo nem envio"), deleteKnowledge: ex("limpeza de conteudo"),
     simulateAgentAction: G, getAgentUsage: ex("leitura de uso"), getAgentRuns: ex("leitura de historico"),
@@ -267,5 +267,85 @@ describe("cobertura 069b: nenhuma checagem por chave de plano fora do modulo/cat
     expect(KEY.test('if (sub.plan.key === "pro") {}')).toBe(true);
     expect(KEY.test('x = planKey !== "free"')).toBe(true);
     expect(KEY.test('hasFeature(ent, "agents.role.sdr")')).toBe(false);
+  });
+});
+
+// -------------------------------------------------------------------------------------------------------------------------------
+// 6) SPEC-069c: actions de ADMIN (politica por organizacao). Excluidas da secao 1 (sao do platform_admin, nao do tenant).
+// -------------------------------------------------------------------------------------------------------------------------------
+/** Toda action de `src/lib/actions/admin/entitlements.ts`: so `platform_admin` + nucleo que AUDITA (PlatformAuditLog + OrgAuditLog na mesma transacao). */
+const ADMIN_POLICY_ACTIONS: Record<string, string> = {
+  setOrgEntitlementOverride: "setOverride",
+  clearOrgEntitlementOverride: "clearOverride",
+  setOrgAgentSettingsByAdmin: "setOrgAgentSettings",
+  setAgentPolicyByAdmin: "setAgentPolicy",
+  saveOrgIntegrationByAdmin: "saveOrgIntegration",
+  removeOrgIntegrationByAdmin: "removeOrgIntegration",
+};
+describe("cobertura 069c: actions de admin (politica por organizacao)", () => {
+  const FILE = "src/lib/actions/admin/entitlements.ts";
+  const CORE = "src/lib/admin/org-policy.ts";
+  const fns = exportedFunctions(read(FILE));
+  const core = exportedFunctions(read(CORE));
+
+  it("todo arquivo em src/lib/actions/admin esta classificado (novo arquivo sem classificacao FALHA)", () => {
+    const files = walk("src/lib/actions/admin").filter(isProd).sort();
+    expect(files).toEqual(["src/lib/actions/admin/entitlements.ts", "src/lib/actions/admin/organizations.ts"]);
+  });
+  it("toda funcao exportada esta no manifesto (nova action de admin sem manifesto/auditoria FALHA)", () => {
+    expect(Object.keys(fns).sort()).toEqual(Object.keys(ADMIN_POLICY_ACTIONS).sort());
+  });
+  for (const [action, coreFn] of Object.entries(ADMIN_POLICY_ACTIONS)) {
+    it(`${action}: requirePlatformAdmin ANTES de tudo, nunca requireProviderOrg/scopedPrisma, delega a ${coreFn} que AUDITA`, () => {
+      const body = fns[action];
+      expect(body, action).toMatch(/await requirePlatformAdmin\(\)/);
+      expect(body).not.toMatch(/requireProviderOrg|requireActiveProviderOrg|requireOrgOwner|scopedPrisma/);
+      expect(body).toContain(`${coreFn}(user.id`);
+      expect(core[coreFn], `${coreFn} sem auditoria`).toMatch(/\baudit\(tx/);
+      expect(core[coreFn], `${coreFn} exige motivo (schema)`).toMatch(/Schema\.safeParse/);
+    });
+  }
+  it("o nucleo nao e uma Server Action (sem \"use server\") e nao vaza segredo na auditoria (meta so com host mascarado/nomes)", () => {
+    const src = read(CORE);
+    expect(src).not.toMatch(/^"use server"/m);
+    const auditCalls = src.match(/audit\(tx, \{[\s\S]*?\}\);/g) ?? [];
+    expect(auditCalls.length).toBeGreaterThanOrEqual(6);
+    for (const c of auditCalls) expect(c, "auditoria nao pode citar value/hint/encryptedValue").not.toMatch(/\bvalue\b\s*[:,}]|encryptedValue|hint:/);
+  });
+  it("a escrita de override/politica so existe no nucleo do admin: nenhuma action de tenant escreve orgEntitlementOverride (lockedByAdmin: teste comportamental em entitlements-069c.test.ts)", () => {
+    const offenders = [...walk("src/lib"), ...walk("src/app")].filter((f) => isProd(f) && f !== CORE && /orgEntitlementOverride\.(create|upsert|update|delete)/.test(read(f)) && !f.includes("test-utils"));
+    expect(offenders).toEqual([]);
+  });
+});
+
+// -------------------------------------------------------------------------------------------------------------------------------
+// 7) SPEC-069c: o tenant e SOMENTE LEITURA na politica; mobile aplica os mesmos guards da web (achados 1 e 2 do QA 069b)
+// -------------------------------------------------------------------------------------------------------------------------------
+describe("cobertura 069c: tenant somente leitura na politica + mobile", () => {
+  const agent = exportedFunctions(read("src/lib/actions/agent.ts"));
+  const integ = exportedFunctions(read("src/lib/actions/integration.ts"));
+  for (const name of ["createAgent", "updateAgent"]) {
+    it(`${name} recusa mudanca de politica (assertNoPolicyChange)`, () => expect(agent[name]).toContain("assertNoPolicyChange("));
+  }
+  it("updateAgentSettings recusa teto da org e desligar o kill switch travado (PolicyManagedByAdminError)", () => {
+    expect(agent.updateAgentSettings).toContain("PolicyManagedByAdminError");
+    expect(agent.updateAgentSettings).toContain("lockedByAdmin");
+  });
+  it("saveIntegration/removeIntegration recusam chave da plataforma (evolution/places/managedByPlatform)", () => {
+    expect(integ.saveIntegration).toContain("PolicyManagedByAdminError");
+    expect(integ.saveIntegration).toContain("PLATFORM_ONLY");
+    expect(integ.removeIntegration).toContain("PolicyManagedByAdminError");
+  });
+  it("mobile: setKillSwitch aplica assertFeature + trava do admin e approveDraftMobile mapeia PlanFeatureLockedError (o manifesto nao isenta mais estes dois em bloco)", () => {
+    const m = exportedFunctions(read("src/lib/mobile/actions.ts"));
+    expect(m.setKillSwitch).toMatch(/assertFeature\(/);
+    expect(m.setKillSwitch).toContain("lockedByAdmin");
+    expect(m.approveDraftMobile).toContain("PlanFeatureLockedError");
+    expect(m.approveDraftMobile).toContain("PlanLimitError");
+  });
+  it("a resolucao de LLM desativa a chave BYOK do tenant sem llm.byok (findIntegrationConfig)", () => {
+    const src = read("src/lib/integrations/config.ts");
+    expect(src).toContain("tenantKeyActive(");
+    expect(src).toContain('"llm.byok"');
   });
 });

@@ -757,6 +757,8 @@ model IntegrationSecret {
   lastTestedAt     DateTime?
   lastTestOk       Boolean?
   lastTestError    String?
+  /// SPEC-069c (Q-069-2): `true` = chave da PLATAFORMA gravada pelo platform_admin (sempre ativa). `false` = gravada pelo proprio tenant (BYOK legado): para `llm` so vale com `llm.byok`.
+  managedByPlatform Boolean        @default(false)
 
   @@unique([orgId, integration, name])
 }
@@ -784,6 +786,15 @@ enum PlatformAuditAction {
   reactivate
   /// SPEC-040: platform_admin cria manualmente uma Organization de cortesia (plano "courtesy", sem checkout real).
   create_courtesy_org
+  /// SPEC-069c: override manual de funcionalidades/limites por organizacao (criar/atualizar e remover).
+  entitlement_override_set
+  entitlement_override_clear
+  /// SPEC-069c: politica de agentes por organizacao (kill switch/trava/teto da org e modelo/teto/msgs/turnos por agente).
+  agent_settings_set
+  agent_policy_set
+  /// SPEC-069c: chave/URL de integracao da plataforma gravada ou removida pelo admin (nunca o valor).
+  integration_key_set
+  integration_key_remove
 }
 
 /// SPEC-031: auditoria "quem/quando/acao/motivo" das acoes cross-tenant do `platform_admin` (mesmo
@@ -797,6 +808,8 @@ model PlatformAuditLog {
   org         Organization        @relation(fields: [orgId], references: [id], onDelete: Cascade)
   action      PlatformAuditAction
   reason      String?
+  /// SPEC-069c: antes/depois da mudanca (so campos de politica; NUNCA segredo, conteudo ou dado operacional do tenant).
+  meta        Json?
   at          DateTime            @default(now())
 
   @@index([orgId, at])
@@ -842,6 +855,8 @@ model AgentSettings {
   orgId              String       @unique
   org                Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
   killSwitch         Boolean      @default(true)
+  /// SPEC-069c (Q-069-3): `true` = o admin TRAVOU o kill switch; o tenant so pode LIGAR (parar) e nao consegue desligar.
+  lockedByAdmin      Boolean      @default(false)
   monthlyBudgetCents Int?
   updatedAt          DateTime     @updatedAt
   updatedBy          String?

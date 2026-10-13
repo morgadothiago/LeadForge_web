@@ -48,8 +48,9 @@ const STALE_MESSAGE = "Execução interrompida.";
  */
 async function reserve(campaignId: string, orgId: string, sourceId: string, trigger: "manual" | "scheduled", block: string | null): Promise<Reservation> {
   return prisma.$transaction(async (tx) => {
-    // Ordem fixa (org ANTES da campanha) evita deadlock; o lock da org serializa o teto da org entre campanhas diferentes (só o manual consulta esse teto).
-    if (trigger === "manual") await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${orgLockKey(orgId)}))`;
+    // Ordem fixa (org ANTES da campanha) evita deadlock; o lock da org serializa o teto da org entre campanhas diferentes. SPEC-069c (QA 069b): vale tambem para a
+    // busca AGENDADA, que agora conta contra `maxLeadSearchesPerDay` (por org, manual + agendada): sem o lock, 2 campanhas da mesma org passariam juntas do teto.
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${orgLockKey(orgId)}))`;
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${lockKey(campaignId)}))`;
     const since = startOfDay();
     let reason = block;

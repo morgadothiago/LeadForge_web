@@ -11,6 +11,7 @@ import { grantAllEntitlements, revokeAllEntitlements } from "@/lib/test-utils/tr
 import { seed, SEED_IDS } from "../../../prisma/seed";
 import { signInAsSeedAdmin, signInAs, signOut } from "@/lib/auth/test-helpers";
 import { removeIntegration, saveIntegration, testIntegration } from "./integration";
+import { saveOrgIntegration } from "@/lib/admin/org-policy";
 import { listIntegrationAudit, listIntegrations } from "@/lib/queries/integration";
 import { _setCacheTtl, getIntegrationConfig, invalidateIntegrationCache } from "@/lib/integrations/config";
 import { _setIntegrationResolver } from "@/lib/integrations/url-guard";
@@ -40,6 +41,16 @@ async function cleanup() {
 }
 const secret = async (integration: "evolution" | "llm") => prisma.integrationSecret.findFirstOrThrow({ where: { integration } });
 const dump = (o: unknown) => JSON.stringify(o);
+/**
+ * SPEC-069c: o tenant nao grava mais `evolution`/`places` (so o admin). Estes testes exercitam a MAQUINA de integracao (SSRF, cache, teste de conexao, remocao) sobre uma chave de
+ * Evolution ja existente: grava pelo nucleo do admin e marca como chave do tenant (`managedByPlatform=false`), simulando a chave LEGADA gravada antes da 069c.
+ */
+let adminId = "";
+async function legacySaveEvolution(input: Record<string, unknown>) {
+  const r = await saveOrgIntegration(adminId, { orgId: SEED_IDS.org, reason: "fixture de teste", ...input });
+  await prisma.integrationSecret.updateMany({ where: { orgId: SEED_IDS.org, integration: "evolution" }, data: { managedByPlatform: false } });
+  return r;
+}
 
 beforeAll(async () => {
   process.env.ENCRYPTION_KEY = randomBytes(32).toString("base64"); // chave falsa, só em memória
@@ -61,6 +72,7 @@ beforeAll(async () => {
   base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   const u = await prisma.user.create({ data: { email: `${TAG}@x.test`, name: "Comum", passwordHash: await hashPassword("Senha-forte-123") , role: "member" } as never });
   nonAdminId = u.id;
+  adminId = (await prisma.user.create({ data: { email: `${TAG}-adm@x.test`, name: "Admin plataforma", role: "platform_admin" } })).id;
   for (const m of ["log", "warn", "error", "info"] as const) vi.spyOn(console, m).mockImplementation((...a) => void logs.push(a.map(String).join(" ")));
 }, 30000);
 
@@ -111,7 +123,7 @@ describe("salvar / resolver / cache / fallback", async () => {
     process.env.EVOLUTION_API_KEY = ENV_KEY;
     expect((await getIntegrationConfig(SEED_IDS.org, "evolution")).origin).toBe("env");
 
-    const r1 = await saveIntegration({ integration: "evolution", value: KEY_A, baseUrl: base, allowPrivateHost: true });
+    const r1 = await legacySaveEvolution({ integration: "evolution", value: KEY_A, baseUrl: base, allowPrivateHost: true });
     expect(r1.ok).toBe(true);
     expect(dump(r1)).not.toContain(KEY_A);
     const row = await secret("evolution");
@@ -124,12 +136,12 @@ describe("salvar / resolver / cache / fallback", async () => {
     expect(dump(cfg)).not.toContain(KEY_A);
 
     // edição com valor vazio mantém a chave
-    const r2 = await saveIntegration({ integration: "evolution", value: "", baseUrl: base, allowPrivateHost: true });
+    const r2 = await legacySaveEvolution({ integration: "evolution", value: "", baseUrl: base, allowPrivateHost: true });
     expect(r2.ok).toBe(true);
     expect((await secret("evolution")).encryptedValue).toBe(row.encryptedValue);
 
     // troca vale sem reiniciar, mesmo com cache longo (invalidado ao salvar) e chega ao provider
-    await saveIntegration({ integration: "evolution", value: KEY_B, baseUrl: base, allowPrivateHost: true });
+    await legacySaveEvolution({ integration: "evolution", value: KEY_B, baseUrl: base, allowPrivateHost: true });
     cfg = await getIntegrationConfig(SEED_IDS.org, "evolution");
     expect(cfg.reveal()).toBe(KEY_B);
     await getWhatsAppProvider(SEED_IDS.org, "evolution").ping!();
@@ -201,7 +213,7 @@ describe("SSRF ao salvar e ao conectar", async () => {
   it("ao CONECTAR revalida: DNS mudou para metadados depois de salvo -> falha sem chamar o servidor", async () => {
     await signInAsSeedAdmin();
     _setIntegrationResolver(async () => ["127.0.0.1"]);
-    expect((await saveIntegration({ integration: "evolution", value: KEY_A, baseUrl: `http://evo.exemplo.test:${new URL(base).port}`, allowPrivateHost: true })).ok).toBe(true);
+    expect((await legacySaveEvolution({ integration: "evolution", value: KEY_A, baseUrl: `http://evo.exemplo.test:${new URL(base).port}`, allowPrivateHost: true })).ok).toBe(true);
     _setIntegrationResolver(async () => ["169.254.169.254"]);
     hits = 0;
     await expect(getWhatsAppProvider(SEED_IDS.org, "evolution").ping!()).rejects.toMatchObject({ code: "config" });
@@ -217,7 +229,7 @@ describe("testIntegration", async () => {
   async function setup() {
     await signInAsSeedAdmin();
     invalidateIntegrationCache();
-    await saveIntegration({ integration: "evolution", value: KEY_A, baseUrl: base, allowPrivateHost: true });
+    await legacySaveEvolution({ integration: "evolution", value: KEY_A, baseUrl: base, allowPrivateHost: true });
     return (await secret("evolution")).id;
   }
   it("ok, 401, 429 com Retry-After, timeout, redirecionamento: PT-BR, sem chave, registra último teste", async () => {
@@ -393,7 +405,7 @@ describe("SPEC-036: llm com URL base (OpenAI-compatível)", async () => {
 describe("remoção", async () => {
   it("bloqueia com instâncias WhatsApp dependentes (com contagem) e exige confirm", async () => {
     await signInAsSeedAdmin();
-    await saveIntegration({ integration: "evolution", value: KEY_A, baseUrl: base, allowPrivateHost: true });
+    await legacySaveEvolution({ integration: "evolution", value: KEY_A, baseUrl: base, allowPrivateHost: true });
     const id = (await secret("evolution")).id;
     await prisma.whatsAppInstance.create({ data: { orgId: SEED_IDS.org, instanceName: `${TAG}-w`, number: "+5511912340000", webhookToken: `${TAG}-tok`, provider: "evolution" } as never });
     const n = await prisma.whatsAppInstance.count({ where: { provider: "evolution" } });
@@ -411,7 +423,7 @@ describe("remoção", async () => {
 describe("remoção transacional", async () => {
   it("dependente criado durante a remoção: contagem e delete na mesma transação; id inexistente -> não encontrada", async () => {
     await signInAsSeedAdmin();
-    await saveIntegration({ integration: "evolution", value: KEY_A, baseUrl: base, allowPrivateHost: true });
+    await legacySaveEvolution({ integration: "evolution", value: KEY_A, baseUrl: base, allowPrivateHost: true });
     const id = (await secret("evolution")).id;
     const delsBefore = await prisma.integrationAuditLog.count({ where: { action: "delete", integration: "evolution" } });
     const gone = await removeIntegration({ id: "00000000-0000-4000-8000-000000000000", confirm: true });

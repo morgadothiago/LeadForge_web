@@ -2,6 +2,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { AppError } from "@/lib/errors";
 import { PlanLimitError, activateCampaignWithinLimit } from "@/lib/billing/limits";
+import { PlanFeatureLockedError, agentAutonomyFeature, assertFeature } from "@/lib/billing/entitlements";
 import { verifyPassword } from "@/lib/auth/password";
 import { dispatchDraft, rejectDraft } from "@/lib/agents/drafts";
 import { stopAgentOnManualReply } from "@/lib/agents/lead-state";
@@ -112,6 +113,16 @@ export async function setKillSwitch(a: MobileAuth, killSwitch: boolean, password
   if (!killSwitch) {
     const wait = await reauthBlockedSeconds(a.deviceId);
     if (wait) return bad(429, "rate_limited", "Muitas tentativas de senha. Aguarde e tente novamente.");
+    // SPEC-069c (QA 069b achado 2; Q-069-3): mesmas regras da web — ligar a IA exige direito a agentes no plano e o admin nao pode ter TRAVADO o kill switch.
+    // Vem ANTES da reautenticacao por senha (nao gasta tentativa de senha em algo que sera recusado).
+    try {
+      await assertFeature(prisma, orgId, agentAutonomyFeature("draft"));
+    } catch (e) {
+      if (e instanceof PlanFeatureLockedError) return bad(403, "plan_feature_locked", e.message);
+      throw e;
+    }
+    const cur = await prisma.agentSettings.findUnique({ where: { orgId }, select: { lockedByAdmin: true } });
+    if (cur?.lockedByAdmin) return bad(403, "policy_locked", "O kill switch foi travado pela plataforma. Somente o administrador pode desligá-lo.");
     if (!password) return bad(403, "reauth_required", "Confirme sua senha para ligar os agentes.");
     if (!(await verifyPassword(user.passwordHash ?? "", password))) {
       await recordReauthFailure(a.deviceId);
@@ -148,6 +159,9 @@ export async function approveDraftMobile(a: MobileAuth, id: string): Promise<Act
     if (r.status === "blocked") return conflict(r.reason);
     return good({ id, status: r.status });
   } catch (e) {
+    // SPEC-069c (QA 069b achado 1): plano/limite barrando o envio do agente vira erro tipado (403/409), nunca 500.
+    if (e instanceof PlanFeatureLockedError) return bad(403, "plan_feature_locked", e.message);
+    if (e instanceof PlanLimitError) return conflict(e.message);
     if (e instanceof AppError) return e.code === "not_found" ? bad(404, "not_found", e.userMessage) : conflict(e.userMessage);
     throw e;
   }

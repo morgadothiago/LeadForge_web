@@ -142,7 +142,7 @@ describe("seleção por org (getLlmProvider)", () => {
     await prisma.organization.deleteMany({ where: { id: OTHER } });
   });
   const put = (orgId: string, v: string, baseUrl: string | null, allowPrivateHost = false) =>
-    prisma.integrationSecret.create({ data: { orgId, integration: "llm", name: "default", encryptedValue: encrypt(v), hint: "", baseUrl, allowPrivateHost } });
+    prisma.integrationSecret.create({ data: { orgId, integration: "llm", name: "default", encryptedValue: encrypt(v), hint: "", baseUrl, allowPrivateHost, managedByPlatform: true } });
 
   it("isPrivateLlmHost: só vale se o host resolve para IP privado (URL pública + checkbox => false)", async () => {
     _setIntegrationResolver(async (h) => (h === "interno.test" ? ["10.0.0.5"] : h === "misto.test" ? ["10.0.0.5", "8.8.8.8"] : ["8.8.8.8"]));

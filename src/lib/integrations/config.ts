@@ -2,6 +2,7 @@ import { inspect } from "node:util";
 import { prisma } from "@/lib/prisma";
 import { decrypt } from "@/lib/crypto/secret-box";
 import { AppError, safeErrorForLog } from "@/lib/errors";
+import { getEntitlements, hasFeature } from "@/lib/billing/entitlements";
 import { INTEGRATION_LABEL, type IntegrationKindName, type IntegrationOrigin } from "./types";
 
 /**
@@ -37,7 +38,7 @@ export class IntegrationConfig {
   }
 }
 
-type CacheEntry = { at: number; cfg: IntegrationConfig | null };
+type CacheEntry = { at: number; cfg: IntegrationConfig | null; managedByPlatform: boolean };
 const cache = new Map<string, CacheEntry>();
 let ttlMs = CACHE_TTL_MS;
 const keyOf = (orgId: string, i: IntegrationKindName, n: string) => `${orgId}:${i}:${n}`;
@@ -53,6 +54,14 @@ export function _setCacheTtl(ms: number | null): void {
 }
 
 function fromEnv(integration: IntegrationKindName, name: string): IntegrationConfig | null {
+  // SPEC-069c (Q-069-2/D-069-7): LLM DA PLATAFORMA (a plataforma paga a IA). Opcional: `PLATFORM_LLM_API_KEY` (+ `PLATFORM_LLM_BASE_URL` p/ OpenAI-compativel).
+  // Sem URL = Claude. Valor confiavel (env), como o da Evolution; nunca logado.
+  if (integration === "llm" && name === "default") {
+    const key = process.env.PLATFORM_LLM_API_KEY?.trim();
+    const baseUrl = process.env.PLATFORM_LLM_BASE_URL?.trim() || null;
+    if (!key && !baseUrl) return null;
+    return new IntegrationConfig("llm", "default", "env", key ?? "", baseUrl, true);
+  }
   if (integration !== "evolution" || name !== "default") return null;
   const baseUrl = process.env.EVOLUTION_API_URL?.trim();
   const key = process.env.EVOLUTION_API_KEY?.trim();
@@ -60,12 +69,12 @@ function fromEnv(integration: IntegrationKindName, name: string): IntegrationCon
   return new IntegrationConfig("evolution", "default", "env", key, baseUrl, true);
 }
 
-async function fromDb(orgId: string, integration: IntegrationKindName, name: string): Promise<IntegrationConfig | null> {
+async function fromDb(orgId: string, integration: IntegrationKindName, name: string): Promise<{ cfg: IntegrationConfig | null; managedByPlatform: boolean }> {
   const hit = cache.get(keyOf(orgId, integration, name));
-  if (hit && Date.now() - hit.at < ttlMs) return hit.cfg;
+  if (hit && Date.now() - hit.at < ttlMs) return { cfg: hit.cfg, managedByPlatform: hit.managedByPlatform };
   const row = await prisma.integrationSecret.findUnique({
     where: { orgId_integration_name: { orgId, integration, name } },
-    select: { encryptedValue: true, baseUrl: true, allowPrivateHost: true },
+    select: { encryptedValue: true, baseUrl: true, allowPrivateHost: true, managedByPlatform: true },
   });
   let cfg: IntegrationConfig | null = null;
   if (row) {
@@ -76,13 +85,26 @@ async function fromDb(orgId: string, integration: IntegrationKindName, name: str
       throw new AppError({ code: "config", userMessage: `Não foi possível decifrar a chave de ${INTEGRATION_LABEL[integration]}. Cadastre-a novamente em Configurações > Integrações.` });
     }
   }
-  cache.set(keyOf(orgId, integration, name), { at: Date.now(), cfg });
-  return cfg;
+  const managedByPlatform = row?.managedByPlatform ?? false;
+  cache.set(keyOf(orgId, integration, name), { at: Date.now(), cfg, managedByPlatform });
+  return { cfg, managedByPlatform };
+}
+
+/**
+ * SPEC-069c (Q-069-2, QA 069b achado 5): chave de LLM gravada pelo PROPRIO tenant (BYOK legado, `managedByPlatform=false`) so vale se a org tem `llm.byok`
+ * (Business/courtesy/override do admin). Sem isso a chave fica DESATIVADA (nao apagada: volta se o direito voltar) e a resolucao cai na chave da plataforma.
+ * A checagem do direito NAO e cacheada (upgrade/override valem na hora).
+ */
+async function tenantKeyActive(orgId: string, integration: IntegrationKindName, managedByPlatform: boolean): Promise<boolean> {
+  if (integration !== "llm" || managedByPlatform) return true;
+  return hasFeature(await getEntitlements(prisma, orgId), "llm.byok");
 }
 
 /** null = não configurada (nem banco, nem env). */
 export async function findIntegrationConfig(orgId: string, integration: IntegrationKindName, name = "default"): Promise<IntegrationConfig | null> {
-  return (await fromDb(orgId, integration, name)) ?? fromEnv(integration, name);
+  const db = await fromDb(orgId, integration, name);
+  if (db.cfg && (await tenantKeyActive(orgId, integration, db.managedByPlatform))) return db.cfg;
+  return fromEnv(integration, name);
 }
 
 export async function getIntegrationConfig(orgId: string, integration: IntegrationKindName, name = "default"): Promise<IntegrationConfig> {
@@ -98,7 +120,7 @@ export async function getIntegrationConfig(orgId: string, integration: Integrati
 
 /** Origem efetiva sem decifrar nada (para listagem). */
 export async function integrationOrigin(orgId: string, integration: IntegrationKindName, name = "default"): Promise<IntegrationOrigin> {
-  const n = await prisma.integrationSecret.count({ where: { orgId, integration, name } });
-  if (n) return "db";
+  const row = await prisma.integrationSecret.findUnique({ where: { orgId_integration_name: { orgId, integration, name } }, select: { managedByPlatform: true } });
+  if (row && (await tenantKeyActive(orgId, integration, row.managedByPlatform))) return "db";
   return fromEnv(integration, name) ? "env" : "none";
 }

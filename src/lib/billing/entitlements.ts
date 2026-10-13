@@ -71,6 +71,23 @@ function lockedLimits(base: Record<LimitKey, number | null>): Record<LimitKey, n
   return l;
 }
 
+/**
+ * SPEC-069c (QA 069b, achado 4): plano que NAO pode ser lido (org inexistente/erro de leitura/`limits` ilegivel) = FAIL-CLOSED tambem nos limites legados
+ * (campanhas, WhatsApp, e-mail, leads, envios/dia) e nos novos: tudo 0. Antes os legados ficavam ilimitados nesse caso. Impacto: criar campanha/lead/numero/conta
+ * de e-mail falha com `plan_limit` (limite 0) enquanto o plano nao puder ser lido; leitura, edicao e exclusao seguem livres.
+ */
+function failClosedLimits(): Record<LimitKey, number | null> {
+  return limitMap(0);
+}
+
+/** `past_due` (D-069-10): o plano vale, mas IA/envio automatico pausam, inclusive para Business/courtesy (aplicado depois do override). */
+function applyPause(features: Record<FeatureKey, boolean>, limits: Record<LimitKey, number | null>): void {
+  for (const k of FEATURE_KEYS) if (FEATURE_CATALOG[k].costly) features[k] = false;
+  limits.maxActiveAgents = 0;
+  limits.maxAiBudgetCentsMonth = 0;
+  limits.maxAgentMessagesPerDay = 0;
+}
+
 function base(orgId: string, subscriptionStatus: SubscriptionStatus | null = null): Pick<Entitlements, "orgId" | "paused" | "overrideActive" | "overrideExpiresAt" | "subscriptionStatus"> {
   return { orgId, subscriptionStatus, paused: false, overrideActive: false, overrideExpiresAt: null };
 }
@@ -79,7 +96,7 @@ const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 
 
 export function resolveEntitlements(orgId: string, row: EntitlementRow | null, now: Date): Entitlements {
   // Org inexistente: nada liberado alem de leitura (fail-closed).
-  if (!row) return { ...base(orgId), planKey: null, source: "error", access: null, features: lockedFeatures(), limits: lockedLimits(limitMap(null)) };
+  if (!row) return { ...base(orgId), planKey: null, source: "error", access: null, features: lockedFeatures(), limits: failClosedLimits() };
   const sub = row.subscription;
   if (!sub) {
     const access = resolveOrgAccess(null, row, now);
@@ -91,12 +108,16 @@ export function resolveEntitlements(orgId: string, row: EntitlementRow | null, n
   // Business/courtesy liberam tudo, MAS org suspensa ou assinatura cancelada/bloqueada cai no ramo bloqueado (so leitura). Courtesy SEM
   // assinatura segue liberada (ramo `!sub` acima). Decisao do QA 069a.
   if (FULL_ACCESS_PLAN_KEYS.includes(planKey) && access !== "soft_blocked" && access !== "trial_expirado") {
-    return { ...base(orgId, sub.status), planKey, source: "full", access, features: boolMap(true), limits: limitMap(null) };
+    // SPEC-069c (QA 069b, achado 3): `past_due` pausa IA e envio automatico tambem para Business/courtesy (D-069-10).
+    const full = { features: boolMap(true), limits: limitMap(null) };
+    const pausedFull = access === "pago_em_atraso";
+    if (pausedFull) applyPause(full.features, full.limits);
+    return { ...base(orgId, sub.status), planKey, source: "full", access, ...full, paused: pausedFull };
   }
   // Trial expirado / suspensa / cancelada: bloqueio total ja existente (065), so leitura.
   if (access === "trial_expirado" || access === "soft_blocked") return { ...base(orgId, sub.status), planKey, source: "blocked", access, features: lockedFeatures(), limits: lockedLimits(parseLimits(sub.plan.limits)) };
   // Plano ilegivel (JSON invalido): fail-closed.
-  if (!isObj(sub.plan.limits)) return { ...base(orgId, sub.status), planKey, source: "unknown_plan", access, features: lockedFeatures(), limits: lockedLimits(parseLimits(null)) };
+  if (!isObj(sub.plan.limits)) return { ...base(orgId, sub.status), planKey, source: "unknown_plan", access, features: lockedFeatures(), limits: failClosedLimits() };
 
   const features = parseFeatures(sub.plan.limits);
   const limits: Record<LimitKey, number | null> = { ...parseLimits(sub.plan.limits) };
@@ -117,12 +138,7 @@ export function resolveEntitlements(orgId: string, row: EntitlementRow | null, n
 
   // past_due: o plano vale, mas IA (costly) pausa (D-069-10); aplicado DEPOIS do override (nao ha override que libere IA sem pagamento).
   const paused = access === "pago_em_atraso";
-  if (paused) {
-    for (const k of FEATURE_KEYS) if (FEATURE_CATALOG[k].costly) features[k] = false;
-    limits.maxActiveAgents = 0;
-    limits.maxAiBudgetCentsMonth = 0;
-    limits.maxAgentMessagesPerDay = 0;
-  }
+  if (paused) applyPause(features, limits);
   return { orgId, subscriptionStatus: sub.status, planKey, source: "plan", access, features, limits, paused, overrideActive, overrideExpiresAt: overrideActive ? (ov?.expiresAt ?? null) : null };
 }
 

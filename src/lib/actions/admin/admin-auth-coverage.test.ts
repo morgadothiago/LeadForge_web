@@ -9,7 +9,7 @@ import { describe, expect, it } from "vitest";
  * código-fonte), mesmo padrão de `src/lib/actions/integration-auth-coverage.test.ts`.
  */
 describe("admin cross-tenant: toda action/query exige requirePlatformAdmin (estático)", () => {
-  for (const f of ["src/lib/actions/admin/organizations.ts", "src/lib/queries/admin/organizations.ts"]) {
+  for (const f of ["src/lib/actions/admin/organizations.ts", "src/lib/queries/admin/organizations.ts", "src/lib/actions/admin/entitlements.ts", "src/lib/queries/admin/org-policy.ts"]) {
     it(f, () => {
       const src = readFileSync(path.resolve(process.cwd(), f), "utf8");
       expect(src).not.toMatch(/requireProviderOrg\(\)|requireActiveProviderOrg\(\)|scopedPrisma\(/);

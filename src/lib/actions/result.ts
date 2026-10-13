@@ -3,6 +3,7 @@ import type { ZodError } from "zod";
 import { ForbiddenError, OrgOwnerRequiredError, OrgSuspendedError, TrialExpiredError } from "@/lib/auth/require-admin";
 import { PlanLimitError } from "@/lib/billing/limits";
 import { PlanFeatureLockedError } from "@/lib/billing/entitlements";
+import { PolicyManagedByAdminError } from "@/lib/billing/policy-error";
 import { UnauthorizedError } from "@/lib/auth/require-user";
 import { isRetryableTxConflict, CONFLICT_MESSAGE } from "@/lib/db/tx-conflict";
 import { isAppError, safeErrorForLog } from "@/lib/errors";
@@ -46,6 +47,8 @@ export function handleActionError<T = never>(e: unknown): ActionResult<T> {
   if (e instanceof PlanLimitError) return { ok: false, errors: { _form: [e.message], code: ["plan_limit"], metric: [e.metric], limit: [String(e.limit)], used: [String(e.used)] } };
   // SPEC-069a: funcionalidade bloqueada pelo plano (mensagem PT-BR com o nome do plano necessario).
   if (e instanceof PlanFeatureLockedError) return { ok: false, errors: { _form: [e.message], code: ["plan_feature_locked"], feature: [e.feature], requiredPlan: [e.requiredPlan] } };
+  // SPEC-069c: politica definida pela plataforma (tenant nao edita).
+  if (e instanceof PolicyManagedByAdminError) return { ok: false, errors: { _form: [e.message], code: ["policy_admin_only"], fields: [...e.fields] } };
   if (e instanceof ForbiddenError) return formError("Sem permissão.");
   if (e instanceof OrgSuspendedError) return formError("Assinatura pendente ou cancelada. Regularize o pagamento em Configurações > Assinatura para continuar.");
   if (isAppError(e) && e.code === "email_not_verified") return { ok: false, errors: { _form: [e.userMessage], code: ["email_not_verified"] } };

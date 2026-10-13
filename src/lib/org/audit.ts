@@ -13,7 +13,9 @@ export type OrgAuditAction =
   | "join_code_generated"
   | "join_code_disabled"
   // SPEC-068a: resposta manual na caixa de atendimento (meta SEM texto e SEM telefone).
-  | "inbox_manual_sent";
+  | "inbox_manual_sent"
+  // SPEC-069c: o platform_admin mudou a POLITICA da org (override, agentes, integracao). meta = area + nomes dos campos (sem segredo).
+  | "admin_policy_changed";
 
 type Db = PrismaClient | Prisma.TransactionClient;
 

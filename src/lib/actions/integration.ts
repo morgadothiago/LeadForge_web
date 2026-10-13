@@ -14,12 +14,20 @@ import { consumeSaveQuota, consumeTestQuota, runConnectionTest, type ConnectionT
 import { hostOf, SELECT_ITEM, toItemView, type IntegrationItemView } from "@/lib/integrations/view";
 import { INTEGRATION_FEATURE, INTEGRATION_LABEL, type IntegrationKindName } from "@/lib/integrations/types";
 import { assertFeature } from "@/lib/billing/entitlements";
+import { PolicyManagedByAdminError } from "@/lib/billing/policy-error";
 import { integrationIdSchema, removeIntegrationSchema, saveIntegrationSchema, secretHint } from "@/lib/schemas/integration";
 import { decrypt } from "@/lib/crypto/secret-box";
 import { failure, formError, safeAction, success, zodErrors, type ActionResult } from "./result";
 
 const revalidate = (): void => revalidatePath("/configuracoes/integracoes");
 const NOT_FOUND = "Integração não encontrada.";
+
+/**
+ * SPEC-069c (secao A): chaves/servidores de `evolution` (servidor/URL/chave) e `places` sao da PLATAFORMA: so o `platform_admin` grava (`saveOrgIntegration`).
+ * O tenant continua pareando o proprio numero de WhatsApp (instancia) e usando a busca. `llm` so vale como BYOK (`llm.byok`, via `INTEGRATION_FEATURE`); `n8n` com `ingest.api`.
+ * Chave existente gravada pelo admin (`managedByPlatform`) nunca e editada nem removida pelo tenant.
+ */
+const PLATFORM_ONLY: readonly IntegrationKindName[] = ["evolution", "places"];
 
 /**
  * Salva (cria/atualiza/gira) uma integração. `value` é write-only: ausente/vazio em edição mantém a atual; obrigatório na criação.
@@ -37,8 +45,10 @@ export async function saveIntegration(input: unknown): Promise<ActionResult<Inte
     // SPEC-069b: cadastro/rotacao so se o plano (ou override do admin) libera a integracao (LLM proprio = BYOK; n8n = ingestao por API).
     const feature = INTEGRATION_FEATURE[integration];
     if (feature) await assertFeature(prisma, orgId, feature);
+    if (PLATFORM_ONLY.includes(integration)) throw new PolicyManagedByAdminError(["integration"]);
     const where = { orgId_integration_name: { orgId, integration, name } };
     const existing = await db.integrationSecret.findUnique({ where });
+    if (existing?.managedByPlatform) throw new PolicyManagedByAdminError(["integration"]);
     // SPEC-036 (D-36-6): chave obrigatória na criação, exceto `llm` com URL base (Ollama não usa chave).
     if (!existing && !value && !(integration === "llm" && parsed.data.baseUrl)) return failure({ value: ["Informe a chave."] });
     const allowPrivateHost = parsed.data.allowPrivateHost ?? existing?.allowPrivateHost ?? false;
@@ -115,8 +125,9 @@ export async function removeIntegration(input: unknown): Promise<ActionResult<{ 
     // P2025 (linha sumiu) é tratado por safeAction/handleActionError -> "Registro não encontrado."
     const outcome = await withSerializableRetry(() =>
       prisma.$transaction(async (tx) => {
-        const row = await tx.integrationSecret.findFirst({ where: { id: parsed.data.id, orgId }, select: { id: true, integration: true, baseUrl: true } });
+        const row = await tx.integrationSecret.findFirst({ where: { id: parsed.data.id, orgId }, select: { id: true, integration: true, baseUrl: true, managedByPlatform: true } });
         if (!row) return { kind: "missing" as const };
+        if (row.managedByPlatform) return { kind: "platform" as const };
         if (row.integration === "evolution") {
           const n = await tx.whatsAppInstance.count({ where: { orgId, provider: "evolution" } });
           if (n > 0) return { kind: "blocked" as const, n };
@@ -127,6 +138,7 @@ export async function removeIntegration(input: unknown): Promise<ActionResult<{ 
       }, { isolationLevel: "Serializable" }),
     );
     if (outcome.kind === "missing") return formError(NOT_FOUND);
+    if (outcome.kind === "platform") throw new PolicyManagedByAdminError(["integration"]);
     if (outcome.kind === "blocked") {
       const n = outcome.n;
       return formError(`Não é possível remover: ${n} instância${n > 1 ? "s" : ""} de WhatsApp ${n > 1 ? "dependem" : "depende"} da Evolution. Remova ${n > 1 ? "as instâncias" : "a instância"} antes.`);

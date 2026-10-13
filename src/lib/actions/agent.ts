@@ -18,7 +18,20 @@ import {
   rejectDraftSchema, setActiveSchema, setAutonomySchema, simulateSchema, updateAgentSchema,
 } from "@/lib/schemas/agent";
 import { isAppError } from "@/lib/errors";
+import { PolicyManagedByAdminError, type PolicyField } from "@/lib/billing/policy-error";
 import { failure, formError, safeAction, success, zodErrors, type ActionResult } from "./result";
+
+/**
+ * SPEC-069c (D-069-2, AC-2): POLITICA do agente e do admin da plataforma (modelo de IA, teto de custo, mensagens/dia, turnos). O tenant (owner/member) edita so
+ * CONTEUDO (persona, objetivo, tom, base de conhecimento, aviso de IA...). Pedido que MUDA um campo de politica e recusado (`policy_admin_only`); reenviar o valor
+ * que ja esta gravado e inofensivo (a tela atual manda o formulario inteiro) e passa. Quem altera e `setAgentPolicy` (admin).
+ */
+const AGENT_POLICY_FIELDS = ["model", "monthlyBudgetCents", "dailyMessageLimit", "maxTurnsPerLead"] as const satisfies readonly PolicyField[];
+const AGENT_POLICY_DEFAULTS = { model: "claude-haiku-4-5", monthlyBudgetCents: null, dailyMessageLimit: 20, maxTurnsPerLead: 5 } as const;
+function assertNoPolicyChange(requested: Partial<Record<(typeof AGENT_POLICY_FIELDS)[number], unknown>>, current: Record<(typeof AGENT_POLICY_FIELDS)[number], unknown>): void {
+  const changed = AGENT_POLICY_FIELDS.filter((f) => requested[f] !== undefined && requested[f] !== current[f]);
+  if (changed.length) throw new PolicyManagedByAdminError(changed);
+}
 
 const revalidate = (): void => {
   revalidatePath("/configuracoes/agentes");
@@ -32,6 +45,7 @@ export async function createAgent(input: unknown): Promise<ActionResult<{ id: st
     const parsed = createAgentSchema.safeParse(input);
     if (!parsed.success) return failure(zodErrors(parsed.error));
     const d = parsed.data;
+    assertNoPolicyChange(d, AGENT_POLICY_DEFAULTS); // SPEC-069c: agente nasce com a politica padrao; o admin define modelo/teto/limites depois
     // SPEC-069b: o papel precisa estar liberado pelo plano (Free: nenhum; Starter: follow-up; Pro: todos). Criar nasce inativo, mas nao se cria o que o plano nao inclui.
     await assertFeature(prisma, orgId, agentRoleFeature(d.role));
     const closer = d.role === "closer";
@@ -58,8 +72,9 @@ export async function updateAgent(input: unknown): Promise<ActionResult<{ id: st
     const parsed = updateAgentSchema.safeParse(input);
     if (!parsed.success) return failure(zodErrors(parsed.error));
     const { id, ...rest } = parsed.data;
-    const cur = await db.agent.findUnique({ where: { id }, select: { role: true, autonomy: true, disclosureEnabled: true } });
+    const cur = await db.agent.findUnique({ where: { id }, select: { role: true, autonomy: true, disclosureEnabled: true, model: true, monthlyBudgetCents: true, dailyMessageLimit: true, maxTurnsPerLead: true } });
     if (!cur) return formError("Agente não encontrado.");
+    assertNoPolicyChange(rest, cur); // SPEC-069c: politica (modelo/teto/msgs por dia/turnos) so o admin altera
     // Desligar o aviso de IA num Closer sampled/auto derruba a confirmação (voltaria a rascunho no runtime).
     const closerAutoOff = cur.role === "closer" && rest.disclosureEnabled === false && cur.autonomy !== "draft";
     await db.agent.update({ where: { id }, data: { ...rest, ...(closerAutoOff ? { autonomy: "draft", autoConfirmedAt: null } : {}), promptVersion: { increment: 1 }, updatedBy: actor.id } });
@@ -130,11 +145,15 @@ export async function updateAgentSettings(input: unknown): Promise<ActionResult<
     if (!parsed.success) return failure(zodErrors(parsed.error));
     // SPEC-069b: LIGAR a IA (kill switch desligado) exige direito a agentes no plano; ligar o kill switch (parar tudo) nunca e barrado.
     if (parsed.data.killSwitch === false) await assertFeature(prisma, orgId, agentAutonomyFeature("draft"));
-    const s = await scopedPrisma(orgId).agentSettings.upsert({
-      where: { orgId },
-      create: { ...parsed.data, updatedBy: actor.id },
-      update: { ...parsed.data, updatedBy: actor.id },
-    });
+    const db = scopedPrisma(orgId);
+    const cur = await db.agentSettings.findUnique({ where: { orgId }, select: { killSwitch: true, lockedByAdmin: true, monthlyBudgetCents: true } });
+    // SPEC-069c (Q-069-3): o tenant LIGA o kill switch (emergencia) sempre; DESLIGAR com o kill switch TRAVADO pelo admin e recusado. O teto de custo da org e politica.
+    const changed: PolicyField[] = [];
+    if (parsed.data.killSwitch === false && (cur?.killSwitch ?? true) && cur?.lockedByAdmin) changed.push("killSwitch");
+    if (parsed.data.monthlyBudgetCents !== undefined && parsed.data.monthlyBudgetCents !== (cur?.monthlyBudgetCents ?? null)) changed.push("monthlyBudgetCents");
+    if (changed.length) throw new PolicyManagedByAdminError(changed);
+    const data = { ...(parsed.data.killSwitch !== undefined ? { killSwitch: parsed.data.killSwitch } : {}), updatedBy: actor.id }; // `lockedByAdmin`/teto nunca vem do tenant
+    const s = await db.agentSettings.upsert({ where: { orgId }, create: data, update: data });
     revalidate();
     return success({ killSwitch: s.killSwitch });
   });
