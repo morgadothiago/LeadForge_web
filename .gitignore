@@ -46,3 +46,7 @@ docker-compose.override.yml
 
 # SPEC-050: provider de storage `local` (dev/teste)
 /.storage/
+
+# Local do desenvolvedor (nao versionar)
+.claude/
+skills-lock.json
