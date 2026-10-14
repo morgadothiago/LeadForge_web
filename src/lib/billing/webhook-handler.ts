@@ -52,6 +52,17 @@ async function readBodyLimited(request: Request, max: number): Promise<Uint8Arra
   return out;
 }
 
+/** Só o campo `event`/`type` do corpo, para log; nunca o corpo inteiro (tem dados do pagador). */
+function safeEventType(rawBody: string): string {
+  try {
+    const b = JSON.parse(rawBody) as { event?: unknown; type?: unknown };
+    const t = typeof b.event === "string" ? b.event : typeof b.type === "string" ? b.type : "desconhecido";
+    return t.slice(0, 60).replace(/[^\w.:-]/g, "_");
+  } catch {
+    return "ilegivel";
+  }
+}
+
 export interface HandlerOptions {
   now?: Date;
   /** Testes: provider injetado (default: getPaymentProvider(), respeita PAYMENT_PROVIDER do env). */
@@ -80,7 +91,11 @@ export async function handleBillingWebhook(request: Request, opts: HandlerOption
     // quando presente (nada muda pro Stripe). O fallback só existe se o header estiver ausente; a URL
     // completa (que carrega o segredo) nunca é logada, só mensagens de erro sem a URL.
     const signature = request.headers.get("stripe-signature") ?? new URL(request.url).searchParams.get("webhookSecret");
-    if (!provider.verifyWebhookSignature(rawBody, signature)) return unauthorized();
+    if (!provider.verifyWebhookSignature(rawBody, signature)) {
+      // Diagnóstico sem vazar nada: só se o segredo veio e o tamanho (nunca o valor nem a URL).
+      console.warn(`[billing-webhook] 401 provider=${provider.name} segredo=${signature ? `presente(len=${signature.length})` : "ausente"} bytes=${bytes.byteLength}`);
+      return unauthorized();
+    }
 
     let event;
     try {
@@ -89,9 +104,13 @@ export async function handleBillingWebhook(request: Request, opts: HandlerOption
       if (e instanceof AppError && e.code === "validation") return json(400, { error: "invalid_payload", message: "Payload de webhook inválido." });
       throw e;
     }
-    if (!event) return ok("ignored");
+    if (!event) {
+      console.info(`[billing-webhook] ignorado provider=${provider.name} tipo=${safeEventType(rawBody)}`);
+      return ok("ignored");
+    }
 
     const result = await processBillingEvent(event, now);
+    console.info(`[billing-webhook] ${result} provider=${provider.name} eventId=${event.eventId}`);
     if (result === "org_not_found" || result === "plan_not_found") {
       // Nunca 500: evento reconhecível mas referenciando algo que não existe (ex.: org apagada) — logado, sem retry infinito do provedor.
       console.error(`[billing-webhook] ${result} (eventId=${event.eventId})`);
