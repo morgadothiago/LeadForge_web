@@ -72,14 +72,14 @@ export async function getOrgStatusForBanner(): Promise<OrgStatus | null> {
  * SPEC-062b — status da org + sinal do ramo LEGADO de trial vencido (D-062-17): `trialExpired` = assinatura `trialing` sem
  * `trialEndsAt` futuro. Mesmo contrato de erro de `getOrgStatusForBanner` (lança sem sessão de provider com org).
  */
-export async function getOrgBannerState(now: Date = new Date()): Promise<{ status: OrgStatus; trialExpired: boolean; trialEndsAt: Date | null; subscriptionStatus: SubscriptionStatus | null } | null> {
+export async function getOrgBannerState(now: Date = new Date()): Promise<{ status: OrgStatus; trialExpired: boolean; trialEndsAt: Date | null; subscriptionStatus: SubscriptionStatus | null; planKey: string | null } | null> {
   const { orgId } = await requireProviderOrgAllowExpired(); // SPEC-065 (D-065-13.2): allowlist (a tela de assinatura precisa abrir com o trial expirado)
   const org = await prisma.organization.findUnique({
     where: { id: orgId },
-    select: { status: true, subscription: { select: { status: true, trialEndsAt: true } } },
+    select: { status: true, subscription: { select: { status: true, trialEndsAt: true, plan: { select: { key: true } } } } },
   });
   if (!org) return null;
   const sub = org.subscription;
   const trialExpired = org.status !== "active" && sub?.status === "trialing" && !(sub.trialEndsAt && sub.trialEndsAt.getTime() > now.getTime());
-  return { status: org.status, trialExpired, trialEndsAt: sub?.trialEndsAt ?? null, subscriptionStatus: sub?.status ?? null };
+  return { status: org.status, trialExpired, trialEndsAt: sub?.trialEndsAt ?? null, subscriptionStatus: sub?.status ?? null, planKey: sub?.plan.key ?? null };
 }

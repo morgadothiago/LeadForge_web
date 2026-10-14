@@ -9,6 +9,7 @@ import { AiBudgetBanner } from "@/components/billing/AiBudgetBanner";
 import { TrialBanner } from "@/components/billing/TrialBanner";
 import { showsTrialChip } from "@/components/billing/trial-ui";
 import { trialDaysLeft } from "@/lib/billing/access";
+import { isFreePlanKey } from "@/lib/billing/plan-catalog";
 import { getOrgBannerState } from "@/lib/queries/billing";
 import { Header } from "@/components/layout/Header";
 import { AppSidebar } from "@/components/layout/AppSidebar";
@@ -46,7 +47,8 @@ export default async function AppLayout({ children }: LayoutProps<"/">) {
   // SPEC-065b (D-065-13.4/24): shell reduzido no trial expirado (bloqueio total) e chip/banner de dias no teste. Falha de leitura nao derruba o layout.
   const restricted = user.platformRole === "provider" && user.orgAccess === "trial_expirado";
   const trialState = showsTrialChip(user.orgAccess) ? await getOrgBannerState().catch(() => null) : null;
-  const daysLeft = trialState?.subscriptionStatus === "trialing" ? trialDaysLeft(trialState.trialEndsAt, new Date()) : 0;
+  // O chip/banner de dias é só do Free (teste grátis); quem assinou Starter/Pro não vê.
+  const daysLeft = trialState?.subscriptionStatus === "trialing" && isFreePlanKey(trialState.planKey) ? trialDaysLeft(trialState.trialEndsAt, new Date()) : 0;
   const trial = daysLeft > 0 ? { daysLeft, expiring: user.orgAccess === "trial_expirando" } : null;
   return (
     <SidebarProvider defaultOpen={defaultOpen} className="h-svh min-h-0 overflow-hidden">
