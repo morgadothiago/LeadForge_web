@@ -30,7 +30,7 @@ export default async function Page() {
         id: a.id, role: a.role, name: a.name, active: a.active, persona: a.persona, objective: a.objective, tone: a.tone, model: a.model,
         autonomy: a.autonomy, samplePercent: a.samplePercent, monthlyBudgetCents: a.monthlyBudgetCents, dailyMessageLimit: a.dailyMessageLimit,
         maxTurnsPerLead: a.maxTurnsPerLead, allowedTools: a.allowedTools as string[], escalationRules: a.escalationRules,
-        disclosureEnabled: a.disclosureEnabled, disclosureText: a.disclosureText, callLink: a.callLink, knowledge: a.knowledge,
+        disclosureEnabled: a.disclosureEnabled, disclosureText: a.disclosureText, callLink: a.callLink, brief: a.brief, knowledge: a.knowledge,
         spentCents: u.ok ? u.data.spentCents : 0,
       };
     }),
@@ -39,7 +39,7 @@ export default async function Page() {
     <div className="space-y-6">
       <div>
         <h2 className="font-heading text-lg font-semibold">Agentes de IA</h2>
-        <p className="text-sm text-muted-foreground">SDR, Follow-up e Closer. Todos nascem desligados e em modo rascunho. Você define persona, objetivo, tom e conhecimento; modelo, custo e limites são definidos pela plataforma.</p>
+        <p className="text-sm text-muted-foreground">SDR, Follow-up e Closer. Todos nascem desligados e em modo rascunho. Você preenche briefings guiados (persona, oferta, público, objeções, o que evitar, assinatura, exemplos e conhecimento); modelo, custo, limites e regras de segurança são definidos pela plataforma.</p>
       </div>
       <AgentsPanel
         agents={views}

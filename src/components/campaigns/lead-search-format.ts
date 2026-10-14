@@ -15,7 +15,7 @@ const n = (v: number, one: string, many: string) => `${v} ${v === 1 ? one : many
 export function deriveBlock(panel: ManagePanel, campaignActive: boolean): Block | null {
   if (!panel.enabled) return { kind: "disabled", message: DISABLED_TEXT };
   if (panel.role !== "owner") return { kind: "member", message: "Apenas o proprietário da organização pode iniciar buscas. Você pode acompanhar o histórico abaixo." };
-  if (!panel.hasKey) return { kind: "nokey", message: "Falta a chave de busca de leads (Google Places)." };
+  if (!panel.hasKey) return { kind: "nokey", message: "A busca de leads ainda não está disponível: o serviço é gerenciado pela plataforma. Fale com o suporte." };
   if (!campaignActive) return { kind: "inactive", message: "A campanha precisa estar ativa para buscar leads." };
   if (panel.remainingManual <= 0) return { kind: "budget", message: `Limite de buscas manuais desta campanha atingido hoje (${panel.manualBudget} por dia). Tente amanhã.` };
   if (panel.remainingOrg <= 0) return { kind: "budget", message: `Limite de buscas da organização atingido hoje (${panel.orgBudget} chamadas por dia). Tente amanhã.` };

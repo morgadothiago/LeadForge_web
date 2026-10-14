@@ -887,6 +887,8 @@ model Agent {
   disclosureText     String?
   /// Closer: link https da call, incluído na resposta e no aviso de handoff ao humano.
   callLink           String?
+  /// SPEC-069f: briefing guiado do cliente (oferta, publico, objecoes, o que evitar, assinatura, exemplos). JSON validado por `agentBriefSchema`; composto no prompt em campos separados (nunca sobrescreve as regras do sistema).
+  brief              Json?
   /// Confirmação explícita (Closer em auto): data da confirmação + aviso de risco de banimento/LGPD.
   autoConfirmedAt    DateTime?
   createdAt          DateTime            @default(now())

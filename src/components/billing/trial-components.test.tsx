@@ -124,6 +124,9 @@ describe("shell reduzido no trial expirado (D-065-13.4)", () => {
     const normal = renderToStaticMarkup(<SettingsTabs isAdmin />);
     expect(normal).toContain(">E-mail<");
     expect(normal).toContain(">Equipe<");
+    // SPEC-069f: a aba Integracoes saiu das Configuracoes do cliente (e a rota responde 404).
+    expect(normal).not.toContain("Integrações");
+    expect(normal).not.toContain("/configuracoes/integracoes");
   });
 });
 

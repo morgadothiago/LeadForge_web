@@ -40,9 +40,10 @@ describe("CampaignLeadSearch", () => {
     expect(html).not.toContain("LEAD_SEARCH");
     expect(btn(html)).toContain('disabled=""');
   });
-  it("sem chave: link para integrações", () => {
+  it("sem chave: serviço gerenciado pela plataforma, sem link para Integrações (SPEC-069f)", () => {
     const html = render({ hasKey: false });
-    expect(html).toContain('href="/configuracoes/integracoes"');
+    expect(html).toContain("gerenciado pela plataforma");
+    expect(html).not.toContain("/configuracoes/integracoes");
     expect(btn(html)).toContain('disabled=""');
   });
   it("member: botão desabilitado, explicação e histórico visível", () => {

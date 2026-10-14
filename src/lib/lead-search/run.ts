@@ -107,7 +107,7 @@ async function reserve(campaignId: string, orgId: string, sourceId: string, trig
 const cfgErr = (m: string) => new AppError({ code: "config", userMessage: m });
 const DISABLED = "Busca de leads indisponível no momento, fale com o suporte.";
 const TIMEOUT_MESSAGE = "A busca excedeu o tempo limite. Tente novamente em instantes.";
-const NO_KEY = "Chave de Places não configurada. Cadastre em Configurações > Integrações.";
+const NO_KEY = "A busca de leads ainda não está disponível: o serviço é gerenciado pela plataforma. Fale com o suporte.";
 
 async function execute(campaignId: string, opts: { trigger?: "manual" | "scheduled"; source?: LeadSource; timeoutMs?: number }): Promise<SearchOutcome | "skipped" | { inProgress: string }> {
   const trigger = opts.trigger ?? "manual";

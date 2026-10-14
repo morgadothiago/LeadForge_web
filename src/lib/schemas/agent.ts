@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { ALL_TOOLS, escalationRulesSchema } from "@/lib/agents/types";
+import { agentBriefSchema } from "@/lib/agents/brief";
 
 const text = (max: number) => z.string().trim().max(max, `Máximo de ${max} caracteres.`);
 
@@ -18,6 +19,8 @@ export const agentFieldsSchema = z.object({
   minConfidence: z.number().min(0).max(1).default(0.6),
   disclosureEnabled: z.boolean().optional(),
   disclosureText: text(300).nullable().optional(),
+  /** SPEC-069f: briefing guiado (campos separados, sanitizados e limitados no proprio schema). */
+  brief: agentBriefSchema.optional(),
   callLink: text(500).refine((v) => { try { const u = new URL(v); return u.protocol === "https:" && !u.username && !u.password; } catch { return false; } }, "O link da call deve começar com https:// e não pode conter usuário/senha.").nullable().optional(),
 });
 
@@ -39,6 +42,7 @@ const updateFieldsSchema = z.object({
   disclosureEnabled: z.boolean(),
   disclosureText: text(300).nullable(),
   callLink: agentFieldsSchema.shape.callLink,
+  brief: agentBriefSchema,
 }).partial();
 export const updateAgentSchema = updateFieldsSchema.extend({ id: z.string().uuid() });
 export const setActiveSchema = z.object({ id: z.string().uuid(), active: z.boolean() });

@@ -118,7 +118,7 @@ class ResolvedEvolutionProvider implements WhatsAppProvider {
   private async inner(): Promise<EvolutionProvider> {
     const cfg = await getIntegrationConfig(this.orgId, "evolution");
     const baseURL = cfg.baseUrl;
-    if (!baseURL) throw new AppError({ code: "config", userMessage: "Evolution API sem URL configurada. Cadastre em Configurações > Integrações." });
+    if (!baseURL) throw new AppError({ code: "config", userMessage: "O servidor de WhatsApp ainda não está disponível: o serviço é gerenciado pela plataforma. Fale com o suporte." });
     const common = { timeout: this.opts.timeoutMs, retry: this.opts.retry };
     if (cfg.origin === "env") return new EvolutionProvider({ baseURL, apiKey: cfg.reveal(), ...common }); // env é confiável (comportamento anterior)
     // Origem banco: revalida SSRF ao CONECTAR, fixa no IP checado e não segue redirecionamento.

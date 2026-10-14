@@ -1,6 +1,5 @@
 "use client";
 import * as React from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { notifyActionError } from "@/components/feedback/notify";
@@ -137,10 +136,7 @@ export function CampaignLeadSearch({ campaignId, campaignName, campaignActive, p
           <p role="status" className="flex flex-wrap items-start gap-2 rounded-md bg-warning/10 px-3 py-2 text-sm text-warning">
             <TriangleAlert className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
             <span>
-              {block.message}{" "}
-              {block.kind === "nokey" && (
-                <Link href="/configuracoes/integracoes" className="font-medium underline underline-offset-2">Ir para Integrações</Link>
-              )}
+              {block.message}
             </span>
           </p>
         )}

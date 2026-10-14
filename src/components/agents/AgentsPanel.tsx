@@ -21,6 +21,9 @@ import type { SimulationResult } from "@/lib/agents/simulate";
 import type { AgentTool } from "@/lib/agents/types";
 import { agentFieldsSchema, createAgentSchema, knowledgeSchema, simulateSchema, updateAgentSchema } from "@/lib/schemas/agent";
 import { FeatureLockNotice, PlatformManagedNote } from "@/components/billing/FeatureLockNotice";
+import { AgentBriefFields } from "./AgentBriefFields";
+import { briefDefaults, toBriefBody, ROLE_BRIEF_HINTS, type BriefFormValues } from "./agent-brief-form";
+import { buildSystemPrompt } from "@/lib/agents/prompt";
 import { AiBudgetNotice } from "@/components/billing/AiBudgetNotice";
 import { notifyActionError } from "@/components/feedback/notify";
 import type { AiBudgetView } from "@/lib/queries/entitlements";
@@ -33,6 +36,8 @@ export interface AgentView {
   autonomy: Autonomy; samplePercent: number; monthlyBudgetCents: number | null; dailyMessageLimit: number; maxTurnsPerLead: number;
   allowedTools: string[]; escalationRules: unknown; disclosureEnabled: boolean; disclosureText: string | null; callLink?: string | null;
   knowledge: { id: string; title: string; version: number }[];
+  /** SPEC-069f: briefing guiado (JSON do banco; lido com `parseBrief`). */
+  brief?: unknown;
   spentCents: number;
 }
 export interface SettingsView { killSwitch: boolean; monthlyBudgetCents: number | null; /** SPEC-069d: a plataforma travou o kill switch (o tenant so LIGA). */ lockedByAdmin: boolean }
@@ -113,6 +118,13 @@ export function AgentsPanel({ agents, settings, plan, aiBudget, isOwner }: { age
       {agents.length === 0 && <Card className="p-8 text-center text-sm text-muted-foreground">Nenhum agente ainda. Crie o SDR e o Follow-up primeiro (sempre em modo rascunho).</Card>}
       <div className="grid gap-4 lg:grid-cols-2">
         {agents.map((a) => <AgentCard key={a.id} agent={a} killSwitch={settings.killSwitch} plan={plan} onEdit={() => setEditing(a)} />)}
+        {missing.filter((r) => !plan.roles[r]).map((r) => (
+          <Card key={r} className="space-y-2 border-dashed p-5" data-slot="locked-role">
+            <div className="flex items-center gap-2"><Lock className="size-4 text-muted-foreground" aria-hidden="true" /><h3 className="font-heading font-semibold">{ROLE_LABELS[r]}</h3><Badge variant="muted">Não incluído no plano</Badge></div>
+            <p className="text-sm text-muted-foreground">{ROLE_BRIEF_HINTS[r].intro}</p>
+            <FeatureLockNotice id={`locked-role-${r}`} feature={r === "sdr" ? "agents.role.sdr" : r === "closer" ? "agents.role.closer" : "agents.role.followup"} reason={plan.lockReason} text={plan.costlyBlocked ? undefined : `${ROLE_LABELS[r]}: ${roleLockText(r).replace(/^D/, "d")}.`} className="border-0 bg-transparent px-0" />
+          </Card>
+        ))}
       </div>
 
       <Dialog open={editing !== null} onOpenChange={(o) => !o && setEditing(null)}>
@@ -347,6 +359,7 @@ interface AgentFormValues {
   disclosure: boolean;
   disclosureText: string;
   callLink: string;
+  brief: BriefFormValues;
 }
 
 type AgentSubmit = z.output<typeof createAgentSchema> | z.output<typeof updateAgentSchema>;
@@ -372,6 +385,7 @@ function buildBody(v: AgentFormValues, agent: AgentView | null): z.input<typeof 
     escalationRules: { keywords: parseLines(v.keywords), forbiddenPhrases: parseLines(v.forbidden), handoffOnHumanRequest: v.humanReq },
     disclosureEnabled: v.disclosure,
     disclosureText: v.disclosureText.trim() || null,
+    brief: toBriefBody(v.brief),
     ...(v.role === "closer" ? { callLink: v.callLink.trim() || null } : {}),
   };
 }
@@ -389,7 +403,7 @@ function AgentForm({ agent, availableRoles, plan, onDone }: { agent: AgentView |
     [agent],
   );
 
-  const { register, handleSubmit, watch, getValues, setValue, setError, setFocus, formState } = useForm<AgentFormValues, unknown, AgentSubmit>({
+  const { register, handleSubmit, watch, getValues, setValue, setError, setFocus, control, formState } = useForm<AgentFormValues, unknown, AgentSubmit>({
     resolver,
     defaultValues: {
       role: agent?.role ?? availableRoles.find((r) => plan.roles[r]) ?? availableRoles[0] ?? "sdr",
@@ -411,6 +425,7 @@ function AgentForm({ agent, availableRoles, plan, onDone }: { agent: AgentView |
       disclosure: agent?.disclosureEnabled ?? (agent?.role ?? availableRoles.find((r) => plan.roles[r]) ?? availableRoles[0] ?? "sdr") === "closer",
       disclosureText: agent?.disclosureText ?? "",
       callLink: agent?.callLink ?? "",
+      brief: briefDefaults(agent?.brief),
     },
   });
   const { errors } = formState;
@@ -469,18 +484,11 @@ function AgentForm({ agent, availableRoles, plan, onDone }: { agent: AgentView |
         </Field>
         <Field id={`${uid}-name`} label="Nome" required error={errors.name?.message}>{(f) => <Input {...f} {...register("name")} maxLength={80} />}</Field>
       </div>
-      {area("persona", "Persona", "Quem é o agente e como se apresenta.")}
-      {area("objective", "Objetivo")}
-      {area("tone", "Tom de voz")}
-      <div className="grid gap-4 sm:grid-cols-2">
-        <Field id={`${uid}-model`} label="Modelo" hint="Definido pela plataforma." error={errors.model?.message}>{(f) => <Input {...f} {...register("model")} readOnly aria-readonly="true" className="bg-muted/40" />}</Field>
-        <Field id={`${uid}-budget`} label="Teto mensal (R$)" hint="Definido pela plataforma. Sem teto, o agente não ativa." error={errors.monthlyBudgetCents?.message}>
-          {(f) => <Input {...f} {...register("monthlyBudgetCents")} inputMode="decimal" readOnly aria-readonly="true" className="bg-muted/40" />}
-        </Field>
-        {num("dailyMessageLimit", "Limite diário de mensagens", true)}
-        {num("maxTurnsPerLead", "Turnos máximos por lead", true)}
-        {num("samplePercent", "% revisado na amostragem")}
-      </div>
+      <p role="note" className="rounded-md bg-muted/50 px-3 py-2 text-xs text-muted-foreground">{ROLE_BRIEF_HINTS[role].intro} Você preenche campos guiados; a plataforma monta o prompt final e mantém as regras de segurança fixas.</p>
+      {area("persona", "Persona", ROLE_BRIEF_HINTS[role].persona)}
+      {area("objective", "Objetivo", ROLE_BRIEF_HINTS[role].objective)}
+      {area("tone", "Tom de voz", "Ex.: Cordial e direto, sem gírias, tratando por você.")}
+      <AgentBriefFields uid={uid} register={register as never} control={control as never} errors={(errors as { brief?: never }).brief} watchValues={watch("brief")} />
       <fieldset className="space-y-2">
         <legend className="text-sm font-medium">Ferramentas permitidas</legend>
         <label className="flex gap-2 text-sm"><input type="checkbox" {...register("link")} /> Incluir links nas mensagens</label>
@@ -503,7 +511,21 @@ function AgentForm({ agent, availableRoles, plan, onDone }: { agent: AgentView |
         {agent && !disclosure && disclosureOffDowngrades(agent.role, agent.autonomy, disclosure) && <p role="alert" className="text-sm text-warning">Ao desligar o aviso, este Closer autônomo volta para o modo rascunho (você aprova tudo).</p>}
         {disclosure && <Field id={`${uid}-dt`} label="Texto do aviso" hint="Vazio usa o texto padrão.">{(f) => <Input {...f} {...register("disclosureText")} maxLength={300} />}</Field>}
       </fieldset>
+      <fieldset className="grid gap-3 rounded-md border border-border p-3">
+        <legend className="px-1 text-sm font-medium">Limites e custo (definidos pela plataforma)</legend>
+        <PlatformManagedNote>Somente leitura: você vê, mas não altera. Os envios seguem a janela de seg-sex, 9h às 12h e 14h às 17h (fuso do lead).</PlatformManagedNote>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field id={`${uid}-model`} label="Modelo" hint="Definido pela plataforma." error={errors.model?.message}>{(f) => <Input {...f} {...register("model")} readOnly aria-readonly="true" className="bg-muted/40" />}</Field>
+          <Field id={`${uid}-budget`} label="Teto mensal (R$)" hint="Definido pela plataforma. Sem teto, o agente não ativa." error={errors.monthlyBudgetCents?.message}>
+            {(f) => <Input {...f} {...register("monthlyBudgetCents")} inputMode="decimal" readOnly aria-readonly="true" className="bg-muted/40" />}
+          </Field>
+          {num("dailyMessageLimit", "Limite diário de mensagens", true)}
+          {num("maxTurnsPerLead", "Turnos máximos por lead", true)}
+        </div>
+      </fieldset>
+      {num("samplePercent", "% revisado na amostragem")}
       {agent && <KnowledgeSection agent={agent} />}
+      <PromptPreview role={role} values={watch()} />
       <DialogFooter>
         <DialogClose render={<Button type="button" variant="outline" />}>Cancelar</DialogClose>
         <Button type="submit" disabled={pending}>{pending ? "Salvando…" : "Salvar"}</Button>
@@ -564,5 +586,27 @@ function KnowledgeSection({ agent }: { agent: AgentView }) {
       {errors.content && <p role="alert" className="text-xs text-destructive">{errors.content.message}</p>}
       <Button type="button" variant="outline" disabled={pending} onClick={onAdd}>Adicionar documento</Button>
     </fieldset>
+  );
+}
+
+/** SPEC-069f: previa do prompt final (o que o modelo recebe como instrucao de sistema), montada no navegador com a MESMA funcao do servidor. Nao grava nada. */
+function PromptPreview({ role, values }: { role: Role; values: AgentFormValues }) {
+  const [open, setOpen] = React.useState(false);
+  const text = React.useMemo(() => {
+    if (!open) return "";
+    const body = buildBody(values, null);
+    const brief = body.brief;
+    return buildSystemPrompt({ role, persona: body.persona ?? "", objective: body.objective ?? "", tone: body.tone ?? "", allowedTools: body.allowedTools ?? [], callLink: role === "closer" ? (body.callLink ?? null) : null, brief });
+  }, [open, role, values]);
+  return (
+    <div className="rounded-md border border-border p-3">
+      <Button type="button" size="sm" variant="ghost" className="min-h-11 sm:min-h-8" aria-expanded={open} aria-controls="prompt-preview" onClick={() => setOpen((o) => !o)}>{open ? "Ocultar prévia do prompt" : "Ver prévia do prompt final"}</Button>
+      {open && (
+        <div id="prompt-preview" className="mt-2 space-y-2">
+          <p className="text-xs text-muted-foreground">É assim que o agente recebe as instruções. Os dados do lead e a base de conhecimento entram em cada mensagem. As regras inegociáveis (no fim) são fixas.</p>
+          <pre className="max-h-72 overflow-auto whitespace-pre-wrap break-words rounded bg-muted p-3 text-xs" tabIndex={0} aria-label="Prévia do prompt final">{text}</pre>
+        </div>
+      )}
+    </div>
   );
 }

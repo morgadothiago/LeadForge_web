@@ -59,7 +59,7 @@ export const NAV_SECTIONS: readonly NavSection[] = [
     title: "Conta",
     items: [
       { href: "/notificacoes", label: "Notificações", description: "Alertas e lembretes do sistema.", icon: Bell, badgeKey: "notificacoes" },
-      { href: "/configuracoes", label: "Configurações", description: "Contas de envio e integrações.", icon: Settings, badgeKey: "configuracoes" },
+      { href: "/configuracoes", label: "Configurações", description: "Contas de envio, agentes e assinatura.", icon: Settings, badgeKey: "configuracoes" },
     ],
   },
 ];

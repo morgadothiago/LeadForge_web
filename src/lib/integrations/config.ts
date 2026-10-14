@@ -82,7 +82,7 @@ async function fromDb(orgId: string, integration: IntegrationKindName, name: str
       cfg = new IntegrationConfig(integration, name, "db", decrypt(row.encryptedValue), row.baseUrl, row.allowPrivateHost);
     } catch (e) {
       console.error("[integrations] falha ao decifrar segredo:", safeErrorForLog(e));
-      throw new AppError({ code: "config", userMessage: `Não foi possível decifrar a chave de ${INTEGRATION_LABEL[integration]}. Cadastre-a novamente em Configurações > Integrações.` });
+      throw new AppError({ code: "config", userMessage: `Não foi possível decifrar a chave de ${INTEGRATION_LABEL[integration]}. Este serviço é gerenciado pela plataforma: fale com o suporte.` });
     }
   }
   const managedByPlatform = row?.managedByPlatform ?? false;
@@ -112,7 +112,7 @@ export async function getIntegrationConfig(orgId: string, integration: Integrati
   if (!cfg) {
     throw new AppError({
       code: "config",
-      userMessage: `${INTEGRATION_LABEL[integration]} não configurada. Cadastre em Configurações > Integrações.`,
+      userMessage: `${INTEGRATION_LABEL[integration]} não configurada. Este serviço é gerenciado pela plataforma: fale com o suporte.`,
     });
   }
   return cfg;

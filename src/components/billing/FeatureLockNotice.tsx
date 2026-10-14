@@ -23,10 +23,10 @@ export function featureLockMessage(feature: FeatureKey, reason: LockReason = "pl
  * SPEC-069d (secao E) — explicacao de um recurso que o plano nao inclui (ou pausado por pagamento), com link de upgrade. Nunca some em silencio:
  * o botao bloqueado aponta para este texto por `aria-describedby={featureLockId(feature)}` e fica `aria-disabled`. So UX; a barreira real e o servidor.
  */
-export function FeatureLockNotice({ feature, reason = "plan", className, showCta = true, text: override }: { feature: FeatureKey; reason?: LockReason; className?: string; showCta?: boolean; text?: string }) {
+export function FeatureLockNotice({ feature, reason = "plan", className, showCta = true, text: override, id }: { feature: FeatureKey; reason?: LockReason; className?: string; showCta?: boolean; text?: string; /** Evita id duplicado quando o mesmo recurso aparece em dois avisos. */ id?: string }) {
   const m = featureLockMessage(feature, reason);
   return (
-    <div id={featureLockId(feature)} role="note" data-slot="feature-lock" className={cn("flex flex-wrap items-start gap-x-2 gap-y-1 rounded-md border border-border bg-muted/50 px-3 py-2 text-sm", className)}>
+    <div id={id ?? featureLockId(feature)} role="note" data-slot="feature-lock" className={cn("flex flex-wrap items-start gap-x-2 gap-y-1 rounded-md border border-border bg-muted/50 px-3 py-2 text-sm", className)}>
       <Lock className="mt-0.5 size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
       <p className="min-w-0 flex-1">{override ?? m.text}</p>
       {showCta && (

@@ -560,7 +560,7 @@ passos da sequência.
 
 ### 6.2 Testar com Claude (pago)
 
-Em Configurações > Integrações > **Provedor de LLM**, deixe a **URL base vazia** e cole a chave da Anthropic. Ela fica trancada
+No painel do diretor da plataforma (`/admin/organizacoes/[id]` > aba Integrações > **Provedor de IA**), deixe a **URL base vazia** e cole a chave da Anthropic. (O cliente não vê mais a tela de Integrações: o diretor guarda as chaves.) Ela fica trancada
 (cifrada) com a `ENCRYPTION_KEY`. Sem URL, o LeadForge usa o Claude como sempre.
 
 ### 6.3 Usar um cérebro grátis (SPEC-036)
@@ -654,7 +654,7 @@ escola e quanto papel cada um pode gastar. Quem decide isso é o diretor (o `pla
 
 - Onde fica: entre como admin, vá em `/admin`, escolha uma organização e role até **Política da organização**.
 - **Agentes e IA:** liga ou desliga os robôs da turma e trava para o aluno não mexer.
-- **Integrações:** o diretor guarda as chaves (Google Maps, WhatsApp, IA). Depois de salvar, a chave some da tela e só
+- **Integrações (só no painel do diretor desde a 069f):** o diretor guarda as chaves (Google Maps, WhatsApp, IA). Depois de salvar, a chave some da tela e só
   aparece uma dica. Ninguém consegue ler de volta, nem o diretor.
 - **Plano e features:** dá um "passe livre" temporário (com motivo e data de validade) ou tira.
 - **Auditoria:** o caderno que anota quem mudou o quê, quando e por quê.
@@ -683,6 +683,24 @@ Continuando a escola: o aluno agora entende **por que** não pode fazer uma cois
 - Estado: pronto no código e nos testes automáticos; **falta você olhar no navegador** (celular e computador, claro e
   escuro) e rodar a build. Para isso, o passo a passo curto está no fim do bloco X do `docs/ROTEIRO_DE_TESTES.md`. Antes, no seu
   banco de testes: `npx prisma migrate deploy` e `npx prisma db seed`.
+
+### 7.7 O que mudou para o cliente: sem "Integrações" e com o robô guiado (069f)
+
+- **A aba Integrações sumiu para o cliente.** As chaves (Google Maps, WhatsApp, IA) são do diretor. O cliente só usa. Se
+  algo estiver faltando, a tela diz "o serviço é gerenciado pela plataforma, fale com o suporte". Para ligar o WhatsApp do
+  cliente, ele continua indo em Configurações > WhatsApp e lendo o QR code.
+- **Robôs com perguntas guiadas.** Em vez de um campo gigante em branco, o cliente responde perguntas simples: o que você
+  vende, para quem, o que o cliente costuma dizer ("está caro") e como responder, o que o robô nunca pode dizer, como assinar
+  e exemplos de uma boa resposta. O sistema monta o texto final sozinho.
+- **Cada resposta vai em uma caixinha separada** e é limpa e encurtada antes de ir para o robô. Assim ninguém consegue
+  "enganar" o robô para mudar as regras de segurança, o modelo, o custo ou os limites (isso continua só com o diretor).
+- **Dá para espiar o texto final** no botão "Ver prévia do prompt final". Só olhar, não salva nada.
+- **O plano manda:** Teste grátis não tem robô (aparece com cadeado e "Fazer upgrade"); Starter só o de follow-up, sempre com
+  aprovação; Pro até 3, podendo ter autonomia.
+- **Atenção, antes de testar:** há uma gavetinha nova no banco (`npx prisma migrate deploy`, migration `agent_brief_069f`).
+  Rode e reinicie o `npm run dev`.
+- **Faltou:** as telas para o diretor guardar a chave do n8n e ligar Google Ads/Meta a uma campanha ainda não existem no
+  painel dele (decisão pendente).
 
 ### Coisas para saber
 

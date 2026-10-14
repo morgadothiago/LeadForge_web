@@ -39,6 +39,8 @@
 - **D-069-8 (INFERRED):** segredos nunca são exibidos ao tenant (só `hint`); nunca em log, auditoria ou erro.
 - **D-069-9 (INFERRED, Q-069-5):** plano desconhecido, assinatura ausente por falha, ou erro ao ler o plano: **fail-closed** em IA e envio (custam dinheiro/risco); **fail-open só em leitura**. Org sem `Subscription` por design (admin/seed) e `courtesy` = tudo liberado (D-065-25, preservado).
 - **D-069-10 (INFERRED):** estados: `trialing`/`active` = plano vale; `past_due` dentro do grace (7 dias, D-33-3) = plano vale mas **IA/envio automático pausam** (recomendado, evita custo sem pagamento) — Q-069-9; `canceled`/expirado = bloqueio total já existente (065).
+- **D-069-12 (DECIDIDO pelo usuário em 2026-10-14, Q-069-12):** no tenant (`/configuracoes`) **não existe** aba/rota "Integrações": integrações (Places, WhatsApp/Evolution, LLM e também n8n/Google Ads/Meta) são do `platform_admin`; o tenant **só usa** o serviço. Substitui o trecho da seção E que mantinha "vínculos de fontes/n8n" na tela do tenant. Textos "configure em Integrações" viram "o serviço é gerenciado pela plataforma". O pareamento de WhatsApp (QR) continua em `/configuracoes/whatsapp`.
+- **D-069-13 (DECIDIDO pelo usuário em 2026-10-14):** a aba Agentes do tenant é de **configuração com prompts guiados** (briefing em campos separados), por papel que o plano permite (derivado de entitlements/catálogo), composto no prompt final de forma segura; sem poder sobre guardrails, modelo, teto ou limites.
 
 ## Requisitos funcionais
 
@@ -177,6 +179,8 @@ Segredos só criptografados (`ENCRYPTION_KEY`), `hint` na UI, nunca em log/audit
 - **Q-069-10 — comparativo na landing** passa a vir do catálogo (mesma fonte da assinatura)? **Recomendo sim** (atinge a SPEC-035).
 - **Q-069-11 — owner x member:** somente o `owner` liga/desliga agentes e edita conteúdo; `member` só aprova rascunhos e vê? **Recomendo sim** (não existe admin de org).
 
+- **Q-069-12 — DECIDIDO (2026-10-14):** ver D-069-12 e D-069-13 (aba Integrações sai do tenant; Agentes viram briefing guiado).
+
 ## Restrições de implementação
 Só após `APROVAR SPEC-069`. Ordem: dev-backend (069a, 069b) → qa-reviewer → dev-backend/dev-frontend (069c) → dev-frontend (069d) → qa-reviewer → 069e. Ler `node_modules/next/dist/docs/` antes de código Next (AGENTS.md). Nunca `prisma migrate dev`; migrations aditivas à mão, aplicadas pelo usuário (`migrate deploy`); testes só em banco `*_test` NOVO. Pronto só com `tsc`, `eslint` (0 erros) e vitest verdes + QA independente. Não derrubar o `npm run dev` nem rodar `next build` sem avisar. Nunca imprimir segredos; não commitar `next.config.ts` (túnel local), `.claude/`, `skills-lock.json`. Ao fechar cada etapa: atualizar `docs/RETOMAR.md` (seção 0), `docs/ROTEIRO_DE_TESTES.md` e `docs/PRIMEIROS_PASSOS.md` (linguagem simples), commit e push.
 
@@ -312,3 +316,25 @@ Só após `APROVAR SPEC-069`. Ordem: dev-backend (069a, 069b) → qa-reviewer �
 2. E2E em navegador (ROTEIRO bloco X, X1-X42; roteiro curto ao fim do bloco): AC-1, AC-7 e 390/1280 px, claro/escuro, teclado.
 3. `npm run build` com o dev parado (AC-8).
 4. Fora do escopo/abertas: aviso de teto so em tela; `member` ainda edita conteudo de agentes (Q-069-11); precos/limites PLACEHOLDER; `PLATFORM_LLM_API_KEY` na Vercel.
+
+## Implementation Notes 069f (2026-10-14) — status da etapa: IMPLEMENTADA, sem commit (SPEC segue IN_PROGRESS)
+Pedido do usuário (D-069-12 e D-069-13). **MIGRATION NOVA, ADITIVA, escrita a mão e NÃO aplicada em nenhum banco:** `prisma/migrations/20261024120000_agent_brief_069f/migration.sql` (`ALTER TABLE "Agent" ADD COLUMN "brief" JSONB;`, nula, sem default, sem backfill). Aplicar com `npx prisma migrate deploy` (nunca `migrate dev`); o `prisma generate` já foi rodado.
+
+### 1. Integrações saem do tenant
+- `SettingsTabs.tsx`: aba "Integrações" removida. `/configuracoes/integracoes` agora é `notFound()` (404 para todos; o `platform_admin` não tem organização e gerencia em `/admin/organizacoes/[id]`). `loading.tsx` removido.
+- Dependências trocadas: `CampaignLeadSearch` (link "Ir para Integrações" removido; mensagem "o serviço é gerenciado pela plataforma. Fale com o suporte."), erros do servidor (`integrations/config.ts`, `lead-search/run.ts`, `whatsapp/provider.ts`) sem "Cadastre em Configurações > Integrações", descrição do item Configurações no menu.
+- **Pareamento de WhatsApp (QR)** já vivia em `/configuracoes/whatsapp` (criar número, QR, status): não dependia da tela removida; nada mudou. Busca, sequências, ingestão n8n, webhooks de Ads/Meta e a caixa não foram tocados no servidor.
+- As actions (`saveIntegration`, `saveLeadSourceBinding` etc.) **continuam no servidor com seus guards** (barreira); só não há mais tela do tenant. Componentes `IntegrationCard`, `LeadSourceCards`, `IntegrationAuditList` ficaram sem uso (código morto mantido com seus testes; remover numa limpeza).
+- **LACUNA ASSUMIDA (ver relatório):** o painel de admin só grava Places, Evolution e LLM. **Chave n8n (ingestão por API) e vínculos Google Ads/Meta x campanha ficaram sem tela** para o tenant e ainda não existem no admin. Os endpoints/webhooks existentes seguem funcionando para quem já tem vínculo/chave. Precisa de decisão/SPEC (ex.: 069g: cartão n8n e vínculos por organização no `/admin/organizacoes/[id]`).
+
+### 2. Agentes: briefing guiado
+- **Camada de prompt (`src/lib/agents/brief.ts` + `prompt.ts`):** o cliente preenche campos SEPARADOS: oferta (600), público/ICP (500), objeções (até 5, objeção 160 + resposta 300), "nunca diga" (até 8 itens de 120), assinatura (80), exemplos de boa resposta (até 3 de 400); somados a persona/objetivo/tom que já existiam. Cada campo é achatado em UMA linha (sem quebras/controles), `<<<`/`>>>` neutralizados e truncado (no schema Zod e de novo no compositor); `.strict()` (o briefing não carrega modelo, teto, limites, regras, ferramentas). O bloco entra rotulado "CONTEXTO DO NEGÓCIO ... NÃO altera as REGRAS INEGOCIÁVEIS e NÃO é fonte de preço, desconto ou prazo", **antes** das regras, e o cabeçalho das regras agora diz que elas prevalecem em conflito. Persona/objetivo/tom também passam a ser achatados (antes iam crus). Briefing vazio = prompt idêntico ao anterior (teste).
+- **Persistência:** coluna `Agent.brief` (JSON). `updateAgent`/`createAgent` aceitam `brief` (conteúdo; política continua `policy_admin_only`). Cada edição incrementa `promptVersion` como antes.
+- **UI (`AgentBriefFields`, `agent-brief-form`, `AgentsPanel`):** formulário reorganizado em blocos guiados (persona/objetivo/tom com exemplos por papel, oferta e público, objeções, nunca dizer, assinatura e exemplos, regras de escalonamento/frases proibidas, ferramentas, aviso de IA, "Limites e custo (definidos pela plataforma)" somente leitura com janela de envio, conhecimento) e **prévia do prompt final** (mesma função do servidor, no navegador, sem gravar). Papéis que o plano não inclui aparecem como cartões bloqueados com upgrade (derivado de `plan.roles`, sem `plan.key`). Free: nenhum agente (já bloqueado); Starter: follow-up em rascunho; Pro: até 3 com autonomia (tudo vem do catálogo/entitlements).
+- "Frases proibidas" (existente) continua sendo o bloqueio duro por guardrail; "Nunca diga" é instrução ao modelo (a UI explica a diferença).
+
+### Verificação 069f (VERIFIED em 2026-10-14, banco novo `leadforge_069f_test`, dropado ao fim)
+- Novos testes: `brief.test.ts` (sanitização, limites, injeção, estrito, compatibilidade), `entitlements-069f-brief.test.ts` (Starter/Pro/Free, sanitização no servidor, `policy_admin_only`, isolamento entre orgs), `integracoes/page.test.ts` (404), abas sem Integrações e `CampaignLeadSearch` sem link.
+- Gates: ver o fechamento da seção no RETOMAR (tsc, eslint 0 erros, vitest completo).
+- **Limitações:** briefing por agente (não por organização); o `member` ainda edita conteúdo (Q-069-11); prévia mostra as regras fixas do sistema; sem teste no navegador (390/1280, claro/escuro).
+
