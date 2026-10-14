@@ -1,11 +1,27 @@
 # Para retomar: o que está pronto, o que depende de você e o que vem depois
 
-Atualizado em 2026-10-13 (069d na main; 069e revisão final feita, sem commit). **A seção 0 abaixo manda; as seções 1 a 8 são histórico detalhado e podem estar desatualizadas (cheque o `git log`).**
+Atualizado em 2026-10-14 (madrugada; 069a-f na main, fix do chip do Free e logs do webhook). **A seção 0 abaixo manda; as seções 1 a 8 são histórico detalhado e podem estar desatualizadas (cheque o `git log`).**
 
-## 0. RETOMAR: leia isto primeiro (2026-10-13, madrugada)
+## 0. RETOMAR: leia isto primeiro (2026-10-14, madrugada)
+
+### PARA AMANHÃ (anotado em 2026-10-14; NENHUMA SPEC foi escrita ainda, só propostas)
+**Propostas de SPEC (escrever e aprovar antes de implementar):**
+1. **SPEC-069g, integrações do admin.** As Integrações saíram do tenant (069f), então a chave n8n (ingestão por API) e os vínculos Google Ads/Meta x campanha ficaram sem tela (os existentes seguem funcionando). Proposta: cartão n8n e vínculos por organização em `/admin/organizacoes/[id]`. (Achado MÉDIO do QA da 069f.)
+2. **SPEC de robustez de billing** (nasceu do problema do webhook de 2026-10-14): reconciliação periódica de checkouts pagos (não depender só do webhook); aviso "pagamento recebido, ativando plano" na tela quando há checkout aberto; alerta ao admin quando um checkout fica pago sem evento.
+
+**Itens menores (cabem na 069g ou numa limpeza):**
+- `testIntegration` (`src/lib/actions/integration.ts`) ainda aceita chave `managedByPlatform` se chamada direto: recusar.
+- Remover componentes sem uso (`IntegrationCard`, `LeadSourceCards`, `IntegrationAuditList`) e corrigir `docs/GUIA.md:57` e `docs/PROMPT_ADMIN_AGENTES_INTEGRACOES_PLANOS.md` (citam a rota removida).
+- Teste instável `src/lib/billing/billing-charge.test.ts:304` (regex `\d{12,}` casa trecho de UUID, ~0,5-1% por execução): restringir aos campos de cartão/recibo.
+- Sanitização do briefing de agente só neutraliza `<<<`/`>>>` literais (sem variantes Unicode); campo "Nunca dizer" sem contador; `getAiBudget()` ainda roda para member.
+- Q-069-11 (só o owner edita agentes) segue aberta. Túnel nomeado fixo do Cloudflare para não recadastrar o webhook a cada reinício do `cloudflared`.
+
+**Pendências para a SPEC-069 virar IMPLEMENTED (não são SPEC):** teste no navegador (bloco X do ROTEIRO, X1-X52: 390/1280 px, claro/escuro, teclado), `npm run build` com o dev parado, `PLATFORM_LLM_API_KEY` na Vercel (sem ela quem usava IA com chave própria fica sem IA), cancelar as assinaturas de teste antigas no sandbox do AbacatePay (6 ativas para `tifob60233@herclan.com`; só a de 2026-10-14 está ligada à org).
+
+**O que foi resolvido em 2026-10-14 (billing em dev):** o webhook do AbacatePay apontava para um túnel morto (`arg-mass-estate-indexed`). Recriado pela API (`webh_dev_2j0KH…`, apontando para o túnel do dia, 5 eventos, v2) e o antigo apagado; segredo trocado (arquivo `~/.leadforge-secrets/abacatepay_webhook_secret_dev.txt`, igual ao `ABACATEPAY_WEBHOOK_SECRET` do `.env`). Pagamento de teste (cartão `4242 4242 4242 4242`) chegou, evento `subscription.created` processado e a org "Empresa de thiago" (`tifob60233@herclan.com`) virou **Pro** até 2026-11-14. Logs `[billing-webhook]` (401 sem vazar segredo, ignorado, processado) em `src/lib/billing/webhook-handler.ts`; veja em `.next/dev/logs/next-development.log`. O endereço do túnel muda a cada reinício do `cloudflared`: depois disso atualizar `AUTH_URL`/`APP_BASE_URL` no `.env`, reiniciar o dev e recriar o webhook (a API exige o campo `secret`; apagar é `POST /v2/webhooks/delete?id=`). Também: chip/banner "Teste grátis" agora só aparece no plano Free. Migration `20261024120000_agent_brief_069f` e `db seed` já aplicados no dev.
 
 ### Onde paramos (2026-10-13, madrugada)
-- **`main` = `fa47b53`** (069d; 069c frontend em `1a934ff`), igual no GitHub e no local (só `next.config.ts`, `.claude/` e `skills-lock.json` ficam de fora; a 069e está só no working tree, sem commit). Cada merge na `main` **publica sozinho** na Vercel (`https://lead-forge-web-omega.vercel.app`; as migrations aditivas rodam no build).
+- **`main` = `f506e85`** (069f `e1d7bc8`, 069e `1c823e5`, chip só do Free `8daf0f7`, logs do webhook `f506e85`), igual no GitHub e no local (só `next.config.ts`, `.claude/` e `skills-lock.json` ficam de fora). Cada merge na `main` **publica sozinho** na Vercel (migrations aditivas rodam no build).
 - **SPEC-065 (Free de 14 dias, um trial por e-mail OU CPF/CNPJ):** IMPLEMENTADA e na `main` (`65045a4`), QA aprovado. **Falta o teste ponta a ponta no navegador** (bloco T do ROTEIRO) para virar IMPLEMENTED. Em produção `TRIAL_CLAIM_PEPPER` já está na Vercel (arquivo `~/.leadforge-secrets/trial_claim_pepper.txt`; **não perder nem trocar**).
 - **SPEC-066 (Assinatura: lista de mensalidades + PIX no checkout):** APROVADA. **066a (backend `BillingCharge`) na `main`** (`894f4f1`). **066b (checkout PIX) e 066c (UI da lista de mensalidades e card do Free) ainda não feitas.**
 - **SPEC-067 (toasts padronizados com erro do backend):** DRAFT, aguardando `APROVAR SPEC-067` (Q-067-1..3, recomendação: sim). Roda depois da 066c.
