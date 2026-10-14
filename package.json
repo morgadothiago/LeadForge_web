@@ -5,6 +5,7 @@
   "scripts": {
     "postinstall": "prisma generate",
     "dev": "next dev",
+    "dev:tunnel": "bash scripts/dev-tunnel.sh",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
